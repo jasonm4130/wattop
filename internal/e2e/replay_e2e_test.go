@@ -5,17 +5,34 @@
 // deterministic. cmd/wattop's Loop (Task 13) cannot be imported here --
 // it lives in package main -- so this file re-derives the same one
 // state.Inputs-per-cycle shape from the Task 13 spec directly, rather than
-// reusing Loop, and applies it in three independent runs so no run's state
-// mutation (the burn tracker, the history rings, the stale-session TTL
-// clock) leaks into another's assertions.
+// reusing Loop, and applies it in one independent run per test so no run's
+// state mutation (the burn tracker, the history rings, the stale-session
+// TTL clock) leaks into another's assertions.
+//
+// Colour-profile determinism: no TestMain pin is needed here for the same
+// reason internal/ui/panel/soc_test.go documents at length -- lipgloss v2's
+// Style.Render() consults neither the terminal nor the environment, and the
+// auto-detecting print helpers that would downsample are never called on
+// this path. So the golden below is byte-identical under an interactive
+// macOS TTY and under `CGO_ENABLED=0 go test ... > file` on Linux CI.
+//
+// TestFrameFitsTerminal and TestThemeCycleRecolours below are the CI-runnable
+// halves of manual-QA items 12 and 8: they assert mechanically what a human
+// at a terminal would otherwise have to eyeball (no line wider than the
+// terminal; every panel re-coloured, with the text layout unchanged, on each
+// `t` press). docs/manual-qa.md records what is left for a human even so.
 package e2e
 
 import (
 	"context"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/jasonm4130/wattop/internal/collect/replay"
@@ -116,44 +133,74 @@ func newTestState(t *testing.T) *state.State {
 	return state.New(book, pricing.NewBurnTracker(burnWindow, burnAlpha))
 }
 
+// newGoldenModel returns a model wired to a fresh state over a fresh set of
+// replay sources, plus the pieces needed to drive it.
+func newGoldenModel(t *testing.T, themeName string) ui.Model {
+	t.Helper()
+	roles, err := theme.Load(themeName)
+	if err != nil {
+		t.Fatalf("theme.Load(%q): %v", themeName, err)
+	}
+	return ui.New(newTestState(t), themeName, roles)
+}
+
+// driveModel runs n coordinated cycles of the replay corpus through m,
+// advancing clock one virtual second per cycle, and returns the model.
+//
+// ui.Model.Update calls st.Reduce(msg.Inputs) itself -- the model takes
+// state.Inputs, not a pre-computed Snapshot -- so feeding it a CycleMsg is
+// what "calls st.Reduce and feeds the result to the model" means here, and
+// it is deliberately the *only* Reduce per cycle. Calling st.Reduce a
+// second time on the same *state.State at the same instant would push every
+// history ring twice per tick; the coordinated-cycle invariant that would
+// otherwise motivate that second call is asserted in
+// TestCoordinatedCycleInvariant instead, on its own state.
+func driveModel(ctx context.Context, t *testing.T, m ui.Model, clock replay.Clock, sys *replay.SysSampler, proc *replay.ProcSource, agent *replay.AgentSource, n int) ui.Model {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		in := buildCycle(ctx, t, clock, sys, proc, []domain.AgentSource{agent})
+		mi, _ := m.Update(ui.CycleMsg{Inputs: in})
+		m = mi.(ui.Model)
+		clock.Advance(time.Second)
+	}
+	return m
+}
+
 // TestReplayEndToEndGolden drives the replay sources through one real
 // state.New(book, burn) and the real UI model over 60 virtual seconds,
 // golden-comparing the final rendered frame. This is the test that would
 // catch a cluster-labelling regression, a burn rate that never decays, or a
 // reducer that drops a row when a pid vanishes.
-//
-// It also rides the coordinated-cycle invariant along for free: every
-// emitted Snapshot must satisfy At == Sys.At, checked here on all 60
-// cycles rather than only the last, since that is exactly where a
-// regression to independent tickers (rather than one shared stamp) would
-// show up.
 func TestReplayEndToEndGolden(t *testing.T) {
+	ctx := context.Background()
+	clock := replay.NewVirtualClock(replayStart)
+	sys, proc, agent := newReplaySources(t)
+
+	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
+
+	golden.RequireEqual(t, []byte(m.View().Content))
+}
+
+// TestCoordinatedCycleInvariant asserts every emitted Snapshot satisfies
+// At == Sys.At, on all 60 cycles rather than only the last -- the
+// coordinated-cycle invariant, checked exactly where a regression to
+// independent tickers (rather than one shared stamp per cycle) would show
+// up. It runs on its own *state.State so that the one Reduce per cycle it
+// needs is the only Reduce that state ever sees.
+func TestCoordinatedCycleInvariant(t *testing.T) {
 	ctx := context.Background()
 	clock := replay.NewVirtualClock(replayStart)
 	sys, proc, agent := newReplaySources(t)
 	st := newTestState(t)
 
-	roles, err := theme.Load("wattop-dark")
-	if err != nil {
-		t.Fatalf("theme.Load: %v", err)
-	}
-	m := ui.New(st, "wattop-dark", roles)
-
 	for i := 0; i < replayCycles; i++ {
 		in := buildCycle(ctx, t, clock, sys, proc, []domain.AgentSource{agent})
-
 		snap := st.Reduce(in)
 		if !snap.At.Equal(snap.Sys.At) {
 			t.Fatalf("cycle %d: Snapshot.At = %v, Snapshot.Sys.At = %v, want equal", i, snap.At, snap.Sys.At)
 		}
-
-		mi, _ := m.Update(ui.CycleMsg{Inputs: in})
-		m = mi.(ui.Model)
-
 		clock.Advance(time.Second)
 	}
-
-	golden.RequireEqual(t, []byte(m.View().Content))
 }
 
 // staleThenDropAgent wraps a real replay.AgentSource and, from dropAtCycle
@@ -251,5 +298,143 @@ func TestStaleThenDropLifecycle(t *testing.T) {
 		}
 
 		clock.Advance(time.Second)
+	}
+}
+
+// ansiRe matches every SGR/CSI escape lipgloss emits, so a frame's text
+// layout can be compared independently of its colours. x/ansi.Strip would
+// be the direct way, but x/ansi is an indirect dependency here and this
+// task may not promote it in go.mod.
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
+
+// stripANSI returns s with every escape sequence removed.
+func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// keyMsg builds a tea.KeyPressMsg whose String() reproduces s, mirroring
+// internal/ui/model_test.go's helper of the same name (which is unexported
+// and so unreachable from this package). Only the keys this file presses
+// are handled.
+func keyMsg(s string) tea.KeyPressMsg {
+	switch s {
+	case "enter":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+	default:
+		r := []rune(s)[0]
+		return tea.KeyPressMsg(tea.Key{Text: s, Code: r})
+	}
+}
+
+// tableMinWidth is the width the session table's fixed column set needs to
+// render the Task 3 corpus without overflowing: measured, not chosen. The
+// table does not narrow below it -- at 60, 80, 100, 120 and 140 columns it
+// still renders exactly this wide -- so every terminal narrower than this
+// wraps. That is a real defect in the session-table layout
+// (internal/ui/panel, Task 12's file, out of this task's scope to fix);
+// it is recorded in docs/limitations.md and as the observed result of
+// manual-QA item 12, and bounded here so it cannot silently grow.
+const tableMinWidth = 153
+
+// TestFrameFitsTerminal is manual-QA item 12 made runnable in CI, over all
+// three frames the model can draw (the session table, the detail view and
+// the help overlay) rather than only the default one. "Wrapping corruption"
+// is what an over-wide line becomes once a real terminal folds it, so the
+// width of the widest rendered line is the assertion behind the eyeball
+// check.
+//
+// At or above tableMinWidth every frame must fit its terminal exactly.
+// Below it the session table cannot -- see tableMinWidth -- so what is
+// asserted there is that the overflow stays pinned to that known floor and
+// that the frame still fits the terminal's *height*, which it does.
+func TestFrameFitsTerminal(t *testing.T) {
+	ctx := context.Background()
+	clock := replay.NewVirtualClock(replayStart)
+	sys, proc, agent := newReplaySources(t)
+	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
+
+	for _, sz := range []struct{ w, h int }{{80, 24}, {160, 40}, {200, 60}} {
+		mi, _ := m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+		sized := mi.(ui.Model)
+
+		detail, _ := sized.Update(keyMsg("enter"))
+		help, _ := sized.Update(keyMsg("?"))
+		frames := map[string]ui.Model{
+			"table":  sized,
+			"detail": detail.(ui.Model),
+			"help":   help.(ui.Model),
+		}
+
+		// Above the floor the terminal's own width is the bound; below it,
+		// the floor is, and the observed width is logged either way so a
+		// reader of the test output sees the real number.
+		want := sz.w
+		if want < tableMinWidth {
+			want = tableMinWidth
+		}
+
+		for _, name := range []string{"table", "detail", "help"} {
+			content := frames[name].View().Content
+			lines := strings.Split(content, "\n")
+			if len(lines) > sz.h {
+				t.Errorf("%s frame at %dx%d: %d lines, want at most %d", name, sz.w, sz.h, len(lines), sz.h)
+			}
+			widest, at := 0, 0
+			for i, line := range lines {
+				if w := lipgloss.Width(line); w > widest {
+					widest, at = w, i
+				}
+			}
+			t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", name, sz.w, sz.h, widest, at, len(lines))
+			if widest > want {
+				t.Errorf("%s frame at %dx%d: widest line is %d cells, want at most %d:\n%q",
+					name, sz.w, sz.h, widest, want, stripANSI(lines[at]))
+			}
+		}
+	}
+}
+
+// TestThemeCycleRecolours is manual-QA item 8 made runnable in CI: press
+// `t` through all four themes and assert each press produces a frame that
+// differs from the last in colour but is byte-identical once the escapes
+// are stripped -- "every panel re-colours" and "nothing moves" in one
+// assertion -- and that the fourth press returns to the starting frame,
+// which is what makes the cycle a cycle. The remaining half of item 8,
+// whether the light palette is *readable*, is a human judgement no
+// assertion here stands in for.
+func TestThemeCycleRecolours(t *testing.T) {
+	ctx := context.Background()
+	clock := replay.NewVirtualClock(replayStart)
+	sys, proc, agent := newReplaySources(t)
+	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
+
+	names := theme.Names()
+	if len(names) != 4 {
+		t.Fatalf("theme.Names() = %v (%d themes), want the 4 the README documents", names, len(names))
+	}
+
+	first := m.View().Content
+	seen := map[string]string{first: names[0]}
+	prev := first
+
+	for i := 1; i <= len(names); i++ {
+		mi, _ := m.Update(keyMsg("t"))
+		m = mi.(ui.Model)
+		frame := m.View().Content
+
+		if stripANSI(frame) != stripANSI(first) {
+			t.Errorf("after %d `t` presses: the frame's text layout changed, want only colours to change", i)
+		}
+		if i < len(names) {
+			if frame == prev {
+				t.Errorf("after %d `t` presses: frame is byte-identical to the previous theme's, want a re-colour", i)
+			}
+			name := names[i]
+			if other, dup := seen[frame]; dup {
+				t.Errorf("theme %q renders identically to %q", name, other)
+			}
+			seen[frame] = name
+		} else if frame != first {
+			t.Errorf("after %d `t` presses (a full cycle): frame differs from the starting frame", i)
+		}
+		prev = frame
 	}
 }

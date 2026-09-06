@@ -57,6 +57,48 @@ cost. An unresolved model renders `$—`, never `$0.00` — the two mean
 different things, and conflating them would hide real drift in the pricing
 table behind a number that looks like "free."
 
+## The session table does not fit a terminal narrower than 153 columns
+
+The session table renders at a fixed 153 cells wide for the standard
+column set and does not narrow: measured at 60, 80, 100, 120 and 140
+columns, it still comes back 153 cells wide, so anything under 153 columns
+wraps and the frame is corrupted. The detail view has the same floor at 103
+columns; only the help overlay adapts down correctly. This is a
+session-table layout defect in `internal/ui/panel`, not a terminal problem,
+and it is the observed result of `docs/manual-qa.md` item 12 rather than a
+theoretical one — `internal/e2e`'s `TestFrameFitsTerminal` measures it on
+every run and bounds it so it cannot grow. Not fixed in v0.1: the fix is a
+responsive column set (drop columns as width shrinks), which is a
+`internal/ui/panel` change rather than a release-task one.
+
+## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
+
+Cross-checked on 2026-09-06 against `ccusage session --json` over the same
+four live Claude sessions (`docs/manual-qa.md` item 10): wattop $35.80 /
+$20.90 / $301.31 against ccusage $12.87 / $11.66 / $113.67. Two causes,
+both verified arithmetically rather than guessed:
+
+- **Cache-creation TTL.** This machine's transcripts report cache writes as
+  `ephemeral_1h_input_tokens`, not `ephemeral_5m` — 92 records on one
+  session, 294,667 tokens, all 1-hour and zero 5-minute. wattop prices
+  those at `cache_creation_input_token_cost_above_1hr` ($2.0e-5/token for
+  `claude-fable-5-1`); `ccusage` prices all cache creation at the
+  5-minute rate ($1.25e-5). On that one session that is a $2.21 difference,
+  and wattop is the more accurate of the two.
+- **Parent/sidechain attribution.** wattop splits a session's own usage
+  from each subagent's and prices them separately, then sums: on session
+  `28cd1f81`, $13.06 own + $7.84 subagent = $20.90, exactly the figure
+  reported. `ccusage` splits the same transcript by the model on each
+  message instead ($6.51 `claude-fable-5-1` + $5.15 `claude-opus-5`), and
+  arrives at different token totals for the parent (input 84,323 /
+  output 66,935 / cache-read 11,793,625 against wattop's 2,306 / 90,236 /
+  10,546,114).
+
+Neither tool knows about subscription plans, so neither figure is what the
+account is actually billed. The divergence is recorded here because "our
+number differs from the other tool's" is the first question anyone asks,
+and the answer is a real difference in method, not a bug in either.
+
 ## The binary is not static and not cross-compilable
 
 wattop links against `-lIOReport`, a private Apple framework with no public

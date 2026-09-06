@@ -21,11 +21,16 @@ runtime — macOS system frameworks only, one static-enough binary.
 ## Install
 
 Via the Homebrew tap (once `jasonm4130/homebrew-wattop` exists and a release
-has been published to it — see `.goreleaser.yml`'s `brews` pipe):
+has been published to it — see `.goreleaser.yml`'s `homebrew_casks` pipe):
 
 ```
-brew install jasonm4130/wattop/wattop
+brew install --cask jasonm4130/wattop/wattop
 ```
+
+It ships as a cask rather than a formula because the release archive is a
+pre-built binary, not a from-source build — the cask's `postflight` clears
+the Gatekeeper quarantine flag the download picks up, which a formula would
+not.
 
 ## Build from source
 
@@ -52,6 +57,11 @@ wattop --no-color         # or NO_COLOR=1: no ANSI styling, gauges as blocks
 wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```
+
+**Terminal width: the session table needs 153 columns.** Below that it does
+not narrow — it renders at its full width and the terminal wraps it. Size
+the window wide before launching; see
+[`docs/limitations.md`](docs/limitations.md).
 
 `wattop doctor` is the first thing to run on a new machine or after a
 macOS upgrade: it prints which SoC channels resolved, how many processes

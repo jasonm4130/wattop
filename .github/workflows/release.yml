@@ -26,13 +26,18 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          # Pinned to the v2 line rather than `latest`: goreleaser removes
+          # deprecated config keys on major bumps, so `latest` turns a
+          # future goreleaser release into a failed tag on this repo with
+          # no change of ours in between. `goreleaser check` is the local
+          # early-warning for the same class of breakage and must exit 0.
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # HOMEBREW_TAP_GITHUB_TOKEN authenticates pushes to the
           # jasonm4130/homebrew-wattop tap repo named in .goreleaser.yml's
-          # brews.repository -- a token scoped to that repo, not the
+          # homebrew_casks.repository -- a token scoped to that repo, not the
           # default GITHUB_TOKEN (which cannot write to a different repo).
           # Create it as a fine-grained PAT with contents:write on
           # homebrew-wattop and store it as this repo's
