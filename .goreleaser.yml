@@ -22,6 +22,13 @@ builds:
 archives:
   - id: wattop
     formats: [tar.gz]
+    files:
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_LICENSES
+      - README.md
+      - src: internal/soc/mactop/LICENSE
+        dst: licenses/mactop-LICENSE
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
@@ -36,36 +43,6 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew tap. This is a cask, not a formula: goreleaser deprecated the
-# `brews` pipe (`goreleaser check` exits 2 on it), and Homebrew's own
-# guidance is that a cask -- not a formula -- is the right vehicle for a
-# pre-built binary that is not built from source on the user's machine.
-# wattop is exactly that: CGO against a private Apple framework, built once
-# on an Apple Silicon runner (see .github/workflows/release.yml).
-homebrew_casks:
-  - name: wattop
-    binaries:
-      - wattop
-    repository:
-      owner: jasonm4130
-      name: homebrew-wattop
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Casks
-    homepage: "https://github.com/jasonm4130/wattop"
-    description: "SoC watts and AI coding-agent dollars, read on one refresh clock and joined by pid."
-    license: "MIT"
-    # The release archive is downloaded, not built locally, so Gatekeeper
-    # quarantines it. Without this the cask installs and then refuses to
-    # run, which looks like a wattop bug rather than a macOS one.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wattop"]
-          end
-    caveats: |
-      wattop requires macOS on Apple Silicon (arm64). It is not
-      cross-compilable and has no Linux or Intel build.
 
 release:
   github:

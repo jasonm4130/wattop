@@ -1,0 +1,31 @@
+name: Bug report
+description: Report incorrect behavior or a crash.
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use Security → Report a vulnerability. Remove prompts, tokens, paths, and session identifiers from diagnostics."
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include what you expected and steps to reproduce.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: wattop version or commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Apple chip, macOS version, terminal, and terminal dimensions.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Relevant doctor output, errors, or a screenshot. Review for private data before posting.

@@ -1,14 +1,22 @@
 # wattop
 
-SoC watts and AI coding-agent dollars, read on one refresh clock and joined
-by pid.
+[![CI](https://github.com/jasonm4130/wattop/actions/workflows/ci.yml/badge.svg)](https://github.com/jasonm4130/wattop/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A terminal dashboard for Apple Silicon: the same per-cluster power,
-thermal and GPU numbers `mactop` shows, next to a live table of your Claude
-Code and Codex CLI sessions — status, tokens, cost, burn rate — with each
-session's CPU/GPU/RSS sampled at the exact same instant as the SoC read, so
-"is this Claude session the thing spiking the GPU right now" has an actual
-answer instead of two panels you have to eyeball together.
+**Watch your Mac and your coding agents in one terminal.**
+
+wattop puts Apple Silicon power, CPU, GPU, and thermals beside your Claude Code
+and Codex sessions. Two-minute graphs show token activity and hardware load;
+session rows show output tokens/s, estimated cost, and process resources.
+Four themes, keyboard navigation, and JSON output make it useful at a glance
+or as part of your own tooling.
+
+This is an early-stage project. Token rates are 60-second transcript averages,
+and dollar figures are estimates—not subscription balances.
+
+![wattop showing hardware and token throughput graphs with Claude and Codex sessions](docs/assets/wattop.png)
+
+*Synthetic demonstration data; rates and costs are illustrative.*
 
 ## Scope
 
@@ -18,32 +26,23 @@ cross-compilable** and there is no Linux or Intel build. No external
 runtime: no Node, no Python, no subprocess, no Homebrew dependency at
 runtime — macOS system frameworks only, one static-enough binary.
 
-## Install
+## Install from source
 
-Via the Homebrew tap (once `jasonm4130/homebrew-wattop` exists and a release
-has been published to it — see `.goreleaser.yml`'s `homebrew_casks` pipe):
+Requires **Apple Silicon, macOS, Go 1.27, and Xcode command line tools**.
 
-```
-brew install --cask jasonm4130/wattop/wattop
-```
-
-It ships as a cask rather than a formula because the release archive is a
-pre-built binary, not a from-source build — the cask's `postflight` clears
-the Gatekeeper quarantine flag the download picks up, which a formula would
-not.
-
-## Build from source
-
-Requires Go 1.27 and Xcode command line tools (for CGO) on Apple Silicon.
-
-```
+```sh
+git clone https://github.com/jasonm4130/wattop.git
+cd wattop
 make build
+./bin/wattop
 ```
 
-produces `bin/wattop`. The Makefile already sets `CGO_ENABLED=1
-GOOS=darwin GOARCH=arm64` — `CGO_ENABLED=1` is not optional, since the SoC
-panel is IOReport/SMC data reached through vendored Objective-C (see
-`internal/soc/VENDOR.md`).
+The build enables CGO for IOReport and SMC. Run `./bin/wattop doctor` to inspect
+hardware support on your Mac. The examples below assume `bin/wattop` is on your
+`PATH`; otherwise use `./bin/wattop`.
+
+Tagged releases are built by GitHub Actions. See [release maintenance](docs/releasing.md)
+for packaging and verification; Homebrew distribution is not configured yet.
 
 ## Usage
 
@@ -58,11 +57,20 @@ wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```
 
-**Terminal width: the session table fits any width; the detail view needs
+The default view pairs two-minute input/output token graphs with CPU, GPU,
+and power history. `OUT/s` in each session row is output tokens recorded over
+the last 60 seconds, divided by 60, including idle time. Input throughput
+includes cache reads and writes; output includes reported reasoning tokens.
+These are transcript activity rates, not instantaneous model generation speed.
+Rates work for Claude, its subagents, and Codex without telemetry setup. Unknown
+usage is `—`; observed inactivity is `0.0`. Press `g` for the full hardware
+meters and `enter` for cumulative token counts and the selected session's rates.
+
+**Terminal width: the dashboard fits at 80 columns and above; the detail view needs
 103 columns.** The table narrows — columns shrink, the context gauge
-collapses to `~ 55%`, the token triple collapses to one figure, surplus
+collapses to `~ 55%`, output rates use compact figures, surplus
 rows become a `▼ N more` marker, and `$`, `$/HR`, `CPU%` and `RSS` survive
-at every width. Measured at 80x24 on live sessions it renders exactly 80
+at these widths. Measured at 80x24 on live sessions it renders exactly 80
 cells with nothing past the terminal edge. The **detail view** (`enter`)
 has not been narrowed and still reserves 103 cells, so it is cut off below
 that; see [`docs/limitations.md`](docs/limitations.md).
@@ -84,6 +92,7 @@ status — all without ever entering the TUI.
 | `f` | Toggle subagent rows |
 | `a` | Show dormant sessions — stale rows bound to no live process are hidden by default, and the footer says how many |
 | `p` | Pause the display (collection keeps running) |
+| `g` | Toggle history graphs / full hardware meters |
 | `?` | Toggle the help overlay |
 | `q` / `ctrl+c` | Quit |
 
@@ -155,8 +164,8 @@ its own overhead; this is that accounting.
 
 ## Attribution
 
-wattop vendors and depends on the following MIT-licensed projects — full
-text and details in [`NOTICE`](NOTICE):
+wattop vendors and depends on the following MIT-licensed projects — details in [`NOTICE`](NOTICE) and the vendored
+[mactop license](internal/soc/mactop/LICENSE):
 
 - **[mactop](https://github.com/metaspartan/mactop)** — Copyright ©
   2024-2026 Carsen Klock. `internal/soc/mactop` is a vendored copy of its
@@ -169,6 +178,13 @@ text and details in [`NOTICE`](NOTICE):
 
 Also depends on the Charm libraries (Bubble Tea, Lip Gloss, Bubbles),
 `BurntSushi/toml`, and `golang.org/x/term`.
+
+## Contributing
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for builds, tests, and pull requests.
+[Report a bug](https://github.com/jasonm4130/wattop/issues/new/choose),
+[report a vulnerability privately](SECURITY.md), or read the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

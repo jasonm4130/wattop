@@ -38,3 +38,7 @@ charm.land/lipgloss/v2, charm.land/bubbles/v2, github.com/charmbracelet/*),
 github.com/BurntSushi/toml, and golang.org/x/term, each under its own
 MIT-compatible license and used as an ordinary Go module dependency rather
 than vendored — see go.sum for the full dependency graph.
+
+Full dependency license texts are included in THIRD_PARTY_LICENSES.
+The vendored mactop license is in internal/soc/mactop/LICENSE (source)
+and licenses/mactop-LICENSE (release archives).
