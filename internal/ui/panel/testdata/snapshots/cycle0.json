@@ -19,6 +19,8 @@
     "bandwidth": {
       "dram_read_gbs": null,
       "dram_write_gbs": null,
+      "dram_combined_gbs": null,
+      "dram_estimated": false,
       "ane_combined_gbs": null
     },
     "temps": null,

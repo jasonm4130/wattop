@@ -18,14 +18,14 @@ Seven of the sixteen (`arch_check.go`, `detection.go`, `types.go`, `thunderbolt.
 
 | File | Modified? |
 |---|---|
-| `ioreport.go` | no |
-| `ioreport.m` | no (136 KB — see "Standing maintenance liability" below) |
+| `ioreport.go` | **`dramBWSource` added to the cgo preamble's `PowerMetrics` (last field, mirroring `ioreport.m`); `DRAMBWSource` type, its four constants and the `SocMetrics` field added**; otherwise no — see "DRAM bandwidth source tracking" below |
+| `ioreport.m` | **DRAM bandwidth source tracking added** (see below); otherwise no (136 KB — see "Standing maintenance liability" below) |
 | `smc.c` | no |
 | `smc.h` | no |
 | `native_stats.go` | no |
 | `sys_info.go` | **6 `i18n.T("...")` calls inlined to their upstream English string literals** (see below); otherwise no |
 | `detection.go` | build tag added (see above); otherwise no |
-| `types.go` | build tag added; **`CPUCoreWidget` struct + its 5 methods (`NewCPUCoreWidget`, `UpdateUsage`, `calculateLayout`, `drawCore`, `Draw`) deleted**, along with the now-unused `github.com/metaspartan/gotui/v5` and `image` imports — this is the one gotui-coupled type in the vendored set; `FormatCoreSummary` (no gotui dependency) kept |
+| `types.go` | build tag added; **`SoCTemp` and `DRAMBWSource` fields appended to `CPUMetrics`** (upstream drops mactop's own `socTemp` on the floor); **`CPUCoreWidget` struct + its 5 methods (`NewCPUCoreWidget`, `UpdateUsage`, `calculateLayout`, `drawCore`, `Draw`) deleted**, along with the now-unused `github.com/metaspartan/gotui/v5` and `image` imports — this is the one gotui-coupled type in the vendored set; `FormatCoreSummary` (no gotui dependency) kept |
 | `arch_check.go` | build tag added; otherwise no |
 | `battery.go` | **4 `i18n.T("...")` calls inlined**; otherwise no |
 | `thunderbolt.go` | build tag added; otherwise no |
@@ -78,15 +78,63 @@ Upstream `processes.go` is explicitly excluded by the plan ("mostly kill-modals 
 - **`SampleAll(ms int) Composite`** — a sixth exported call beyond the plan's named five, and the one place the nine `metrics_subset.go` functions actually get invoked (they are unexported, so nothing outside `package mactop` can call them directly). Composition order is modeled on upstream `headless.go`'s `collectHeadlessData` (not vendored — it is output-shaping for the JSON/Prometheus surface — but its call order is the correct one to replicate): `sampleSocMetrics` → `normalizeSocMetricsPower` → one `GetCPUPercentages()` reading → `calculateCoreAveragesForSystem` / `cpuMetricsFromSoc` / `gpuMetricsFromSoc` / `aneUtilizationPercent` → `getMemoryMetrics` / `getNetDiskMetrics`. Without this, `shim.go`/`sampler_darwin.go` would have no route to the nine reused functions at all — this is a spec gap the "compiling the closure" step surfaced, not a design choice made in preference to the plan.
 - `CoreTypeForIndex(index int, info SystemInfo) string`, a thin export of `coreTypeForIndex`, so `sampler_darwin.go` can label clusters per the plan's instruction to iterate the reported topology rather than hardcode E/P.
 
-`internal/soc/shim.go` (`package soc`, same build tag) re-exports the five lifecycle wrappers, `SampleAll`, `CoreTypeForIndex` and `GPUProcessStats` under `package soc` names, plus type aliases (`SocMetrics`, `SystemInfo`, `CPUMetrics`, `GPUMetrics`, `Composite`) so `sampler_darwin.go` never needs its own import of `internal/soc/mactop`. `soc.GPUProcEntry` is a duplicate of `mactop.GPUProcEntry`, not an alias — per the plan, this keeps `soc.GPUProcessStats`'s signature free of any `mactop` type so Task 6's `internal/proc` imports `internal/soc` only.
+`internal/soc/shim.go` (`package soc`, same build tag) re-exports the five lifecycle wrappers, `SampleAll`, `CoreTypeForIndex` and `GPUProcessStats` under `package soc` names, plus type aliases (`SocMetrics`, `SystemInfo`, `CPUMetrics`, `GPUMetrics`, `Composite`, `TempSensor`, `DRAMBWSource`) and the four `DRAMBWSource` constants, so neither `sampler_darwin.go` nor its tests need their own import of `internal/soc/mactop`. `soc.GPUProcEntry` is a duplicate of `mactop.GPUProcEntry`, not an alias — per the plan, this keeps `soc.GPUProcessStats`'s signature free of any `mactop` type so Task 6's `internal/proc` imports `internal/soc` only.
 
 ## Standing maintenance liability
 
 `ioreport.m` is 136 KB of vendored Objective-C — by far the largest single file in this tree and the one most likely to need a re-vendor when a macOS release changes IOReport's private ABI. `make vendor-diff` is the mechanism for catching that; there is no automated alert beyond running it.
 
+## DRAM bandwidth source tracking — an added field, not an upstream one
+
+Upstream's `PowerMetrics` reports DRAM bandwidth as two byte counts and
+nothing else. Six branches in `samplePowerMetrics` can fill them, and three
+of the six do not measure direction at all: two split a combined counter in
+half, and the DRAM-power estimator splits its single derived figure the same
+way. Read back as two fields, one number twice looks exactly like two
+measurements — which is what wattop published until 2026-09-06, with
+`dram_read_gbs` equal to `dram_write_gbs` to fifteen significant figures on
+every live sample.
+
+The fix is one added field, `PowerMetrics.dramBWSource`, set by whichever
+branch produced the numbers: `DRAM_BW_SOURCE_NONE`, `_DIRECTIONAL`,
+`_COMBINED` or `_ESTIMATED`. The fallback chain is unchanged — each fallback
+still runs only while both byte counts are zero, so the last branch to write
+the source is always the one that produced the published figure. Two
+presence flags (`hasPmpDramDirectional`, `hasPmpDramCombined`) were added
+alongside so a PMP channel that exists and counted zero stays distinguishable
+from one this machine does not publish; the PMP parse now records presence
+for any readable counter while still accumulating only positive deltas.
+
+`dramBWSource` **must stay the last field of `PowerMetrics` and identical in
+both copies of that struct** — `ioreport.m`'s and `ioreport.go`'s cgo
+preamble. cgo lays out fields from the preamble while the `.m` is compiled
+from its own declaration; a mismatch corrupts every field after the
+divergence with no compile error. Verified after the change by reading late
+struct fields live (temps ~45 °C, fans 2312/2499 RPM, power 2.1 W CPU).
+
 ## Hardware-specific channel behavior (M5 Max)
 
-DRAM and ANE bandwidth (`DRAMReadBW`, `DRAMWriteBW`, `ANEBWCombined` on `SocMetrics`/`CPUMetrics`) read exactly `0.0` GB/s on this chip under sustained load at every sample count tried while writing the plan — mactop's own macOS-27 counter-zeroing-detection latch requires `cpuPower==0 && dramPower==0`, and both are nonzero here, so this is not that known failure mode; the byte-counter channels simply do not resolve on this hardware. `sampler_darwin.go` treats an exact `0.0` on these three fields as "did not resolve" (nil pointer, name appended to `SysSample.Missing` and `false` in `Channels()`), per the plan's explicit statement that these two are expected nil on this hardware. `ECoreCount` is 0 and `e_cluster_active` is permanently `0.0` on this chip; the sampler skips the E cluster entirely rather than emitting a `CoreCount: 0` entry.
+No IOReport DRAM byte source fires on this chip: across 27 samples with
+every core streaming memory at 16.8 W of DRAM power, `dramBWSource` stayed
+`NONE`. The only DRAM bandwidth figure that ever appears comes from mactop's
+own DRAM-power-to-GB/s calibration (`calibrateDramBwFromPower`), which is an
+estimate of total traffic with no direction — 24 of 28 samples resolved
+under a lighter memory load. `sampler_darwin.go` publishes that as
+`domain.Bandwidth.DRAMCombinedGBs` with `DRAMEstimated` set, and leaves both
+directions nil. `ANEBWCombined` reads `0.0` here and has no source flag of
+its own, so an exact zero is still reported unresolved for ANE only. Neither
+is mactop's macOS-27 counter-zeroing latch (that requires `cpuPower==0 &&
+dramPower==0`, and both are nonzero here). Full evidence, including the
+one-shot calibration's failure mode on a busy machine, is in
+`docs/limitations.md`.
+
+`ECoreCount` is 0 and `e_cluster_active` is permanently `0.0` on this chip;
+the sampler skips the E cluster entirely rather than emitting a
+`CoreCount: 0` entry. `CPUMetrics.SoCTemp` carries mactop's `socTemp` (the
+SMC SoC sensor, or `max(cpuTemp, gpuTemp)` when HID supplied both) so
+`SysSample.Temps` can publish the `soc` key its contract names; the raw
+`TempSensors` slice — 325 SMC and HID keys on this machine — is diagnostic
+output for `DumpAllSMCTemps` and is deliberately not folded into `Temps`.
 
 ## Not vendored
 

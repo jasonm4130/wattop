@@ -13,6 +13,21 @@ type (
 	CPUMetrics = mactop.CPUMetrics
 	GPUMetrics = mactop.GPUMetrics
 	Composite  = mactop.Composite
+	TempSensor = mactop.TempSensor
+	// DRAMBWSource says how a sample's DRAM read/write byte counts were
+	// derived. It is what lets this package tell an absent channel from a
+	// channel that counted zero, and a measured direction from half of a
+	// combined figure.
+	DRAMBWSource = mactop.DRAMBWSource
+)
+
+// The DRAMBWSource values, re-exported so nothing in package soc (tests
+// included) has to import internal/soc/mactop to name one.
+const (
+	DRAMBWNone            = mactop.DRAMBWNone
+	DRAMBWDirectional     = mactop.DRAMBWDirectional
+	DRAMBWCombinedCounter = mactop.DRAMBWCombinedCounter
+	DRAMBWEstimated       = mactop.DRAMBWEstimated
 )
 
 // Init, Sample, Cleanup, SOCInfo and ThermalState are the five lifecycle

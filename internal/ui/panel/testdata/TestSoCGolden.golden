@@ -4,7 +4,7 @@ P (12)   [[38;2;248;81;73m█████████████████�
 S (6)    [[38;2;86;211;100m███████████[m[38;2;48;54;61m░░░░░░░░░[m]  53.6%  2328 MHz                                                                        
 GPU (40) [[38;2;188;140;255m█[m[38;2;48;54;61m░░░░░░░░░░░░░░░░░░░[m]   7.0%  338 MHz                                                                         
 Power  CPU 2.7W  GPU 0.1W  ANE 0.0W  DRAM 0.6W  Sys 14.5W                                                               
-BW     DRAM R —  W —  ANE —                                                                                             
+BW     DRAM R 0.0 GB/s  W 0.0 GB/s  ANE 0.0 GB/s                                                                        
 Temp   CPU 51.3°C  GPU 51.3°C  SOC 51.3°C                                                                               
 Fans   Fan 0 2319 RPM  Fan 1 2503 RPM                                                                                   
 Thermal  [38;2;121;192;255mNominal[m                                                                                                        

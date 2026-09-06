@@ -1477,7 +1477,25 @@ typedef struct {
   // Comprehensive temperature sensors
   int tempSensorCount;
   temp_sensor_t temps[512];
+  // Which source produced dramReadBytes/dramWriteBytes this sample, so Go can
+  // tell "no DRAM byte source exists on this machine" (dash) from "a source
+  // exists and counted zero bytes" (a real 0.0 GB/s), and can tell a pair of
+  // independently counted directions from one combined figure that was split
+  // in half to fill two fields. One of the DRAM_BW_SOURCE_* values below.
+  // MUST stay last, and identical to the copy in ioreport.go's cgo preamble.
+  int dramBWSource;
 } PowerMetrics;
+
+// dramBWSource values. NONE means no channel and no fallback produced a
+// figure; DIRECTIONAL means read and write were counted separately;
+// COMBINED means one counter reported total traffic and the halves below are
+// that total split, not two measurements; ESTIMATED means the figure was
+// derived from DRAM power via runtime calibration and is not a byte count at
+// all.
+#define DRAM_BW_SOURCE_NONE 0
+#define DRAM_BW_SOURCE_DIRECTIONAL 1
+#define DRAM_BW_SOURCE_COMBINED 2
+#define DRAM_BW_SOURCE_ESTIMATED 3
 
 static int cfStringMatch(CFStringRef str, const char *match) {
   if (str == NULL || match == NULL)
@@ -2658,6 +2676,11 @@ PowerMetrics samplePowerMetrics(int durationMs) {
   int64_t pmpDramReadBytes = 0;
   int64_t pmpDramWriteBytes = 0;
   int64_t pmpDramCombinedBytes = 0;
+  // Channel *presence* in the PMP "DRAM BW" subgroup, tracked separately from
+  // the byte totals so a present channel that counted zero bytes stays
+  // distinguishable from a channel this machine does not publish at all.
+  int hasPmpDramDirectional = 0;
+  int hasPmpDramCombined = 0;
   int64_t amcAneReadBytes = 0;
   int64_t amcAneWriteBytes = 0;
   double cpuTotalEnergyW = 0;
@@ -2982,13 +3005,19 @@ PowerMetrics samplePowerMetrics(int durationMs) {
       }
       if (strcmp(sub, "DRAM BW") == 0) {
         int64_t val = IOReportSimpleGetIntegerValue(item, 0);
-        if (validIOReportCounter(val) && val > 0) {
+        if (validIOReportCounter(val)) {
+          // Presence is recorded for any readable channel; only positive
+          // deltas are accumulated (a zero delta adds nothing anyway, and a
+          // negative one would be counter garbage).
           if (strstr(chn, "RD+WR") != NULL || strstr(chn, "RW") != NULL) {
-            pmpDramCombinedBytes += val;
+            hasPmpDramCombined = 1;
+            if (val > 0) pmpDramCombinedBytes += val;
           } else if (amcChannelDirection(chn) == 1) {
-            pmpDramReadBytes += val;
+            hasPmpDramDirectional = 1;
+            if (val > 0) pmpDramReadBytes += val;
           } else if (amcChannelDirection(chn) == 2) {
-            pmpDramWriteBytes += val;
+            hasPmpDramDirectional = 1;
+            if (val > 0) pmpDramWriteBytes += val;
           }
         }
       }
@@ -3145,21 +3174,30 @@ PowerMetrics samplePowerMetrics(int durationMs) {
   metrics.anePower += (aneBlockEnergyW > 0) ? aneBlockEnergyW : aneNamedEnergyW;
   metrics.dramPower += (dramBlockEnergyW > 0) ? dramBlockEnergyW : dramNamedEnergyW;
 
+  // Each branch records how it derived the two byte counts as well as the
+  // counts themselves. The fallbacks further down only run while both counts
+  // are still zero, so the last branch to write metrics.dramBWSource is
+  // always the one that produced the numbers Go will publish.
   if (hasAmcExactDcsDirectional) {
     metrics.dramReadBytes = amcExactDcsReadBytes;
     metrics.dramWriteBytes = amcExactDcsWriteBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
   } else if (hasAmcExactDcsCombined) {
     metrics.dramReadBytes = amcExactDcsCombinedBytes / 2;
     metrics.dramWriteBytes = amcExactDcsCombinedBytes - metrics.dramReadBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_COMBINED;
   } else if (hasAmcPartitionDcsDirectional) {
     metrics.dramReadBytes = amcPartitionDcsReadBytes;
     metrics.dramWriteBytes = amcPartitionDcsWriteBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
   } else if (hasAmcPartitionDcsCombined) {
     metrics.dramReadBytes = amcPartitionDcsCombinedBytes / 2;
     metrics.dramWriteBytes = amcPartitionDcsCombinedBytes - metrics.dramReadBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_COMBINED;
   } else if (hasAmcClientDcs) {
     metrics.dramReadBytes = amcClientDcsReadBytes;
     metrics.dramWriteBytes = amcClientDcsWriteBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
   }
 
   if (metrics.dramPower > 0.001 &&
@@ -3213,12 +3251,16 @@ PowerMetrics samplePowerMetrics(int durationMs) {
   // Fallback: use PMP DRAM BW data when AMC Stats produces no bandwidth data.
   if (allowDramFallback &&
       metrics.dramReadBytes == 0 && metrics.dramWriteBytes == 0) {
-    metrics.dramReadBytes = pmpDramReadBytes;
-    metrics.dramWriteBytes = pmpDramWriteBytes;
+    if (hasPmpDramDirectional) {
+      metrics.dramReadBytes = pmpDramReadBytes;
+      metrics.dramWriteBytes = pmpDramWriteBytes;
+      metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
+    }
     if (metrics.dramReadBytes == 0 && metrics.dramWriteBytes == 0 &&
-        pmpDramCombinedBytes > 0) {
+        hasPmpDramCombined && pmpDramCombinedBytes > 0) {
       metrics.dramReadBytes = pmpDramCombinedBytes / 2;
       metrics.dramWriteBytes = pmpDramCombinedBytes - metrics.dramReadBytes;
+      metrics.dramBWSource = DRAM_BW_SOURCE_COMBINED;
     }
   }
 
@@ -3263,9 +3305,13 @@ PowerMetrics samplePowerMetrics(int durationMs) {
                           ? (double)metrics.actualDurationNs / 1e9
                           : (double)durationMs / 1000.0;
     int64_t totalBytes = (int64_t)(dramBwGBs * 1e9 * sampleSec);
-    // Split evenly between read and write (power can't distinguish direction)
+    // Split evenly between read and write (power can't distinguish direction).
+    // The split exists only so the two byte fields carry the total; it is one
+    // estimate, not two measurements, and DRAM_BW_SOURCE_ESTIMATED is what
+    // stops Go from publishing it as a read figure and a write figure.
     metrics.dramReadBytes = totalBytes / 2;
     metrics.dramWriteBytes = totalBytes / 2;
+    metrics.dramBWSource = DRAM_BW_SOURCE_ESTIMATED;
   }
 
   // Fallback: use kperf PMU counters for DRAM BW (requires root).
@@ -3273,8 +3319,11 @@ PowerMetrics samplePowerMetrics(int durationMs) {
       metrics.dramReadBytes == 0 && metrics.dramWriteBytes == 0 && g_kperf_active) {
     int64_t kperfRd = 0, kperfWr = 0;
     readKperfDramBW(&kperfRd, &kperfWr);
-    metrics.dramReadBytes = kperfRd;
-    metrics.dramWriteBytes = kperfWr;
+    if (kperfRd > 0 || kperfWr > 0) {
+      metrics.dramReadBytes = kperfRd;
+      metrics.dramWriteBytes = kperfWr;
+      metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
+    }
   }
 
   // Last-resort compatibility fallback: request counters can over-count fabric
@@ -3285,6 +3334,7 @@ PowerMetrics samplePowerMetrics(int durationMs) {
       hasAmcRequestBytes) {
     metrics.dramReadBytes = amcRequestReadBytes;
     metrics.dramWriteBytes = amcRequestWriteBytes;
+    metrics.dramBWSource = DRAM_BW_SOURCE_DIRECTIONAL;
   }
 
   // ANE power is taken strictly from the Energy Model "ANE" channel (if present

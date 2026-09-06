@@ -69,12 +69,11 @@ func TestSoCGolden(t *testing.T) {
 	golden.RequireEqual(t, []byte(out))
 }
 
-// TestDegradedRendersDash renders mactop-degraded.jsonl, which is missing
-// the dram_*_bw_gbs keys entirely, and asserts DRAM bandwidth renders as a
-// dash with no literal "0.0 GB/s" anywhere in the output -- the degraded
-// fixture's ANE bandwidth channel is present but reads exactly 0, which per
-// Render's doc comment renders as a dash too (the IOReport counter-zeroing
-// latch, not a real reading).
+// TestDegradedRendersDash renders mactop-degraded.jsonl, which is missing the
+// dram_*_bw_gbs keys entirely, and asserts DRAM bandwidth renders as a dash.
+// Its ANE bandwidth key IS present and reads exactly 0, and that renders as
+// 0.0 GB/s: absence is a dash, a zero reading is a zero. Collapsing the two
+// is what hid live DRAM traffic behind a dash (QA 2026-09-06 §2).
 func TestDegradedRendersDash(t *testing.T) {
 	sample := loadFixtureSample(t, "mactop-degraded.jsonl")
 	r, err := theme.Load("wattop-dark")
@@ -84,14 +83,71 @@ func TestDegradedRendersDash(t *testing.T) {
 
 	out := Render(sample, r, 120, 40, Options{})
 
-	if !strings.Contains(out, "—") {
-		t.Error("expected a dash somewhere in the degraded render, found none")
-	}
-	if strings.Contains(out, "0.0 GB/s") {
-		t.Errorf("degraded render contains a literal \"0.0 GB/s\" bandwidth reading:\n%s", out)
-	}
 	if !strings.Contains(out, "BW     DRAM R —  W —") {
-		t.Errorf("expected DRAM bandwidth to render as a dash, got:\n%s", out)
+		t.Errorf("expected absent DRAM bandwidth channels to render as dashes, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ANE 0.0 GB/s") {
+		t.Errorf("expected the present-but-zero ANE channel to render as a reading, got:\n%s", out)
+	}
+}
+
+// TestBandwidthCombinedRendersAsEstimate covers the source that this M5 Max
+// actually falls back to: one DRAM figure derived from DRAM power. It must
+// render once, as a marked estimate, with both directions dashed -- never as
+// a read figure and a write figure carrying the same number.
+func TestBandwidthCombinedRendersAsEstimate(t *testing.T) {
+	combined := 32.8
+	line := bandwidthLine(domain.Bandwidth{DRAMCombinedGBs: &combined, DRAMEstimated: true})
+
+	want := "BW     DRAM R —  W —  Total ~32.8 GB/s  ANE —"
+	if line != want {
+		t.Errorf("bandwidthLine = %q, want %q", line, want)
+	}
+}
+
+// TestBandwidthDirectionalRendersBothDirections is the counterpart: a source
+// that measured both directions prints both, unmarked, plus their total.
+func TestBandwidthDirectionalRendersBothDirections(t *testing.T) {
+	read, write, combined := 12.5, 7.5, 20.0
+	line := bandwidthLine(domain.Bandwidth{
+		DRAMReadGBs:     &read,
+		DRAMWriteGBs:    &write,
+		DRAMCombinedGBs: &combined,
+	})
+
+	want := "BW     DRAM R 12.5 GB/s  W 7.5 GB/s  Total 20.0 GB/s  ANE —"
+	if line != want {
+		t.Errorf("bandwidthLine = %q, want %q", line, want)
+	}
+}
+
+// TestTempLineIgnoresRawSensorKeys is the Temp-row regression. The live
+// sampler once put every raw SMC key into Temps -- 325 of them -- and this
+// row printed all of them, clipping the frame (QA 2026-09-06 §2). The row
+// renders the three keys it knows, in a fixed order, and nothing else.
+func TestTempLineIgnoresRawSensorKeys(t *testing.T) {
+	temps := map[string]float64{
+		"soc": 52.0, "gpu": 51.25, "cpu": 50.5,
+		"TAOL": 28.5, "Tg5q": 51.0, "TB0T": 30.0, "Nv00": 0.0,
+	}
+
+	line := tempLine(temps)
+	want := "Temp   CPU 50.5°C  GPU 51.2°C  SOC 52.0°C"
+	if line != want {
+		t.Errorf("tempLine = %q, want %q", line, want)
+	}
+}
+
+// TestTempLineOmitsAbsentKey proves a key the sampler never published drops
+// out of the row rather than rendering a zero.
+func TestTempLineOmitsAbsentKey(t *testing.T) {
+	line := tempLine(map[string]float64{"cpu": 50.5})
+	want := "Temp   CPU 50.5°C"
+	if line != want {
+		t.Errorf("tempLine = %q, want %q", line, want)
+	}
+	if line := tempLine(map[string]float64{"TAOL": 28.5}); line != "Temp   —" {
+		t.Errorf("tempLine with only raw keys = %q, want %q", line, "Temp   —")
 	}
 }
 

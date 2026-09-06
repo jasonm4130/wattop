@@ -4,17 +4,60 @@ Plain statements of what wattop does not do well, each with the evidence
 behind it. See `docs/adr/2026-09-06-stack.md` for the design decisions these
 follow from.
 
-## DRAM and ANE bandwidth read zero on this hardware
+## DRAM bandwidth on this chip is an estimate with no direction
 
-`dram_read_bw_gbs`, `dram_write_bw_gbs` and `ane_bw_combined_gbs` are exact
-`0.0` on this M5 Max under sustained load, at every sample count tried
-while building this tool — including in mactop itself, the reference
-implementation. This is not mactop's known counter-zeroing latch (that
-requires `cpuPower==0 && dramPower==0`, and both are nonzero here); the
-byte-counter channels simply do not resolve on this chip. wattop treats an
-exact `0.0` on these fields as "did not resolve" and shows a dash, never
-`0.0`. Run `doctor` to see exactly which IOReport channels resolved on your
-machine.
+An earlier version of this section said the DRAM byte-counter channels "do
+not resolve on this chip" and that an exact `0.0` therefore meant "did not
+resolve". Both halves were wrong, and the QA run on 2026-09-06 measured what
+is actually true (`docs/qa/2026-09-06-v0.1.md` §2).
+
+What the M5 Max under macOS 27 actually does:
+
+- **No IOReport DRAM byte counter produces data.** Verified over 27
+  consecutive samples with every core streaming memory at 16.8 W of DRAM
+  power: all three DRAM fields stayed `null` with all three named in
+  `sys.missing` — the sampler's "no source" state, which means none of the
+  branches in `samplePowerMetrics` that set a source was both reached and
+  non-empty.
+- **The only figure that ever appears is derived from DRAM power.** mactop
+  falls back to calibrating a GB/s-per-watt constant at runtime (four
+  threads streaming 256 MB buffers, measured against the Energy Model DRAM
+  channel) and then reports `(dram_power - idle_power) x constant`. That is
+  an estimate of *total* traffic, so wattop publishes it as
+  `dram_combined_gbs` with `dram_estimated: true` and renders it as
+  `Total ~9.2 GB/s`. Measured live: 24 of 28 samples resolved under a
+  two-thread memory load, tracking DRAM power from 3.5 W to 4.1 W.
+- **Read and write are not separately measurable here.** The estimator
+  cannot distinguish direction; earlier builds split its one figure in half
+  and published the halves as `dram_read_gbs` and `dram_write_gbs`, which is
+  why the two were identical to fifteen significant figures on every live
+  sample. They are now `null`, and named in `sys.missing`.
+- **The calibration is one-shot and fails on a busy machine.** It arms the
+  first time bandwidth looks likely (busy CPU or GPU, or elevated DRAM
+  power) and takes a 500 ms idle baseline at whatever load the machine is
+  under. Trip it while memory is already saturated and the baseline equals
+  the stress reading, the derived constant is rejected, and no DRAM
+  bandwidth figure appears again for the life of the process. Reproduced:
+  starting a full-machine memory load at the same instant as wattop yielded
+  0 of 24 resolved samples; a lighter load that left power headroom yielded
+  24 of 28. Not fixed.
+
+`dram_read_gbs`, `dram_write_gbs` and `dram_combined_gbs` are `null` only
+when no source produced a figure. A source that resolved and counted zero
+now publishes `0.0`, because on this hardware idle DRAM traffic really is
+approximately zero and dashing it threw away a real reading.
+
+## ANE bandwidth carries no channel-presence signal
+
+`ane_bw_combined_gbs` was `null` on every sample of the QA run and of every
+run since. Unlike DRAM, mactop reports ANE bandwidth only as a byte total
+with nothing saying whether a channel was behind it, so wattop still cannot
+tell an absent ANE channel from one reading exactly zero and reports an
+exact `0.0` as unresolved. That is a weaker rule than the DRAM one above and
+is applied deliberately, not by oversight: fixing it needs the same
+source-tracking through `ioreport.m` that DRAM now has.
+
+Run `doctor` to see which channels resolved on your machine.
 
 ## Claude context-fill is an estimate; Codex's is exact
 

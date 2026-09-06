@@ -124,8 +124,10 @@ hasn't published yet.
   things.
 - Per-session GPU is measured as ms/sec; the derived percent is a rescale
   and never the default sort key.
-- DRAM and ANE bandwidth render `—` where the IOReport channel doesn't
-  resolve, never `0.0`.
+- Bandwidth renders `—` only where no source exists; a channel that
+  resolves and reads zero renders `0.0`. On this chip no DRAM byte
+  counter resolves at all, so DRAM shows one power-derived total, marked
+  as an estimate (`Total ~9.2 GB/s`) with no read/write split.
 
 See [`docs/limitations.md`](docs/limitations.md) for the full list with
 evidence, and [`docs/manual-qa.md`](docs/manual-qa.md) for the checklist

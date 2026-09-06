@@ -2,7 +2,6 @@ package panel
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -55,12 +54,12 @@ func thermalColor(r theme.Roles, state int, baseColor string) string {
 // power row, bandwidth, temperatures, fans, thermal state, memory/swap and
 // network/disk -- from a domain.SysSample and nothing else.
 //
-// Every optional (*float64) field that is nil renders as "—", never "0".
-// Bandwidth channels additionally render "—" when the value is exactly
-// 0 GB/s: on this hardware DRAM and ANE bandwidth read 0.0 GB/s from an
-// IOReport counter-zeroing latch bug, not from an idle channel, so a literal
-// zero is exactly as unresolved as a missing key (see the plan's Decision
-// section, deviation 1) and never rendered as a real reading.
+// Every optional (*float64) field that is nil renders as "—", never "0"; and
+// only nil renders as "—". A bandwidth channel that resolved and read 0.0
+// GB/s prints 0.0 GB/s, because on this hardware that is a real idle
+// measurement -- dashing it was what hid live DRAM traffic (QA 2026-09-06
+// §2). A bandwidth figure the platform derived rather than counted prints
+// with a leading "~".
 //
 // The returned string is exactly height lines of exactly width display
 // columns each (measured with lipgloss.Width, so ANSI styling never throws
@@ -138,11 +137,14 @@ func fdash(v *float64, format string) string {
 	return fmt.Sprintf(format, *v)
 }
 
-// bwdash renders a bandwidth reading, treating an exact 0.0 the same as nil
-// -- see the Render doc comment for why.
-func bwdash(v *float64) string {
-	if v == nil || *v == 0 {
+// bwdash renders a bandwidth reading. Only nil is a dash; 0.0 GB/s is a
+// reading. estimated prefixes "~", the project's mark for a derived number.
+func bwdash(v *float64, estimated bool) string {
+	if v == nil {
 		return "—"
+	}
+	if estimated {
+		return fmt.Sprintf("~%.1f GB/s", *v)
 	}
 	return fmt.Sprintf("%.1f GB/s", *v)
 }
@@ -157,26 +159,37 @@ func powerLine(p domain.Power) string {
 	)
 }
 
+// bandwidthLine shows the DRAM total only when there is one to show -- on a
+// combined-only or estimated source that total is the whole reading, with
+// both directions dashed; on a directional source it is the sum.
 func bandwidthLine(b domain.Bandwidth) string {
-	return fmt.Sprintf("BW     DRAM R %s  W %s  ANE %s",
-		bwdash(b.DRAMReadGBs),
-		bwdash(b.DRAMWriteGBs),
-		bwdash(b.ANECombinedGBs),
+	line := fmt.Sprintf("BW     DRAM R %s  W %s",
+		bwdash(b.DRAMReadGBs, false),
+		bwdash(b.DRAMWriteGBs, false),
 	)
+	if b.DRAMCombinedGBs != nil {
+		line += "  Total " + bwdash(b.DRAMCombinedGBs, b.DRAMEstimated)
+	}
+	return line + "  ANE " + bwdash(b.ANECombinedGBs, false)
 }
 
+// tempKeys is the whole temperature vocabulary this row renders, in the order
+// it renders them. Anything else in the map is a raw sensor key, not a
+// metric, and is ignored -- a sampler that hands over 325 SMC keys must not
+// be able to blow the frame apart (QA 2026-09-06 §2).
+var tempKeys = []string{"cpu", "gpu", "soc"}
+
 func tempLine(t map[string]float64) string {
-	if len(t) == 0 {
+	parts := make([]string, 0, len(tempKeys))
+	for _, k := range tempKeys {
+		v, ok := t[k]
+		if !ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %.1f°C", strings.ToUpper(k), v))
+	}
+	if len(parts) == 0 {
 		return "Temp   —"
-	}
-	keys := make([]string, 0, len(t))
-	for k := range t {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s %.1f°C", strings.ToUpper(k), t[k]))
 	}
 	return "Temp   " + strings.Join(parts, "  ")
 }

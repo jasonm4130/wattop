@@ -89,6 +89,10 @@ typedef struct {
     fan_info_t fans[8];
     int tempSensorCount;
     temp_sensor_t temps[512];
+    // Must stay last and must match ioreport.m's copy of this struct exactly:
+    // cgo lays out fields from THIS declaration while the .m file is compiled
+    // from its own, and a mismatch silently corrupts every field after it.
+    int dramBWSource;
 } PowerMetrics;
 
 int initIOReport();
@@ -163,9 +167,40 @@ type SocMetrics struct {
 	ANEWriteBW      float64      `json:"ane_write_bw_gbs"`
 	ANEBWCombined   float64      `json:"ane_bw_combined_gbs"`
 	ANEActive       float64      `json:"ane_active"`
+	DRAMBWSource    DRAMBWSource `json:"dram_bw_source"`
 	Fans            []FanInfo    `json:"-"`
 	TempSensors     []TempSensor `json:"-"`
 }
+
+// DRAMBWSource says where DRAMReadBW/DRAMWriteBW came from this sample. It is
+// the only way to tell a machine that publishes no DRAM byte counter at all
+// (DRAMBWNone -- report nothing) from one whose counters are alive and
+// counted zero bytes (DRAMBWDirectional with 0.0 -- a real idle reading), and
+// the only way to tell two independently counted directions from one figure
+// that was halved to fill two fields.
+type DRAMBWSource int
+
+const (
+	// DRAMBWNone: no channel and no fallback produced a figure.
+	DRAMBWNone DRAMBWSource = 0
+	// DRAMBWDirectional: read and write were counted separately.
+	DRAMBWDirectional DRAMBWSource = 1
+	// DRAMBWCombinedCounter: one counter reported total traffic; the two byte
+	// fields are that total split in half, not two measurements.
+	DRAMBWCombinedCounter DRAMBWSource = 2
+	// DRAMBWEstimated: derived from DRAM power via runtime calibration. Not a
+	// byte count, and not directional -- an estimate of total traffic.
+	DRAMBWEstimated DRAMBWSource = 3
+)
+
+// Directional reports whether read and write were measured independently.
+func (s DRAMBWSource) Directional() bool { return s == DRAMBWDirectional }
+
+// Resolved reports whether any source produced a figure at all.
+func (s DRAMBWSource) Resolved() bool { return s != DRAMBWNone }
+
+// Estimated reports whether the figure is derived rather than counted.
+func (s DRAMBWSource) Estimated() bool { return s == DRAMBWEstimated }
 
 func initSocMetrics() error {
 	// Pass expected core counts to C for HID sensor validation.
@@ -283,6 +318,7 @@ func sampleSocMetrics(durationMs int) SocMetrics {
 		ANEWriteBW:      aneWriteBW,
 		ANEBWCombined:   aneBWCombined,
 		ANEActive:       float64(pm.aneActive),
+		DRAMBWSource:    DRAMBWSource(pm.dramBWSource),
 		Fans:            fans,
 		TempSensors:     tempSensors,
 	}

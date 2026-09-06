@@ -22,11 +22,25 @@ type Power struct {
 	SystemWatts *float64 `json:"system_watts"`
 }
 
-// Bandwidth holds memory/ANE throughput in GB/s. All nil on chips where the
-// counter latch never resolves (see Decision, deviation 1).
+// Bandwidth holds memory/ANE throughput in GB/s. A nil field means no source
+// for it exists on this machine, never that the reading was zero: a resolved
+// channel with no traffic is a pointer to 0.0.
+//
+// DRAMReadGBs and DRAMWriteGBs are set only where read and write were counted
+// independently. Where the platform exposes a single figure for total traffic
+// -- one combined counter, or a DRAM-power-derived estimate -- only
+// DRAMCombinedGBs is set and the two directions stay nil, because splitting
+// one number in half does not make it two measurements.
 type Bandwidth struct {
-	DRAMReadGBs    *float64 `json:"dram_read_gbs"`
-	DRAMWriteGBs   *float64 `json:"dram_write_gbs"`
+	DRAMReadGBs  *float64 `json:"dram_read_gbs"`
+	DRAMWriteGBs *float64 `json:"dram_write_gbs"`
+	// DRAMCombinedGBs is total DRAM traffic: the sum when both directions were
+	// counted, the counter's own figure when only a combined one exists.
+	DRAMCombinedGBs *float64 `json:"dram_combined_gbs"`
+	// DRAMEstimated marks DRAMCombinedGBs as derived rather than counted (on
+	// Apple silicon, inferred from DRAM power via runtime calibration).
+	// Renderers prefix an estimate with "~".
+	DRAMEstimated  bool     `json:"dram_estimated"`
 	ANECombinedGBs *float64 `json:"ane_combined_gbs"`
 }
 

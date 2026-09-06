@@ -36,6 +36,14 @@ type CPUMetrics struct {
 	ANEBW                                                            float64
 	Fans                                                             []FanInfo
 	TempSensors                                                      []TempSensor
+
+	// SoCTemp is the die/package temperature (mactop's socTemp): the SMC SoC
+	// sensor when one is readable, otherwise max(CPUTemp, GPUTemp). Added by
+	// wattop -- upstream's CPUMetrics drops it on the floor.
+	SoCTemp float64
+	// DRAMBWSource says how DRAMReadBW/DRAMWriteBW were derived -- see
+	// ioreport.go's DRAMBWSource. Zero value is DRAMBWNone (nothing resolved).
+	DRAMBWSource DRAMBWSource
 }
 
 type SystemInfo struct {

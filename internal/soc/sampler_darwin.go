@@ -45,19 +45,27 @@ func (s *Sampler) Sample(ctx context.Context, intervalMs int) (domain.SysSample,
 	return sysSampleFromComposite(c), nil
 }
 
+// channelsFromComposite answers `wattop doctor`: which channels this machine
+// resolves. Resolution is a question about the *source*, never about the
+// value -- a DRAM counter that is alive and counted zero bytes is resolved,
+// and reporting it unresolved is what made doctor claim DRAM bandwidth was
+// permanently dead on hardware where it is not (QA 2026-09-06 §2).
 func channelsFromComposite(c Composite) map[string]bool {
+	src := c.CPU.DRAMBWSource
 	return map[string]bool{
-		"cpu_power":           true,
-		"gpu_power":           true,
-		"ane_power":           true,
-		"dram_power":          true,
-		"system_power":        true,
-		"cpu_temp":            true,
-		"gpu_temp":            true,
-		"dram_read_bw_gbs":    c.CPU.DRAMReadBW != 0,
-		"dram_write_bw_gbs":   c.CPU.DRAMWriteBW != 0,
-		"ane_bw_combined_gbs": c.CPU.ANEBW != 0,
-		"fans":                len(c.CPU.Fans) > 0,
+		"cpu_power":            true,
+		"gpu_power":            true,
+		"ane_power":            true,
+		"dram_power":           true,
+		"system_power":         true,
+		"cpu_temp":             true,
+		"gpu_temp":             true,
+		"soc_temp":             c.CPU.SoCTemp > 0,
+		"dram_read_bw_gbs":     src.Directional(),
+		"dram_write_bw_gbs":    src.Directional(),
+		"dram_bw_combined_gbs": src.Resolved(),
+		"ane_bw_combined_gbs":  c.CPU.ANEBW != 0,
+		"fans":                 len(c.CPU.Fans) > 0,
 	}
 }
 
@@ -148,24 +156,49 @@ func powerFromComposite(c Composite) domain.Power {
 	}
 }
 
-// bandwidthFromComposite reports DRAM and ANE bandwidth. On the hardware
-// this was built against (M5 Max), IOReport's byte-counter channels for
-// both never resolve and sampleSocMetrics always yields exactly 0.0 GB/s
-// (see VENDOR.md / the plan's Decision, deviation 1) — that reading is
-// indistinguishable from "channel absent" on this chip, so it is treated
-// as unresolved (nil, appended to Missing) rather than rendered as 0.
+// bandwidthFromComposite reports DRAM and ANE bandwidth, and it is the one
+// place that decides what "unresolved" means for these channels.
+//
+// Unresolved means no source produced a figure -- mactop.DRAMBWNone. It does
+// NOT mean the figure was zero: on this hardware DRAM traffic really does
+// fall to a rounded 0.0 GB/s at idle and climb under memory load, so
+// dashing an exact 0.0 threw away a real measurement (QA 2026-09-06 §2).
+//
+// Direction is reported only when it was measured. mactop's byte fields
+// always carry two numbers, but on a combined counter (or on the
+// DRAM-power-derived estimate this M5 Max falls back to) those two numbers
+// are one figure halved -- which is why dram_read_gbs and dram_write_gbs
+// used to come out identical to the last digit. Those cases publish the
+// total in DRAMCombinedGBs and leave read and write unresolved rather than
+// printing one measurement twice.
 func bandwidthFromComposite(c Composite, missing *[]string) domain.Bandwidth {
 	var bw domain.Bandwidth
-	if v := c.CPU.DRAMReadBW; v != 0 {
-		bw.DRAMReadGBs = &v
-	} else {
-		*missing = append(*missing, "dram_read_bw_gbs")
+	src := c.CPU.DRAMBWSource
+
+	switch {
+	case src.Directional():
+		read, write := c.CPU.DRAMReadBW, c.CPU.DRAMWriteBW
+		combined := read + write
+		bw.DRAMReadGBs = &read
+		bw.DRAMWriteGBs = &write
+		bw.DRAMCombinedGBs = &combined
+	case src.Resolved():
+		// One combined figure. mactop split it across the two byte fields to
+		// fill the struct; add them back rather than reporting either half as
+		// a direction.
+		combined := c.CPU.DRAMReadBW + c.CPU.DRAMWriteBW
+		bw.DRAMCombinedGBs = &combined
+		bw.DRAMEstimated = src.Estimated()
+		*missing = append(*missing, "dram_read_bw_gbs", "dram_write_bw_gbs")
+	default:
+		*missing = append(*missing, "dram_read_bw_gbs", "dram_write_bw_gbs", "dram_bw_combined_gbs")
 	}
-	if v := c.CPU.DRAMWriteBW; v != 0 {
-		bw.DRAMWriteGBs = &v
-	} else {
-		*missing = append(*missing, "dram_write_bw_gbs")
-	}
+
+	// ANE bandwidth has no source flag of its own: mactop reports it only as
+	// a byte total with no channel-presence signal, so an exact zero stays
+	// indistinguishable from an absent channel here and is reported
+	// unresolved. Narrower than the DRAM rule above, and deliberately so --
+	// see docs/limitations.md.
 	if v := c.CPU.ANEBW; v != 0 {
 		bw.ANECombinedGBs = &v
 	} else {
@@ -174,14 +207,26 @@ func bandwidthFromComposite(c Composite, missing *[]string) domain.Bandwidth {
 	return bw
 }
 
+// tempsFromComposite publishes the three aggregated temperatures the domain
+// contract names -- cpu, gpu and soc -- and nothing else.
+//
+// mactop's CPU.TempSensors carries every raw SMC and HID sensor the machine
+// exposes (325 keys on this M5 Max: TAOL, TB0T, Tg5q, ...). Folding those
+// into Temps put all 325 through the SoC panel's Temp row and clipped the
+// frame (QA 2026-09-06 §2/§3). They are diagnostics, not a metric: mactop's
+// DumpAllSMCTemps still prints them, and the panel never should.
+//
+// A sensor that read zero is absent, not 0.0 °C, so its key is omitted --
+// the panel renders a missing key as a dash.
 func tempsFromComposite(c Composite) map[string]float64 {
-	temps := map[string]float64{
+	temps := make(map[string]float64, 3)
+	for key, v := range map[string]float64{
 		"cpu": c.CPU.CPUTemp,
 		"gpu": c.CPU.GPUTemp,
-	}
-	for _, s := range c.CPU.TempSensors {
-		if s.Key != "" {
-			temps[s.Key] = s.Value
+		"soc": c.CPU.SoCTemp,
+	} {
+		if v > 0 {
+			temps[key] = v
 		}
 	}
 	return temps
