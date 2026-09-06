@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
 )
@@ -28,21 +29,27 @@ func runOnce(ctx context.Context, loop *Loop, w io.Writer) (*domain.Snapshot, er
 
 // runJSON runs cycles until ctx is cancelled, writing one NDJSON line per
 // cycle to w.
+//
+// It paces with the same Loop.pace as the interactive path: soc.Sample
+// blocking for the interval is the period when it works, and the remainder
+// wait is what keeps a fast-failing sampler from spraying NDJSON at
+// whatever rate the error returns.
 func runJSON(ctx context.Context, loop *Loop, w io.Writer) error {
 	loop.Send = nil
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil
 		}
+		start := time.Now()
 		in := loop.Cycle(ctx)
 		snap := loop.State.Reduce(in)
 		if err := writeSnapshotLine(w, snap); err != nil {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
+		if loop.MaxCycles > 0 && loop.n >= loop.MaxCycles {
 			return nil
 		}
-		if loop.MaxCycles > 0 && loop.n >= loop.MaxCycles {
+		if !loop.pace(ctx, start) {
 			return nil
 		}
 	}

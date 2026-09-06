@@ -199,6 +199,11 @@ func buildSources(ctx context.Context, cfg Config) (Sources, *pricing.Book, bool
 			claude.NewSource(claudeSessions, claudeProjects, cfg.ContextWindowOverrides),
 			codex.NewSource(codexRoot, idleThreshold),
 		},
+		// The same book state.New holds, kept here as well so each cycle
+		// can report the pricing source's health -- Refresh's failures are
+		// invisible otherwise (see pricingHealth), and main keeps its own
+		// reference for doctor regardless.
+		Pricing: book,
 	}
 	return src, book, sysAvailable
 }
