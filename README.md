@@ -40,7 +40,8 @@ The [official tap](https://github.com/jasonm4130/homebrew-wattop) tracks stable
 releases. You can also download the arm64 archive from
 [GitHub Releases](https://github.com/jasonm4130/wattop/releases/latest).
 Release archives include checksums and GitHub build provenance; they are not
-Apple-notarized. See [verification instructions](docs/releasing.md#verify-a-download).
+Apple-notarized. The cask removes quarantine from its installed `wattop` binary
+to allow it to launch. See [verification instructions](docs/releasing.md#verify-a-download).
 
 ### Build from source
 

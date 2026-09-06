@@ -52,4 +52,5 @@ gh attestation verify wattop_VERSION_darwin_arm64.tar.gz --repo jasonm4130/watto
 ```
 
 Checksums and provenance do not replace Apple notarization. The current binary
-is not Apple-notarized. Source builds remain available through the README.
+is not Apple-notarized. The cask removes quarantine only from its installed
+`wattop` binary so it can launch. Source builds remain available through the README.
