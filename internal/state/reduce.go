@@ -199,11 +199,34 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 		return
 	}
 	if last, ok := st.burnLastCost[burnKey]; !ok || last != *s.CostUSD {
-		st.burn.Observe(burnKey, *s.CostUSD, at)
+		st.burn.Observe(burnKey, *s.CostUSD, at, lastTranscriptAt(s))
 		st.burnLastCost[burnKey] = *s.CostUSD
 	}
 	rate := st.burn.RatePerHour(burnKey, at)
 	s.BurnUSDPerHr = &rate
+}
+
+// lastTranscriptAt returns the newest transcript-record timestamp behind s's
+// current cost, or the zero time when the source exposes none.
+//
+// The burn tracker needs to know *when the tokens were generated*, not when
+// the tailer got round to reading them: at launch it reads hours of history
+// in the first second or two, and a delta timed by the wall clock reads as
+// tens of dollars per second. domain.Session carries no usage timestamp, so
+// this uses the closest thing it does carry — ToolCall.At, stamped from the
+// same assistant records the usage totals are summed from
+// (internal/agent/claude/parse.go). Sessions whose sources emit no tool
+// calls (every Codex rollout; a Claude session that has only ever produced
+// text) report zero here and fall back to the tracker's wall-clock path,
+// where baselining the first sighting is their only protection.
+func lastTranscriptAt(s *domain.Session) time.Time {
+	var newest time.Time
+	for _, tc := range s.Tools {
+		if tc.At.After(newest) {
+			newest = tc.At
+		}
+	}
+	return newest
 }
 
 // priceSession prices s's own usage plus every subagent's usage through

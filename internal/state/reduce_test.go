@@ -554,3 +554,60 @@ func TestReduceFromJSONFixture(t *testing.T) {
 		t.Fatalf("CostUSD = %v, want a priced positive value for claude-opus-5", s.CostUSD)
 	}
 }
+
+// TestBackfilledHistoryDoesNotBurn: at launch the tailers read hours of
+// transcript in the first cycle or two, so a session's cost jumps by tens of
+// dollars between two cycles a second apart. That is spend wattop was not
+// running for; it must not appear as $/hr. Only a delta whose usage records
+// are stamped inside the tracker's window counts.
+func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+
+	// Tool-call timestamps stand in for the usage records' own timestamps:
+	// they come off the same assistant lines (internal/agent/claude/parse.go).
+	mk := func(usage int64, toolAt time.Time) domain.Session {
+		return domain.Session{
+			Agent:  "claude",
+			ID:     "s1",
+			Status: "busy",
+			Model:  "claude-opus-5",
+			Usage:  domain.Usage{Input: usage, Output: usage / 2},
+			Tools:  []domain.ToolCall{{Name: "Bash", ID: "t1", At: toolAt}},
+		}
+	}
+
+	// Cycle 0 baselines a session already holding hours of spend.
+	old := at(0).Add(-2 * time.Hour)
+	snap := st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{mk(20_000_000, old)}})
+	s := findSession(t, snap, "claude", "s1")
+	if s.CostUSD == nil || *s.CostUSD < 100 {
+		t.Fatalf("fixture is not expensive enough to exercise the spike: CostUSD = %v", s.CostUSD)
+	}
+	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr != 0 {
+		t.Fatalf("first sighting of existing spend: BurnUSDPerHr = %v, want 0", s.BurnUSDPerHr)
+	}
+
+	// Cycle 1, 1.3s later: the tailer finishes the backlog and cost leaps,
+	// but every usage record behind the leap is two hours old.
+	backfillAt := at(0).Add(1300 * time.Millisecond)
+	snap = st.Reduce(Inputs{At: backfillAt, Sessions: []domain.Session{mk(40_000_000, old.Add(time.Minute))}})
+	s = findSession(t, snap, "claude", "s1")
+	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr != 0 {
+		t.Fatalf("backfilled cost jump: BurnUSDPerHr = %v, want exactly 0", s.BurnUSDPerHr)
+	}
+	if snap.TotalBurnUSDPerHr != 0 {
+		t.Fatalf("TotalBurnUSDPerHr = %v after a backfill-only cycle, want 0", snap.TotalBurnUSDPerHr)
+	}
+
+	// Live spend afterwards still reports: a small delta whose usage is
+	// stamped now is a real, plausible rate.
+	liveAt := at(0).Add(10 * time.Second)
+	snap = st.Reduce(Inputs{At: liveAt, Sessions: []domain.Session{mk(40_100_000, liveAt)}})
+	s = findSession(t, snap, "claude", "s1")
+	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr <= 0 {
+		t.Fatalf("live spend after a backfill: BurnUSDPerHr = %v, want > 0", s.BurnUSDPerHr)
+	}
+	if *s.BurnUSDPerHr > 1000 {
+		t.Fatalf("live spend after a backfill: BurnUSDPerHr = %v, implausibly large", *s.BurnUSDPerHr)
+	}
+}
