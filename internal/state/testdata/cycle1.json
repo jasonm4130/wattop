@@ -1,0 +1,22 @@
+{
+  "at": "2026-09-06T12:00:00Z",
+  "sys": {
+    "at": "2026-09-06T11:59:58Z",
+    "soc_name": "Apple M5 Max",
+    "power": {
+      "system_watts": 24.5
+    }
+  },
+  "sessions": [
+    {
+      "agent": "claude",
+      "id": "fixture-session-1",
+      "status": "busy",
+      "model": "claude-opus-5",
+      "usage": {
+        "input": 1200,
+        "output": 300
+      }
+    }
+  ]
+}
