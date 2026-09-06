@@ -47,10 +47,11 @@ type rawSubagentMeta struct {
 // "has this stopped moving" judgement (session retention, Codex's
 // mtime-derived stale). Two consequences for whoever adds the growth half
 // there: a child that died or hung before the parent wrote its tool_result
-// reads Live until that record lands, and after a context compaction
-// resets the parent's transcript, resultedToolUseIDs is re-derived from a
-// file that may no longer carry those tool_result lines, so finished
-// subagents can flip back to Live.
+// reads Live until that record lands. (The other half of that exposure —
+// a compaction rewriting the parent transcript without the tool_result
+// lines that retired a subagent — is closed in source.go, which keeps the
+// resulted-id set across a transcript reset because an answered tool_use
+// stays answered.)
 func Walk(dir string, resultedToolUseIDs map[string]bool) ([]domain.Subagent, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {

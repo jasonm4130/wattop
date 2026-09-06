@@ -61,11 +61,17 @@ type sessionAgg struct {
 // row into the reducer's UnpricedModels) and drop a still-in-force
 // rate-limit banner merely because compaction dropped the line that
 // announced it.
+//
+// resultedToolUseIDs survives too, for the same reason and one more: "this
+// tool_use was answered" is monotone. A tool_result that was once observed
+// happened, whatever the rewritten file now says, so keeping the set can
+// only ever be right — while clearing it would resurrect every finished
+// subagent as Live, since a compacted transcript no longer carries the
+// tool_result lines that retired them and Walk has no other evidence.
 func (a *sessionAgg) resetAccumulators() {
 	a.usage = domain.Usage{}
 	a.tools = nil
 	a.toolCounts = make(map[string]int)
-	a.resultedToolUseIDs = make(map[string]bool)
 	a.highWaterMark = 0
 	a.lastPromptTokens = 0
 }

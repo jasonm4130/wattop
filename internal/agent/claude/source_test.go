@@ -14,6 +14,13 @@ import (
 // Source pointed at it plus the transcript path the session's records go
 // to, so a test can rewrite that transcript underneath a live Source.
 func sourceFixture(t *testing.T) (*Source, string) {
+	s, transcript, _ := sourceFixtureWithSubagents(t)
+	return s, transcript
+}
+
+// sourceFixtureWithSubagents is sourceFixture plus the <sessionId>/subagents/
+// directory the walker reads, returned so a test can plant children in it.
+func sourceFixtureWithSubagents(t *testing.T) (*Source, string, string) {
 	t.Helper()
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	projectsDir := filepath.Join(t.TempDir(), "projects")
@@ -30,7 +37,12 @@ func sourceFixture(t *testing.T) (*Source, string) {
 		`{"pid":1234,"sessionId":"sess-1","cwd":"`+cwd+`","status":"busy","kind":"interactive",`+
 			`"entrypoint":"cli","name":"work","updatedAt":1757116800000,"statusUpdatedAt":1757116800000}`)
 
-	return NewSource(sessionsDir, projectsDir, nil), filepath.Join(projectDir, "sess-1.jsonl")
+	subagentsDir := filepath.Join(projectDir, "sess-1", "subagents")
+	if err := os.MkdirAll(subagentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir subagents: %v", err)
+	}
+
+	return NewSource(sessionsDir, projectsDir, nil), filepath.Join(projectDir, "sess-1.jsonl"), subagentsDir
 }
 
 // assistantRecord is one transcript line carrying usage and a tool_use
@@ -187,4 +199,50 @@ func statSize(t *testing.T, path string) int64 {
 		t.Fatalf("stat %s: %v", path, err)
 	}
 	return fi.Size()
+}
+
+// TestCompactionDoesNotResurrectFinishedSubagents covers the seam between
+// the two halves of subagent liveness. Walk decides Live from one signal
+// only — whether the parent recorded a tool_result for the child's
+// toolUseId — and a compacted transcript no longer carries the line that
+// retired it. An answered tool_use stays answered, so the resulted-id set
+// is the one thing derived from transcript lines that must survive a
+// reset.
+func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
+	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.meta.json"),
+		`{"toolUseId":"tu-1","hash":"h1","agentType":"general-purpose","description":"d","model":"opus","spawnDepth":1}`)
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"),
+		`{"type":"assistant","message":{"model":"claude-opus-5","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n")
+
+	// The parent spawns the child and then records its result.
+	writeFile(t, transcript,
+		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
+			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n"+
+			`{"type":"user","timestamp":"2026-09-06T01:00:01.000Z","message":{"role":"user",`+
+			`"content":[{"type":"tool_result","tool_use_id":"tu-1"}]}}`+"\n")
+
+	sessions, err := s.Poll(context.Background(), now, nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions[0].Subagents) != 1 || sessions[0].Subagents[0].Live {
+		t.Fatalf("subagent should be finished after its tool_result: %+v", sessions[0].Subagents)
+	}
+
+	// Compaction rewrites the transcript without the tool_result line.
+	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", 512)))
+
+	sessions, err = s.Poll(context.Background(), now.Add(time.Second), nil)
+	if err != nil {
+		t.Fatalf("Poll (post-compaction): %v", err)
+	}
+	if sessions[0].Subagents[0].Live {
+		t.Fatalf("finished subagent came back Live after compaction dropped its tool_result")
+	}
+	if sessions[0].Usage.Input != 30 {
+		t.Fatalf("Usage.Input = %d after compaction, want 30", sessions[0].Usage.Input)
+	}
 }
