@@ -71,6 +71,25 @@ func TestDetailGolden(t *testing.T) {
 	requireGoldenText(t, "detail_histogram", out)
 }
 
+// TestDetailHonoursNoColor asserts DetailRender styles through the theme
+// when NoColor is false (an ANSI escape appears) and emits plain text when
+// NoColor is true (the --no-color / NO_COLOR contract every other panel
+// already honours via the shared styled() helper).
+func TestDetailHonoursNoColor(t *testing.T) {
+	r := loadDarkRoles(t)
+	s := sessionWithHistogram()
+
+	colored := DetailRender(s, r, 120, 40, Options{})
+	if !strings.Contains(colored, "\x1b[") {
+		t.Errorf("expected an ANSI escape when NoColor is false, got:\n%s", colored)
+	}
+
+	plain := DetailRender(s, r, 120, 40, Options{NoColor: true})
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("expected no ANSI escape when NoColor is true, got:\n%s", plain)
+	}
+}
+
 // TestDetailHistogramCovers12Entries asserts every one of the 12 tool
 // names appears in the rendered histogram.
 func TestDetailHistogramCovers12Entries(t *testing.T) {

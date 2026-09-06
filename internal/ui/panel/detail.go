@@ -32,6 +32,8 @@ const recentToolLogLen = 5
 func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Options) string {
 	var lines []string
 
+	sectionHeader := func(text string) string { return styled(opts, r.Accent, text) }
+
 	lines = append(lines, fmt.Sprintf("Session  %s (%s)  bind=%s", s.ID, s.Agent, s.BindConf))
 	lines = append(lines, fmt.Sprintf("Model    %s   cwd %s", s.Model, s.CWD))
 	lines = append(lines, "")
@@ -41,10 +43,14 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
 	}
 	burn := "—"
+	burnColor := ""
 	if s.BurnUSDPerHr != nil {
 		burn = fmt.Sprintf("$%.2f/hr", *s.BurnUSDPerHr)
+		if *s.BurnUSDPerHr >= burnHotThresholdUSDPerHr {
+			burnColor = r.CostHot
+		}
 	}
-	lines = append(lines, fmt.Sprintf("Cost & burn: total %s   rate %s", cost, burn))
+	lines = append(lines, fmt.Sprintf("Cost & burn: total %s   rate %s", cost, styled(opts, burnColor, burn)))
 
 	tok := fmt.Sprintf("Tokens: input %s  output %s  cache-read %s  cache-write-5m %s  cache-write-1h %s  thinking %s",
 		humanCount(s.Usage.Input), humanCount(s.Usage.Output), humanCount(s.Usage.CacheRead),
@@ -55,29 +61,35 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	lines = append(lines, tok)
 	lines = append(lines, "")
 
-	lines = append(lines, "Tool-call histogram")
-	lines = append(lines, toolHistogramLines(s.ToolCounts, width)...)
+	lines = append(lines, sectionHeader("Tool-call histogram"))
+	lines = append(lines, toolHistogramLines(r, opts, s.ToolCounts, width)...)
 	lines = append(lines, "")
 
-	lines = append(lines, "Recent tool log")
+	lines = append(lines, sectionHeader("Recent tool log"))
 	lines = append(lines, recentToolLogLines(s.Tools)...)
 	lines = append(lines, "")
 
-	lines = append(lines, fmt.Sprintf("Subagents (%d)", len(s.Subagents)))
-	lines = append(lines, subagentTreeLines(s.Subagents)...)
+	lines = append(lines, sectionHeader(fmt.Sprintf("Subagents (%d)", len(s.Subagents))))
+	lines = append(lines, subagentTreeLines(r, opts, s.Subagents)...)
 	lines = append(lines, "")
 
-	lines = append(lines, "Process:")
+	lines = append(lines, sectionHeader("Process:"))
 	lines = append(lines, processLines(s)...)
 
 	if len(s.RateLimits) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, "Codex rate limits")
-		lines = append(lines, rateLimitLines(s.RateLimits)...)
+		lines = append(lines, sectionHeader("Codex rate limits"))
+		lines = append(lines, rateLimitLines(r, opts, s.RateLimits)...)
 	}
 
 	return frame(lines, width, height)
 }
+
+// burnHotThresholdUSDPerHr is the per-session burn rate that turns the
+// cost line CostHot -- the same $5/hr line FooterRender uses for the
+// machine-wide total, so a single session that alone crosses the
+// machine's own hot threshold reads as hot here too.
+const burnHotThresholdUSDPerHr = 5.0
 
 // toolHistogramLabelW is the fixed column width the tool name is padded or
 // elided to, so a long MCP tool name (e.g. "mcp__tavily__tavily_extract",
@@ -97,7 +109,7 @@ const toolHistogramCountW = 6
 // conveys nothing -- padLine only pads a short line, it never truncates a
 // long one, so an unscaled bar would also break DetailRender's
 // exactly-width-columns contract for every line below it.
-func toolHistogramLines(counts map[string]int, width int) []string {
+func toolHistogramLines(r theme.Roles, opts Options, counts map[string]int, width int) []string {
 	if len(counts) == 0 {
 		return []string{"  (no tool calls)"}
 	}
@@ -136,7 +148,8 @@ func toolHistogramLines(counts map[string]int, width int) []string {
 		if barLen > barW {
 			barLen = barW
 		}
-		out = append(out, fmt.Sprintf("  %-*s %s %*d", toolHistogramLabelW, label, strings.Repeat("█", barLen), toolHistogramCountW, c))
+		bar := styled(opts, r.BarFill, strings.Repeat("█", barLen))
+		out = append(out, fmt.Sprintf("  %-*s %s %*d", toolHistogramLabelW, label, bar, toolHistogramCountW, c))
 	}
 	return out
 }
@@ -178,21 +191,24 @@ func recentToolLogLines(tools []domain.ToolCall) []string {
 	return out
 }
 
-func subagentTreeLines(subagents []domain.Subagent) []string {
+func subagentTreeLines(r theme.Roles, opts Options, subagents []domain.Subagent) []string {
 	if len(subagents) == 0 {
 		return []string{"  (none)"}
 	}
 	out := make([]string, 0, len(subagents))
 	for _, sa := range subagents {
 		state := "finished"
+		color := r.Muted
 		if sa.Live {
 			state = "live"
+			color = r.Busy
 		}
 		cost := "$—"
 		if sa.CostUSD != nil {
 			cost = fmt.Sprintf("$%.2f", *sa.CostUSD)
 		}
-		out = append(out, fmt.Sprintf("  └─ %-10s %-24s model=%-20s %-8s %s",
+		state = styled(opts, color, fmt.Sprintf("%-8s", state))
+		out = append(out, fmt.Sprintf("  └─ %-10s %-24s model=%-20s %s %s",
 			sa.AgentType, sa.Description, sa.Model, state, cost))
 	}
 	return out
@@ -211,11 +227,11 @@ func processLines(s domain.Session) []string {
 		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}
 	}
 	p := s.Proc
-	return []string{fmt.Sprintf("  pid %d  cpu %.1f%%  gpu %s ms/s  rss %.0fM  disk (cumulative) r %d B  w %d B",
-		p.PID, p.CPUPct, fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, p.DiskReadB, p.DiskWriteB)}
+	return []string{fmt.Sprintf("  pid %d  cpu %.1f%%  gpu %s ms/s  rss %.0fM  disk (cumulative) r %s  w %s",
+		p.PID, p.CPUPct, fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, humanBytes(p.DiskReadB), humanBytes(p.DiskWriteB))}
 }
 
-func rateLimitLines(limits []domain.RateLimit) []string {
+func rateLimitLines(r theme.Roles, opts Options, limits []domain.RateLimit) []string {
 	out := make([]string, 0, len(limits))
 	for _, rl := range limits {
 		used := "—"
@@ -226,8 +242,9 @@ func rateLimitLines(limits []domain.RateLimit) []string {
 		if rl.Rejected {
 			rejected = " (learned from rejection)"
 		}
-		out = append(out, fmt.Sprintf("  %-8s used %-6s window %dm resets %s%s",
-			rl.Scope, used, rl.WindowMins, rl.ResetsAt.Format("15:04"), rejected))
+		line := fmt.Sprintf("  %-8s used %-6s window %dm resets %s%s",
+			rl.Scope, used, rl.WindowMins, rl.ResetsAt.Format("15:04"), rejected)
+		out = append(out, styled(opts, r.Warn, line))
 	}
 	return out
 }

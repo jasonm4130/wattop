@@ -1,40 +1,40 @@
 Session  sess-detail (claude)  bind=exact                                                                               
 Model    claude-opus-5   cwd /home/u/project                                                                            
                                                                                                                         
-Cost & burn: total $4.2000   rate $6.15/hr                                                                              
-Tokens: input 42000  output 3100  cache-read 18000  cache-write-5m 900  cache-write-1h 500  thinking 200                
+Cost & burn: total $4.20   rate [38;2;248;81;73m$6.15/hr[m                                                                                
+Tokens: input 42.0k  output 3.1k  cache-read 18.0k  cache-write-5m 900  cache-write-1h 500  thinking 200                
                                                                                                                         
-Tool-call histogram                                                                                                     
-  MultiEdit            ████████████ 12                                                                                  
-  TodoWrite            ███████████ 11                                                                                   
-  NotebookEdit         ██████████ 10                                                                                    
-  WebSearch            █████████ 9                                                                                      
-  WebFetch             ████████ 8                                                                                       
-  Task                 ███████ 7                                                                                        
-  Glob                 ██████ 6                                                                                         
-  Grep                 █████ 5                                                                                          
-  Bash                 ████ 4                                                                                           
-  Write                ███ 3                                                                                            
-  Edit                 ██ 2                                                                                             
-  Read                 █ 1                                                                                              
+[38;2;88;166;255mTool-call histogram[m                                                                                                     
+  MultiEdit            [38;2;88;166;255m██████████████████████████████████████████████████████████████████████████████████████████[m     12
+  TodoWrite            [38;2;88;166;255m███████████████████████████████████████████████████████████████████████████████████[m     11       
+  NotebookEdit         [38;2;88;166;255m███████████████████████████████████████████████████████████████████████████[m     10               
+  WebSearch            [38;2;88;166;255m████████████████████████████████████████████████████████████████████[m      9                      
+  WebFetch             [38;2;88;166;255m████████████████████████████████████████████████████████████[m      8                              
+  Task                 [38;2;88;166;255m█████████████████████████████████████████████████████[m      7                                     
+  Glob                 [38;2;88;166;255m█████████████████████████████████████████████[m      6                                             
+  Grep                 [38;2;88;166;255m██████████████████████████████████████[m      5                                                    
+  Bash                 [38;2;88;166;255m██████████████████████████████[m      4                                                            
+  Write                [38;2;88;166;255m███████████████████████[m      3                                                                   
+  Edit                 [38;2;88;166;255m███████████████[m      2                                                                           
+  Read                 [38;2;88;166;255m████████[m      1                                                                                  
                                                                                                                         
-Recent tool log                                                                                                         
+[38;2;88;166;255mRecent tool log[m                                                                                                         
   09:07:00  WebFetch             WebFetch-1                                                                             
   09:08:00  WebSearch            WebSearch-1                                                                            
   09:09:00  NotebookEdit         NotebookEdit-1                                                                         
   09:10:00  TodoWrite            TodoWrite-1                                                                            
   09:11:00  MultiEdit            MultiEdit-1                                                                            
                                                                                                                         
-Subagents (2)                                                                                                           
-  └─ Explore    search the codebase      model=claude-fable-5-1     finished $0.18                                      
-  └─ worker     implement task 4         model=claude-sonnet-5      live     $—                                         
+[38;2;88;166;255mSubagents (2)[m                                                                                                           
+  └─ Explore    search the codebase      model=claude-fable-5-1     [38;2;110;118;129mfinished[m $0.18                                      
+  └─ worker     implement task 4         model=claude-sonnet-5      [38;2;86;211;100mlive    [m $—                                         
                                                                                                                         
-Process:                                                                                                                
-  pid 1234  cpu 12.5%  gpu — ms/s  rss 512M  disk (cumulative) r 1048576 B  w 262144 B                                  
+[38;2;88;166;255mProcess:[m                                                                                                                
+  pid 1234  cpu 12.5%  gpu — ms/s  rss 512M  disk (cumulative) r 1.0MB  w 262.1KB                                       
                                                                                                                         
-Codex rate limits                                                                                                       
-  primary  used 42.5%  window 300m resets 14:00                                                                         
-  secondary used —      window 10080m resets 14:00 (learned from rejection)                                             
+[38;2;88;166;255mCodex rate limits[m                                                                                                       
+[38;2;219;109;40m  primary  used 42.5%  window 300m resets 14:00[m                                                                         
+[38;2;219;109;40m  secondary used —      window 10080m resets 14:00 (learned from rejection)[m                                             
                                                                                                                         
                                                                                                                         
                                                                                                                         
