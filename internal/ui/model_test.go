@@ -301,3 +301,19 @@ func TestNoColorSuppressesEscapes(t *testing.T) {
 		}
 	}
 }
+
+// TestViewRendersSoCPanel asserts View() actually composes the SoC panel
+// above the session table -- panel.Render existing and being covered by
+// its own golden tests is not evidence Model.View calls it.
+func TestViewRendersSoCPanel(t *testing.T) {
+	m := newTestModel(t)
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
+		{Agent: "claude", ID: "a", Status: "busy", Model: "claude-opus-5"},
+	}))
+	m = mi.(Model)
+
+	view := m.View().Content
+	if !strings.Contains(view, "SoC") {
+		t.Errorf("expected View() to render the SoC panel, got:\n%q", view)
+	}
+}

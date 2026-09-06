@@ -278,7 +278,24 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, m.height-3, m.selected, m.snap.At, m.renderOpts())
+	socH := socHeight(m.snap.Sys)
+	tableH := m.height - socH - 3
+	if tableH < 0 {
+		tableH = 0
+	}
+
+	soc := panel.Render(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
+	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, tableH, m.selected, m.snap.At, m.renderOpts())
 	footer := panel.FooterRender(m.snap, m.roles, m.width, 3, m.renderOpts())
-	return tea.NewView(table + "\n" + footer)
+	return tea.NewView(soc + "\n" + table + "\n" + footer)
+}
+
+// socHeight is the number of lines panel.Render emits for sample: a border
+// line, the SoC name, one line per cluster, then GPU, power, bandwidth,
+// temps, fans, thermal, memory, and net/disk -- 10 fixed lines plus one per
+// cluster. Computing it from the cluster count (rather than hardcoding,
+// e.g. the 12 lines an M5 Max's two clusters produce) keeps a chip with a
+// different cluster count from getting clipped or padded.
+func socHeight(sample domain.SysSample) int {
+	return 10 + len(sample.Clusters)
 }
