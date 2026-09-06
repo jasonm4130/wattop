@@ -88,6 +88,9 @@ func Render(sample domain.SysSample, r theme.Roles, width, height int, opts Opti
 }
 
 func borderLine(r theme.Roles, state, width int, opts Options) string {
+	if width < 0 {
+		width = 0
+	}
 	line := strings.Repeat("─", width)
 	return styled(opts, thermalColor(r, state, r.Border), line)
 }
@@ -244,6 +247,12 @@ func padLine(s string, width int) string {
 }
 
 func frame(lines []string, width, height int) string {
+	if height < 0 {
+		height = 0
+	}
+	if width < 0 {
+		width = 0
+	}
 	out := make([]string, height)
 	for i := 0; i < height; i++ {
 		if i < len(lines) {

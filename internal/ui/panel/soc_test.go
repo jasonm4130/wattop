@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -190,5 +191,67 @@ func TestNilOptionalNeverRendersZero(t *testing.T) {
 				t.Errorf("nil cluster ActivePct/FreqMHz rendered as a zero rather than a dash: %q", line)
 			}
 		}
+	}
+}
+
+// TestRenderNegativeOrTinyHeightNeverPanics guards frame() (and borderLine's
+// width handling) against a terminal short enough that the caller's
+// height-3/width arithmetic goes to zero or negative -- Model.View derives
+// the panel height as m.height-3 with only a >0 guard on m.height, so a 1-,
+// 2- or 3-row terminal passes 0 or a negative height straight through. Before
+// the fix, make([]string, height) with a negative length panicked with
+// "makeslice: len out of range".
+func TestRenderNegativeOrTinyHeightNeverPanics(t *testing.T) {
+	r, err := theme.Load("wattop-dark")
+	if err != nil {
+		t.Fatalf("theme.Load: %v", err)
+	}
+	sample := domain.SysSample{
+		SoCName:  "Test SoC",
+		Clusters: []domain.Cluster{{Label: "P", CoreCount: 12}},
+	}
+
+	for _, height := range []int{-1, 0, 1, 2, 3} {
+		height := height
+		t.Run(fmt.Sprintf("height=%d", height), func(t *testing.T) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					t.Fatalf("Render panicked at height=%d: %v", height, rec)
+				}
+			}()
+			out := Render(sample, r, 40, height, Options{})
+			wantLines := height
+			if wantLines < 0 {
+				wantLines = 0
+			}
+			if wantLines == 0 {
+				if out != "" {
+					t.Errorf("height=%d: expected empty output, got %q", height, out)
+				}
+				return
+			}
+			gotLines := len(strings.Split(out, "\n"))
+			if gotLines != wantLines {
+				t.Errorf("height=%d: expected %d lines, got %d", height, wantLines, gotLines)
+			}
+		})
+	}
+}
+
+// TestFrameNegativeWidthNeverPanics guards frame()/borderLine() directly
+// against a negative width, the same shape of bug as the height case.
+func TestFrameNegativeWidthNeverPanics(t *testing.T) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			t.Fatalf("frame panicked with a negative width: %v", rec)
+		}
+	}()
+	out := frame([]string{"a", "b"}, -1, 2)
+	// A negative width clamps to 0 for padding/fill purposes; content lines
+	// already at or past that width are returned unpadded (padLine never
+	// truncates), so "a" and "b" pass through as-is with no panic.
+	want := "a\nb"
+	if out != want {
+		t.Errorf("frame with negative width: got %q, want %q", out, want)
 	}
 }
