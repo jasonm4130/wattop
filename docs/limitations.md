@@ -57,19 +57,30 @@ cost. An unresolved model renders `$—`, never `$0.00` — the two mean
 different things, and conflating them would hide real drift in the pricing
 table behind a number that looks like "free."
 
-## The session table does not fit a terminal narrower than 153 columns
+## The session table does not fit a terminal narrower than ~150 columns
 
-The session table renders at a fixed 153 cells wide for the standard
-column set and does not narrow: measured at 60, 80, 100, 120 and 140
-columns, it still comes back 153 cells wide, so anything under 153 columns
-wraps and the frame is corrupted. The detail view has the same floor at 103
-columns; only the help overlay adapts down correctly. This is a
-session-table layout defect in `internal/ui/panel`, not a terminal problem,
-and it is the observed result of `docs/manual-qa.md` item 12 rather than a
-theoretical one — `internal/e2e`'s `TestFrameFitsTerminal` measures it on
-every run and bounds it so it cannot grow. Not fixed in v0.1: the fix is a
-responsive column set (drop columns as width shrinks), which is a
-`internal/ui/panel` change rather than a release-task one.
+The session table does not narrow. `SessionsRender`'s format string
+reserves 150 cells across its fourteen columns, and measured at 60, 80,
+100, 120 and 140 columns it comes back 153 cells wide every time on the
+v0.1 corpus — so anything under that wraps and the frame is corrupted. The
+detail view has the same problem with a 103-column floor; only the help
+overlay adapts down correctly.
+
+150 is a floor, not a ceiling: `fmt` pads a short field but never truncates
+a long one, and only `status`, `model` and `cwd` are truncated explicitly
+before formatting. A burn rate wider than `%-8s` (`$276.68/hr` is ten
+cells) or a cache figure wider than `%-18s` (`formatTokens` caps at no
+digits, so a 10.5M-token session renders `10546.1k`) pushes the row wider
+still. 153 is what this corpus produces, not a constant of the layout.
+
+This is a session-table layout defect in `internal/ui/panel`, not a
+terminal problem, and it is the observed result of `docs/manual-qa.md`
+item 12 rather than a theoretical one — `internal/e2e`'s
+`TestFrameFitsTerminal` measures it per frame on every run and bounds it
+so it cannot grow unnoticed. Not fixed in v0.1: the fix is a responsive
+column set (drop or shrink columns as width shrinks, and truncate every
+field rather than three of them), which is an `internal/ui/panel` change
+rather than a release-task one.
 
 ## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
 

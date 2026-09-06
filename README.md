@@ -58,9 +58,11 @@ wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```
 
-**Terminal width: the session table needs 153 columns.** Below that it does
-not narrow — it renders at its full width and the terminal wraps it. Size
-the window wide before launching; see
+**Terminal width: the session table needs at least 150 columns**, and 153
+for the widest row in the v0.1 test corpus. Below that it does not narrow —
+it renders at full width and the terminal wraps it. A long burn rate or a
+multi-million-token cache figure overruns its column and pushes the row
+wider still, so size the window generously; see
 [`docs/limitations.md`](docs/limitations.md).
 
 `wattop doctor` is the first thing to run on a new machine or after a

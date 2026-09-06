@@ -324,15 +324,26 @@ func keyMsg(s string) tea.KeyPressMsg {
 	}
 }
 
-// tableMinWidth is the width the session table's fixed column set needs to
-// render the Task 3 corpus without overflowing: measured, not chosen. The
-// table does not narrow below it -- at 60, 80, 100, 120 and 140 columns it
-// still renders exactly this wide -- so every terminal narrower than this
-// wraps. That is a real defect in the session-table layout
-// (internal/ui/panel, Task 12's file, out of this task's scope to fix);
-// it is recorded in docs/limitations.md and as the observed result of
-// manual-QA item 12, and bounded here so it cannot silently grow.
-const tableMinWidth = 153
+// frameMinWidth is the width each frame needs to render the Task 3 corpus
+// without overflowing: measured, not chosen. The session table and the
+// detail view do not narrow below these figures -- at 60, 80, 100, 120 and
+// 140 columns the table still renders exactly 153 cells wide -- so every
+// terminal narrower than that wraps them. Only the help overlay adapts all
+// the way down, hence its floor of 0.
+//
+// These are floors for *this corpus*, not constants of the layout:
+// SessionsRender's format string reserves 150 cells for its fourteen
+// columns, and any field whose text overruns its slot (a burn rate past
+// "$276.68/hr" in %-8s, a cache figure past "10840.8k" in %-18s) pushes
+// the row wider still, because fmt pads a short field but never truncates
+// a long one. So the real statement is "at least 150, 153 with this
+// corpus, more with wider numbers".
+//
+// That is a defect in the session-table layout (internal/ui/panel, Task
+// 12's file, out of this task's scope to fix); it is recorded in
+// docs/limitations.md and as the observed result of manual-QA item 12, and
+// bounded here so it cannot silently grow.
+var frameMinWidth = map[string]int{"table": 153, "detail": 103, "help": 0}
 
 // TestFrameFitsTerminal is manual-QA item 12 made runnable in CI, over all
 // three frames the model can draw (the session table, the detail view and
@@ -341,10 +352,11 @@ const tableMinWidth = 153
 // width of the widest rendered line is the assertion behind the eyeball
 // check.
 //
-// At or above tableMinWidth every frame must fit its terminal exactly.
-// Below it the session table cannot -- see tableMinWidth -- so what is
-// asserted there is that the overflow stays pinned to that known floor and
-// that the frame still fits the terminal's *height*, which it does.
+// At or above a frame's own floor it must fit its terminal exactly. Below
+// its floor -- see frameMinWidth -- what is asserted is that the overflow
+// stays pinned to that known floor, per frame, so a help-overlay
+// regression cannot hide behind the session table's much larger one, and
+// that every frame still fits the terminal's *height*, which they do.
 func TestFrameFitsTerminal(t *testing.T) {
 	ctx := context.Background()
 	clock := replay.NewVirtualClock(replayStart)
@@ -363,15 +375,16 @@ func TestFrameFitsTerminal(t *testing.T) {
 			"help":   help.(ui.Model),
 		}
 
-		// Above the floor the terminal's own width is the bound; below it,
-		// the floor is, and the observed width is logged either way so a
-		// reader of the test output sees the real number.
-		want := sz.w
-		if want < tableMinWidth {
-			want = tableMinWidth
-		}
-
 		for _, name := range []string{"table", "detail", "help"} {
+			// Above the frame's floor the terminal's own width is the
+			// bound; below it, the floor is. The observed width is logged
+			// either way so a reader of the test output sees the real
+			// number rather than only a pass.
+			want := sz.w
+			if f := frameMinWidth[name]; want < f {
+				want = f
+			}
+
 			content := frames[name].View().Content
 			lines := strings.Split(content, "\n")
 			if len(lines) > sz.h {
@@ -412,7 +425,11 @@ func TestThemeCycleRecolours(t *testing.T) {
 	}
 
 	first := m.View().Content
-	seen := map[string]string{first: names[0]}
+	// Keyed by press count, not by theme name: ui.New starts at whatever
+	// index "wattop-dark" occupies in theme.Names(), so press i is not
+	// necessarily names[i] and naming it that way would put a lie in the
+	// failure message.
+	seen := map[string]int{first: 0}
 	prev := first
 
 	for i := 1; i <= len(names); i++ {
@@ -427,11 +444,10 @@ func TestThemeCycleRecolours(t *testing.T) {
 			if frame == prev {
 				t.Errorf("after %d `t` presses: frame is byte-identical to the previous theme's, want a re-colour", i)
 			}
-			name := names[i]
 			if other, dup := seen[frame]; dup {
-				t.Errorf("theme %q renders identically to %q", name, other)
+				t.Errorf("the theme %d `t` presses in renders identically to the one %d presses in", i, other)
 			}
-			seen[frame] = name
+			seen[frame] = i
 		} else if frame != first {
 			t.Errorf("after %d `t` presses (a full cycle): frame differs from the starting frame", i)
 		}

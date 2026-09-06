@@ -188,9 +188,12 @@ v0.1 ships.
       160×40 every frame fits its terminal exactly. At 80×24 the session
       table renders **153 cells wide** and the detail view 103 — 73 and 23
       cells of overflow, which a real terminal folds into wrapped rows.
-      The floor is fixed, not proportional: at 60, 80, 100, 120 and 140
-      columns the table comes back 153 cells wide every time, so it never
-      narrows at all. Only the help overlay adapts down correctly. Frame
-      *height* is fine at both sizes. Recorded in `docs/limitations.md`;
-      the fix is a responsive column set in `internal/ui/panel`, out of
-      this task's scope.
+      The table never narrows: at 60, 80, 100, 120 and 140 columns it comes
+      back 153 cells wide every time. 150 of those are the format string's
+      own reserved column widths; the extra 3 are fields overrunning their
+      slots (`$276.68/hr` in a `%-8s`), so a wider burn rate or token count
+      pushes it further out still — read 153 as "at least 150, more with
+      wider numbers", not as a constant. Only the help overlay adapts down
+      correctly. Frame *height* is fine at both sizes. Recorded in
+      `docs/limitations.md`; the fix is a responsive column set in
+      `internal/ui/panel`, out of this task's scope.
