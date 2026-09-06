@@ -273,6 +273,27 @@ func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 	}
 }
 
+// TestFooterBurnGoesHotAboveThreshold pins the $/hr severity colour. The
+// e2e golden used to be the only thing covering it, through a fixture whose
+// burn rate rendered $455.88/hr; the burn fix now baselines that corpus's
+// backfilled spend to $0.00/hr and the golden no longer exercises the hot
+// branch at all. Assert it here, where the threshold lives, instead.
+func TestFooterBurnGoesHotAboveThreshold(t *testing.T) {
+	r := loadDarkRoles(t)
+	hot := FooterRender(&domain.Snapshot{TotalBurnUSDPerHr: 9.5}, r, 120, 4, "cost", "dark", false, 0, Options{})
+	cold := FooterRender(&domain.Snapshot{TotalBurnUSDPerHr: 4.99}, r, 120, 4, "cost", "dark", false, 0, Options{})
+
+	if want := styled(Options{}, r.CostHot, "$9.50/hr"); !strings.Contains(hot, want) {
+		t.Errorf("expected $9.50/hr to carry the CostHot colour %q, got:\n%s", r.CostHot, hot)
+	}
+	if strings.Contains(cold, styled(Options{}, r.CostHot, "$4.99/hr")) {
+		t.Errorf("expected $4.99/hr to be unstyled, got:\n%s", cold)
+	}
+	if !strings.Contains(cold, "$4.99/hr") {
+		t.Errorf("expected the rate itself to render below the threshold, got:\n%s", cold)
+	}
+}
+
 // TestFooterStatusLineAdvertisesKeymap asserts the footer names the active
 // sort key and theme and points at the `?` help overlay -- otherwise s and
 // t leave no trace on screen at all.

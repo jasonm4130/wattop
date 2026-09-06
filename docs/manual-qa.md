@@ -19,13 +19,17 @@ self-CPU figure in step 11 reflects the real binary.
 | `[!]` | Run, and the stated pass condition was observed to **fail**. The failure is recorded in `docs/limitations.md`. |
 | `[ ]` | Not run: needs an interactive terminal plus a live agent this session could not create without disrupting other work. |
 
-Status of this run (2026-09-06): 6 pass, 3 partial, 1 fail, 2 not run.
+Status after the 2026-09-06 hardening re-run: 6 pass, 4 partial, 0 fail,
+2 not run. Item 12 moved from `[!]` to `[~]` — the session table now fits
+80 columns and the detail view still does not. Items 1 and 6 gained
+observations from the re-run; the raw captures are in
+`docs/qa/2026-09-06-v0.1.md`, section "Re-QA after hardening".
 
 The two not-run items both need a live Claude session killed or a subagent
-driven from one, on a machine that had five concurrent worker sessions
-running at the time; doing either would have destroyed another worker's
-in-flight run. They are the remaining human-at-the-terminal work before
-v0.1 ships.
+driven from one, on a machine that had four to five concurrent worker
+sessions running at the time; doing either would have destroyed another
+worker's in-flight run. They are the remaining human-at-the-terminal work
+before v0.1 ships.
 
 ---
 
@@ -43,6 +47,12 @@ v0.1 ships.
       `unknown` — so status is being read per session, not stamped
       uniformly. Twenty Codex rollouts appeared as `stale` with
       `pid=null`, which is the no-live-process path, not the warmup path.
+      Re-run 2026-09-06 17:11 AEST after the dormant-row filter landed:
+      **zero** Codex rows, from 38 rollout files on disk across today and
+      yesterday, none inside the 2 h lookback and no live `codex` process —
+      the rollouts are filtered, not lost, and `doctor` agrees
+      (`codex: 0 discovered`). Four live Claude sessions, each pid-bound
+      `exact` with its own model, cost and context fill.
       **Residual:** the spinner glyph, the ~1 s transition latency, and the
       Codex `(pid unknown)` → bound warmup all need the TUI plus a live
       `codex exec`, which this session did not start (it spends paid
@@ -98,13 +108,25 @@ v0.1 ships.
       `--once --json` run read `gpu_watts: 0.0106` and every session's
       `proc.gpu_ms_per_sec` was `null`.
 
-- [x] **6. DRAM/ANE bandwidth render as a dash.** Confirm DRAM and ANE
-      bandwidth render `—`, never `0.0`, and that `wattop doctor` names
-      them as unresolved channels.
-      Observed: `bin/wattop doctor` -> "8 resolved, 3 unresolved":
-      `dram_read_bw_gbs`, `dram_write_bw_gbs`, `ane_bw_combined_gbs` all
-      listed unresolved; the `--json` stream's `sys.bandwidth` fields for
-      these three are `null`, which the panel renders as `—`.
+- [x] **6. Unresolved bandwidth renders a dash; an estimate is marked.**
+      Confirm nothing wattop could not measure renders as `0.0`: an
+      unresolved channel renders `—`, a power-derived figure renders `~`,
+      and `wattop doctor` names every unresolved channel.
+      Observed 2026-09-06 17:10-17:11 AEST. `bin/wattop doctor` ->
+      **"9 resolved, 4 unresolved"**: `dram_read_bw_gbs`,
+      `dram_write_bw_gbs`, `dram_bw_combined_gbs` and `ane_bw_combined_gbs`
+      unresolved (`soc_temp` is the newly resolved one). At idle the panel
+      reads `BW     DRAM R —  W —  ANE —` and all five `sys.bandwidth`
+      fields are `null`. Under a two-thread memory load, 20 of 24 samples
+      resolved a **combined** figure only —
+      `r=None w=None comb=14.498 est=True` — which the panel renders
+      `BW     DRAM R —  W —  Total ~14.3 GB/s  ANE —`: one estimate
+      published once and marked, never split into a read figure and a write
+      figure carrying the same number. After the load stopped, eight
+      consecutive samples read `comb=0.000 est=True` with DRAM power back to
+      0.35-0.48 W — a resolved zero, rendered `~0.0 GB/s` rather than
+      dashed. `dram_read_gbs` and `dram_write_gbs` stayed `null` on every
+      one of the 24 samples and are named in `sys.missing` throughout.
 
 - [x] **7. Cluster labels match real topology.** Confirm the cluster
       gauges are labelled `P` and `S` with 12 and 6 cores respectively —
@@ -180,23 +202,30 @@ v0.1 ships.
       (`internal/proc` is Task 6's file, out of scope here) — flagged for
       follow-up.
 
-- [!] **12. Terminal resize.** Resize the terminal to 80×24 and to
+- [~] **12. Terminal resize.** Resize the terminal to 80×24 and to
       200×60. Confirm no wrapping corruption in either direction.
-      Observed: **fails at 80×24.** `internal/e2e` drives the real model
-      over the real corpus and measures the widest rendered line at each
-      size, split across two tests so a passing suite cannot be misread as
-      a fitting frame: `TestFrameFitsTerminal` asserts the item's actual
-      pass condition (the frame fits its terminal) for the cases that meet
-      it, and `TestSessionTableOverflowsAt80Columns` pins the cases that do
-      not. At 200×60 and at 160×40 every frame fits its terminal exactly. At 80×24 the session
-      table renders **153 cells wide** and the detail view 103 — 73 and 23
-      cells of overflow, which a real terminal folds into wrapped rows.
-      The table never narrows: at 60, 80, 100, 120 and 140 columns it comes
-      back 153 cells wide every time. 150 of those are the format string's
-      own reserved column widths; the extra 3 are fields overrunning their
-      slots (`$276.68/hr` in a `%-8s`), so a wider burn rate or token count
-      pushes it further out still — read 153 as "at least 150, more with
-      wider numbers", not as a constant. Only the help overlay adapts down
-      correctly. Frame *height* is fine at both sizes. Recorded in
-      `docs/limitations.md`; the fix is a responsive column set in
-      `internal/ui/panel`, out of this task's scope.
+      Observed: **the table half passes, the detail view still fails.**
+      `internal/e2e` drives the real model over the real corpus and measures
+      the widest rendered line at each size, split across two tests so a
+      passing suite cannot be misread as a fitting frame:
+      `TestFrameFitsTerminal` asserts the item's actual pass condition (the
+      frame fits its terminal) for every case that meets it, and
+      `TestDetailViewOverflowsAt80Columns` pins the one that does not.
+
+      At 200×60 and 160×40 every frame fits exactly, as before. At 80×24 the
+      **session table now renders 80 cells, 0 past the terminal** — it was
+      153. It narrows properly: columns shrink (`clau…`, `…oder`), the
+      context gauge collapses to `~ 55%`, the token triple collapses to one
+      figure, surplus rows become `▼ 5 more`, and `$`, `$/HR`, `CPU%` and
+      `RSS` all survive. The `Machine` footer narrows by dropping whole
+      segments (`| wattop self …` disappears) rather than cutting a figure
+      mid-word as it did before. Verified live as well as on the corpus: a
+      tmux capture at 80×24 against four real Claude sessions measured 24
+      rows, widest line 80 cells, nothing past the edge (captures in
+      `docs/qa/2026-09-06-v0.1.md`).
+
+      **Residual:** the detail view (`enter`) still reserves **103 cells**
+      and has not been narrowed — 23 past an 80-column terminal, which the
+      live capture shows as the token line cut at `cache-wri`. Frame
+      *height* is fine at every size. Recorded in `docs/limitations.md`; the
+      fix is a responsive column set in `internal/ui/panel/detail.go`.

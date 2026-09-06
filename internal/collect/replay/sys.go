@@ -29,6 +29,26 @@ var knownOptionalChannels = []string{
 	"fans",
 }
 
+// zeroIsUnresolved are the bandwidth keys for which an exact 0 in a mactop
+// headless-JSON capture cannot be told apart from "no channel behind it".
+//
+// The live sampler can tell them apart: internal/soc tracks which branch of
+// ioreport.m produced the bytes (DRAMBWSource) and publishes a measured 0.0
+// as a reading. mactop's headless JSON carries no such flag -- it writes a
+// plain 0 whether a channel counted zero or never resolved -- so this path
+// treats a 0 as unresolved: the field is nil, the key is named in
+// SysSample.Missing, and Channels() reports it unresolved. Guessing the
+// other way would make every replay frame claim "DRAM R 0.0 GB/s" on a
+// corpus captured where no DRAM byte counter ever produced data.
+var zeroIsUnresolved = map[string]bool{
+	"dram_read_bw_gbs":     true,
+	"dram_write_bw_gbs":    true,
+	"dram_bw_combined_gbs": true,
+	"ane_read_bw_gbs":      true,
+	"ane_write_bw_gbs":     true,
+	"ane_bw_combined_gbs":  true,
+}
+
 // SysSampler implements domain.Sampler by replaying mactop headless JSON
 // captures committed under testdata/soc/. It reads every *.jsonl and *.json
 // file in dir, peeking each file's first non-whitespace byte to choose NDJSON
@@ -141,6 +161,17 @@ func getFloatPtr(m map[string]json.RawMessage, key string) *float64 {
 	return &f
 }
 
+// getResolvedBW reads a bandwidth key, returning nil for both an absent key
+// and an exact 0 -- see zeroIsUnresolved for why the two are the same thing
+// in a headless-JSON capture.
+func getResolvedBW(m map[string]json.RawMessage, key string) *float64 {
+	f := getFloatPtr(m, key)
+	if f == nil || *f == 0 {
+		return nil
+	}
+	return f
+}
+
 func getIntPtr(m map[string]json.RawMessage, key string) *int {
 	f := getFloatPtr(m, key)
 	if f == nil {
@@ -189,6 +220,9 @@ func decodeSysRecord(rec []byte) (domain.SysSample, map[string]bool, error) {
 		} else {
 			_, present = socMetrics[key]
 		}
+		if present && zeroIsUnresolved[key] {
+			present = getResolvedBW(socMetrics, key) != nil
+		}
 		channels[key] = present
 		if !present {
 			missing = append(missing, key)
@@ -229,9 +263,10 @@ func decodeSysRecord(rec []byte) (domain.SysSample, map[string]bool, error) {
 	}
 
 	sample.Bandwidth = domain.Bandwidth{
-		DRAMReadGBs:    getFloatPtr(socMetrics, "dram_read_bw_gbs"),
-		DRAMWriteGBs:   getFloatPtr(socMetrics, "dram_write_bw_gbs"),
-		ANECombinedGBs: getFloatPtr(socMetrics, "ane_bw_combined_gbs"),
+		DRAMReadGBs:     getResolvedBW(socMetrics, "dram_read_bw_gbs"),
+		DRAMWriteGBs:    getResolvedBW(socMetrics, "dram_write_bw_gbs"),
+		DRAMCombinedGBs: getResolvedBW(socMetrics, "dram_bw_combined_gbs"),
+		ANECombinedGBs:  getResolvedBW(socMetrics, "ane_bw_combined_gbs"),
 	}
 
 	sample.Temps = map[string]float64{}

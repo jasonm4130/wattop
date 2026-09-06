@@ -45,7 +45,19 @@ What the M5 Max under macOS 27 actually does:
 `dram_read_gbs`, `dram_write_gbs` and `dram_combined_gbs` are `null` only
 when no source produced a figure. A source that resolved and counted zero
 now publishes `0.0`, because on this hardware idle DRAM traffic really is
-approximately zero and dashing it threw away a real reading.
+approximately zero and dashing it threw away a real reading. Measured live
+after the load ends: eight consecutive samples with `dram_combined_gbs:
+0.0`, `dram_estimated: true` and DRAM power back at 0.35-0.48 W.
+
+That distinction needs the source flag, and only the live sampler has one.
+mactop's headless JSON — the format `internal/collect/replay` reads and the
+test corpus is captured in — writes a plain `0` whether a channel counted
+zero or never resolved. That path therefore treats a `0` on any bandwidth
+key as unresolved: the field is `null`, the key is named in
+`sys.missing`, and `Channels()` reports it unresolved. A replay frame that
+claimed `DRAM R 0.0 GB/s` off a corpus where no byte counter ever produced
+data would be the same error as the dash it replaced, pointing the other
+way.
 
 ## ANE bandwidth carries no channel-presence signal
 
@@ -89,6 +101,58 @@ one rollout per pid, `(pid unknown)` rather than a dropped row when no
 candidate matches. Both are best-effort; neither is a promise from Codex
 itself.
 
+Codex also leaves one rollout file behind per `exec` run, forever, and the
+QA run on 2026-09-06 found fourteen of nineteen rows on launch were dormant
+rollouts up to 23 h old — all `(pid unknown)`, all dashes, burying the five
+live sessions the tool exists to show. `codex.Source` now scans a 2 h
+lookback by default and opens an older rollout only when a `codex` process
+exists at all; one that binds to no pid is dropped at the source, so `--json`
+agrees with the TUI. A dormant row that survives that (a Claude session gone
+stale, say) is hidden from the table and counted in the footer as
+`N hidden (a)`, with `a` toggling it back. Nothing is silently dropped from
+the screen without being counted.
+
+The lookback is a constant, not yet a config key: `codex.WithLookback`
+exists but `cmd/wattop` does not read a `codex_lookback_minutes` from
+`config.toml`, so 2 h is what you get.
+
+## Fan RPM can read a stuck 0 for a process's whole lifetime
+
+Observed twice in about sixteen launches during the 2026-09-06 re-QA: both
+fans reported `rpm: 0` on every sample for the life of that wattop process,
+while `min_rpm` on the same reading was 2317 — a speed below the fan's own
+stated minimum, which is not a reading a spinning fan produces. Ten
+consecutive launches immediately afterwards, including under memory load and
+alongside a second concurrent wattop, all read 2311-2321 / 2494-2508 RPM, so
+the fault is intermittent and not load- or contention-triggered as far as
+this run could tell. Not root-caused.
+
+Two things follow. The SMC fan read fails in a way that yields zero rather
+than an error, and when it does the panel renders `Fan 0 0 RPM` rather than
+`Fan 0 —` — the same conflation of "zero" with "absent" that the DRAM
+section above exists to avoid, in the one place that still has it.
+
+## A headless `claude -p` run has no transcript, and reports `kind: interactive`
+
+Two separate gaps, both observed on the 2026-09-06 QA run and both still
+open at HEAD.
+
+A headless `claude -p` process writes a session file under
+`~/.claude/sessions/<pid>.json` but no `<id>.jsonl` transcript — `find`
+against a live headless run's id returned a directory and nothing else.
+Everything wattop derives from the transcript is therefore genuinely
+unavailable for that row: no model, no token split, no cost. The row renders
+`—` in the model column and `$—` for cost, and the detail view says
+`no transcript on disk: tokens and cost unavailable` rather than leaving the
+reader to guess whether wattop failed or the data is absent.
+
+Separately, Claude Code writes `kind: "interactive"` into that session file
+for a headless run (`entrypoint: "sdk-cli"` is the field that actually says
+so), so wattop's `kind` is `interactive` for a process the plan expected to
+read `sdk-cli`. The background-session styling keyed on `Kind !=
+"interactive"` therefore never fires for exactly the headless runs it was
+meant to mute. Fixing it needs an `Entrypoint` field on `domain.Session`.
+
 ## Costs are estimates that ignore subscription plans
 
 Every `$` figure is computed from token counts against a LiteLLM-derived
@@ -100,39 +164,68 @@ cost. An unresolved model renders `$—`, never `$0.00` — the two mean
 different things, and conflating them would hide real drift in the pricing
 table behind a number that looks like "free."
 
-## The session table does not fit a terminal narrower than ~150 columns
+## `$/hr` under-reports, and reads `$0.00` more often than you would expect
 
-The session table does not narrow. `SessionsRender`'s format string
-reserves 150 cells across its fourteen columns, and measured at 60, 80,
-100, 120 and 140 columns it comes back 153 cells wide every time on the
-v0.1 corpus — so anything under that wraps and the frame is corrupted. The
-detail view has the same problem with a 103-column floor; only the help
-overlay adapts down correctly.
+The burn rate counts only spend wattop watched happen. It baselines a
+session the first time it sees it and times every later delta by the newest
+usage timestamp in that session's transcript, discarding a delta whose
+newest record is already older than the 60 s window. Before that, the first
+full read of hours of transcript at launch was counted as spend inside one
+~1.3 s poll and extrapolated: the QA run on 2026-09-06 recorded a headline
+of **$105,679/hr** decaying over minutes (§4). Re-measured after the fix, a
+$41.85 backfill arriving in 1.481 s across two polls reads `$0.00/hr`.
 
-150 is a floor, not a ceiling: `fmt` pads a short field but never truncates
-a long one, and only `status`, `model` and `cwd` are truncated explicitly
-before formatting. A burn rate wider than `%-8s` (`$276.68/hr` is ten
-cells) or a cache figure wider than `%-18s` (`formatTokens` caps at no
-digits, so a 10.5M-token session renders `10546.1k`) pushes the row wider
-still. 153 is what this corpus produces, not a constant of the layout.
+The cost of that is systematic under-reporting, in two known shapes:
 
-This is a session-table layout defect in `internal/ui/panel`, not a
-terminal problem, and it is the observed result of `docs/manual-qa.md`
-item 12 rather than a theoretical one. Two `internal/e2e` tests split it
-so the suite cannot report "pass" for a frame that does not fit:
-`TestFrameFitsTerminal` asserts the real pass condition — the frame fits
-its terminal in both axes — for every size and frame that meets it, and
-`TestSessionTableOverflowsAt80Columns` pins the two that do not (table
-153 cells, detail 103, against a terminal of 80) with `==`, so the
-exception fails both if the overflow grows and once the layout is fixed.
+- **A fresh launch reads `$0.00/hr` until new spend lands.** Everything on
+  disk when wattop starts is history, not rate.
+- **A parent session blocked in a long `Task` call reads `$0.00/hr` while
+  its subagent spends.** The parent writes no transcript records while
+  blocked, so its newest `ToolCall.At` freezes at the spawn instant, while
+  the subagent's growing usage keeps folding into the parent's `CostUSD`.
+  Once the spawn is more than 60 s old, every such delta is discarded as
+  stale. This is the swarm case wattop was built to watch, and `$0.00`
+  rather than a dash sits awkwardly beside the honesty rule the rest of the
+  tool follows. Fixing it needs a real usage timestamp on `domain.Session`
+  and `domain.Subagent`, which the Claude and Codex sources do not carry
+  today.
 
-Not fixed in v0.1: the fix is a responsive column set in
-`internal/ui/panel/sessions.go` (drop or shrink columns as width shrinks,
-and truncate every field rather than three of them), which is a Task 12
-change rather than a release-task one. When it lands, delete
-`TestSessionTableOverflowsAt80Columns` — the 80x24 cases are already
-enumerated in `frameCases` and fall back into `TestFrameFitsTerminal` —
-tick manual-QA item 12, and delete this section.
+Codex rollouts surface no usage timestamp at all, so they fall back to the
+wall clock; baselining on first sighting is their only protection against a
+multi-poll backfill.
+
+A nonzero live burn has still not been observed end to end: across two
+30-second and one 3-minute `--json` capture, every watched transcript was
+static after the launch backfill, so `total_cost` never moved. The positive
+path rests on `internal/pricing`'s unit tests ($3.60/hr and $60.00/hr
+exactly, against controlled timestamps), not on live data.
+
+## The detail view does not fit a terminal narrower than 103 columns
+
+The **session table** used to be here and is not any more. It narrows:
+columns shrink, the context gauge collapses to `~ 55%`, the token triple
+collapses to a single figure, surplus rows become a `▼ N more` marker, and
+`$`, `$/HR`, `CPU%` and `RSS` survive at every width. Measured on the v0.1
+corpus it renders 80 cells at 80x24 (was 153), and a live capture at 80x24
+against four real Claude sessions comes back 80 cells with nothing past the
+terminal edge (`docs/qa/2026-09-06-v0.1.md`, "Re-QA after hardening"). The
+`Machine` footer narrows the same way, dropping whole segments rather than
+cutting a figure in half.
+
+The **detail view** (`enter`) was never given that treatment. It reserves
+103 cells and does not adapt, so at 80 columns a real terminal cuts it
+mid-token — the live capture loses the tail of the token line at
+`cache-wri`. The fix is the same shape as the table's: a responsive column
+set in `internal/ui/panel/detail.go`.
+
+`internal/e2e` splits the two so the suite cannot report "pass" for a frame
+that does not fit. `TestFrameFitsTerminal` asserts the real pass condition —
+the frame fits its terminal in both axes — for every size and frame that
+meets it, which now includes the session table at 80x24.
+`TestDetailViewOverflowsAt80Columns` pins the one that does not (103 cells
+against a terminal of 80) with `==`, so it fails both if the overflow grows
+and once the layout is fixed. When it is fixed, delete that test and
+`overflowAt80`, tick `docs/manual-qa.md` item 12, and delete this section.
 
 ## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
 

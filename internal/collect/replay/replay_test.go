@@ -106,7 +106,11 @@ func TestDegradedFixtureRendersNil(t *testing.T) {
 		t.Errorf("len(Fans) = %d, want 0", len(sample.Fans))
 	}
 
-	want := []string{"ane_active", "dram_bw_combined_gbs", "dram_read_bw_gbs", "dram_write_bw_gbs", "fans"}
+	want := []string{
+		"ane_active", "dram_bw_combined_gbs", "dram_read_bw_gbs", "dram_write_bw_gbs", "fans",
+		// Present in this fixture, but at exactly 0 -- see below.
+		"ane_bw_combined_gbs", "ane_read_bw_gbs", "ane_write_bw_gbs",
+	}
 	for _, name := range want {
 		if !contains(sample.Missing, name) {
 			t.Errorf("Missing = %v, want it to contain %q", sample.Missing, name)
@@ -120,9 +124,55 @@ func TestDegradedFixtureRendersNil(t *testing.T) {
 	if channels["dram_read_bw_gbs"] {
 		t.Error("Channels()[\"dram_read_bw_gbs\"] = true, want false on the degraded fixture")
 	}
-	// ane_bw_combined_gbs was NOT deleted from the degraded fixture.
-	if !channels["ane_bw_combined_gbs"] {
-		t.Error("Channels()[\"ane_bw_combined_gbs\"] = false, want true (this key survives in the degraded fixture)")
+	// ane_bw_combined_gbs was NOT deleted from the degraded fixture -- it
+	// survives at exactly 0, which a headless-JSON capture writes both for a
+	// channel that counted zero and for one that never resolved. This path
+	// has no DRAMBWSource-style flag to tell them apart, so it reports
+	// unresolved rather than publishing a 0.0 GB/s reading it cannot back up.
+	if channels["ane_bw_combined_gbs"] {
+		t.Error("Channels()[\"ane_bw_combined_gbs\"] = true, want false: the key survives but reads exactly 0")
+	}
+	if sample.Bandwidth.ANECombinedGBs != nil {
+		t.Errorf("ANECombinedGBs = %v, want nil on an exact-zero reading", *sample.Bandwidth.ANECombinedGBs)
+	}
+}
+
+// TestNonZeroBandwidthResolves is the other half of TestDegradedFixtureRendersNil:
+// the zero-means-unresolved rule must not swallow a capture that really did
+// carry bandwidth. Without this, nil-ing every zero would pass by dashing
+// everything.
+func TestNonZeroBandwidthResolves(t *testing.T) {
+	dir := t.TempDir()
+	rec := `{"timestamp":"2026-09-06T12:00:00Z","soc_metrics":{` +
+		`"dram_read_bw_gbs":12.5,"dram_write_bw_gbs":0,` +
+		`"dram_bw_combined_gbs":19.75,"ane_bw_combined_gbs":0}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "bw.jsonl"), []byte(rec), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	sampler, err := NewSysSampler(dir)
+	if err != nil {
+		t.Fatalf("NewSysSampler: %v", err)
+	}
+	sample, err := sampler.Sample(context.Background(), 1000)
+	if err != nil {
+		t.Fatalf("Sample: %v", err)
+	}
+
+	if sample.Bandwidth.DRAMReadGBs == nil || *sample.Bandwidth.DRAMReadGBs != 12.5 {
+		t.Errorf("DRAMReadGBs = %v, want 12.5", sample.Bandwidth.DRAMReadGBs)
+	}
+	if sample.Bandwidth.DRAMCombinedGBs == nil || *sample.Bandwidth.DRAMCombinedGBs != 19.75 {
+		t.Errorf("DRAMCombinedGBs = %v, want 19.75", sample.Bandwidth.DRAMCombinedGBs)
+	}
+	if sample.Bandwidth.DRAMWriteGBs != nil {
+		t.Errorf("DRAMWriteGBs = %v, want nil (exact zero)", *sample.Bandwidth.DRAMWriteGBs)
+	}
+	if ch := sampler.Channels(); !ch["dram_read_bw_gbs"] || ch["dram_write_bw_gbs"] {
+		t.Errorf("Channels() = %v, want dram_read_bw_gbs resolved and dram_write_bw_gbs unresolved", ch)
+	}
+	if contains(sample.Missing, "dram_read_bw_gbs") {
+		t.Errorf("Missing = %v, want it not to contain dram_read_bw_gbs", sample.Missing)
 	}
 }
 

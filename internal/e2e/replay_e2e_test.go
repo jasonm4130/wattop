@@ -54,6 +54,20 @@ const (
 
 // replayStart is the virtual clock's t=0, arbitrary but fixed so every run
 // in this file is byte-for-byte reproducible.
+//
+// It sits ~3 h after every usage timestamp in testdata/replay/sessions.json
+// (tool calls at 09:01-09:10Z), which is why every $/HR cell in the golden
+// reads $0.00. That is the burn tracker working, not a broken fixture: a
+// cost delta whose newest transcript record is older than the 60 s burn
+// window is spend that happened before wattop was watching, and counting it
+// as a rate is what produced the $105,679/hr headline in QA 2026-09-06 §4.
+// Numeric burn coverage belongs in internal/pricing/burn_test.go, which
+// pins exact rates ($3.60/hr, $60.00/hr) against controlled timestamps; the
+// footer's hot-rate styling is covered by
+// internal/ui/panel.TestFooterBurnGoesHotAboveThreshold. Restamping this
+// corpus would not restore either: its cost series loops 1.42 -> 1.71 ->
+// 2.02 -> 1.42 every three cycles, so any rate it produced would be an
+// artifact of the loop.
 var replayStart = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 // replayCycles is how many virtual seconds (one cycle each) every test in
@@ -394,12 +408,11 @@ var frameCases = []struct {
 // the terminal it was given, in both axes, so nothing wraps.
 //
 // It covers only the (size, frame) pairs that genuinely satisfy that
-// condition. The three pairs that do NOT -- the session table and the
-// detail view at 80x24 -- are a real, open layout defect, not an exemption
-// this test grants itself, so they are asserted separately and by name in
-// TestSessionTableOverflowsAt80Columns. Read the two test names together:
-// wattop fits its terminal everywhere except the session table and detail
-// view below ~150 columns, where it does not.
+// condition. The one pair that does NOT -- the detail view at 80x24 -- is a
+// real, open layout defect, not an exemption this test grants itself, so it
+// is asserted separately and by name in TestDetailViewOverflowsAt80Columns.
+// Read the two test names together: wattop fits its terminal everywhere
+// except the detail view below ~103 columns, where it does not.
 func TestFrameFitsTerminal(t *testing.T) {
 	ctx := context.Background()
 	clock := replay.NewVirtualClock(replayStart)
@@ -408,7 +421,7 @@ func TestFrameFitsTerminal(t *testing.T) {
 
 	for _, c := range frameCases {
 		if _, known := overflowAt80[c.frame]; known && c.w == 80 {
-			continue // asserted by TestSessionTableOverflowsAt80Columns
+			continue // asserted by TestDetailViewOverflowsAt80Columns
 		}
 		widest, at, lines := measureFrame(sizedFrames(m, c.w, c.h)[c.frame])
 		t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", c.frame, c.w, c.h, widest, at, len(lines))
@@ -424,47 +437,46 @@ func TestFrameFitsTerminal(t *testing.T) {
 
 // overflowAt80 records the frames that FAIL manual-QA item 12 at 80x24 and
 // the exact width each one overflows to. This is a defect list, not a set
-// of floors: the pass condition for both entries is 80, and neither meets
+// of floors: the pass condition for every entry is 80, and no entry meets
 // it.
 //
-// SessionsRender's format string reserves 150 cells across its fourteen
-// columns and never narrows -- measured at 60, 80, 100, 120 and 140 columns
-// it comes back 153 cells wide every time on the v0.1 corpus. 153 is what
-// this corpus produces, not a constant of the layout: fmt pads a short
-// field but never truncates a long one, so a burn rate past "$276.68/hr" in
-// %-8s or a cache figure past "10840.8k" in %-18s pushes the row wider
-// still.
+// The session table used to be in here at 153 cells and is not any more.
+// SessionsRender now narrows: columns shrink, the context gauge collapses
+// to "~ 55%", the token triple collapses to one figure, surplus rows become
+// a "N more" indicator, and $/$HR/CPU%/RSS survive at every width. It
+// measures 80 cells at 80x24 on this corpus and is asserted to fit by
+// TestFrameFitsTerminal like any other frame.
 //
-// The fix is a responsive column set in internal/ui/panel/sessions.go
-// (Task 12's file, out of Task 14's scope): drop or shrink columns as the
-// terminal narrows, and truncate every field rather than the three that
-// are truncated today. When that lands, this test and this map are deleted
-// and the three 80x24 pairs fall back into TestFrameFitsTerminal, which
-// already enumerates them.
-var overflowAt80 = map[string]int{"table": 153, "detail": 103}
+// The detail view was never narrowed and still reserves 103 cells. The fix
+// is the same shape as the table's -- a responsive column set in
+// internal/ui/panel/detail.go -- and when it lands, delete this map and
+// TestDetailViewOverflowsAt80Columns, tick manual-QA item 12, and drop the
+// remaining detail-view paragraph from docs/limitations.md. The 80x24 pair
+// is already enumerated in frameCases and falls back into
+// TestFrameFitsTerminal.
+var overflowAt80 = map[string]int{"detail": 103}
 
-// TestSessionTableOverflowsAt80Columns pins the known failure of manual-QA
-// item 12 so that "the tests pass" cannot be read as "the frame fits at
-// 80x24" -- it does not, and this test says so in its name.
+// TestDetailViewOverflowsAt80Columns pins the known failure of manual-QA
+// item 12 so that "the tests pass" cannot be read as "every frame fits at
+// 80x24" -- the detail view does not, and this test says so in its name.
 //
-// The widths are pinned with == rather than <=, deliberately. An
-// inequality would let the defect outlive its own fix; equality fails both
-// when the overflow grows and when Task 12's responsive column set removes
-// it, which is exactly when this test should be deleted.
-func TestSessionTableOverflowsAt80Columns(t *testing.T) {
+// The width is pinned with == rather than <=, deliberately. An inequality
+// would let the defect outlive its own fix; equality fails both when the
+// overflow grows and when a responsive column set removes it, which is
+// exactly when this test should be deleted.
+func TestDetailViewOverflowsAt80Columns(t *testing.T) {
 	ctx := context.Background()
 	clock := replay.NewVirtualClock(replayStart)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
 	frames := sizedFrames(m, 80, 24)
-	for _, name := range []string{"table", "detail"} {
-		want := overflowAt80[name]
+	for name, want := range overflowAt80 {
 		widest, at, lines := measureFrame(frames[name])
 		t.Logf("KNOWN DEFECT (manual-QA item 12): %s frame at 80x24 renders %d cells wide, %d cells past the terminal", name, widest, widest-80)
 		if widest != want {
 			t.Errorf("%s frame at 80x24: widest line is %d cells, pinned at %d.\n"+
-				"If it is now <= 80 the layout defect is fixed: delete TestSessionTableOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the session-table section from docs/limitations.md.\n"+
+				"If it is now <= 80 the layout defect is fixed: delete TestDetailViewOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the detail-view paragraph from docs/limitations.md.\n"+
 				"If it grew, the layout regressed further:\n%q",
 				name, widest, want, stripANSI(lines[at]))
 		}
@@ -477,17 +489,37 @@ func TestSessionTableOverflowsAt80Columns(t *testing.T) {
 }
 
 // TestEveryFrameCaseIsCovered asserts the split between the two tests above
-// is total: every pair in frameCases is either asserted to fit or listed as
-// a known overflow, never dropped by both.
+// is total and exclusive: every pair in frameCases is asserted by exactly
+// one of them, never by both and never by neither.
+//
+// The check that earns its keep is against sizedFrames, not against a
+// restatement of the expected answer: every frame the model can render must
+// be enumerated at every size, so adding a panel cannot leave it unmeasured
+// while the suite still reports "the frame fits".
 func TestEveryFrameCaseIsCovered(t *testing.T) {
+	enumerated := map[string]map[int]bool{}
 	for _, c := range frameCases {
-		_, known := overflowAt80[c.frame]
-		if c.w != 80 && known {
-			// overflowAt80 is scoped to 80x24; wider sizes are asserted to fit.
+		if enumerated[c.frame] == nil {
+			enumerated[c.frame] = map[int]bool{}
+		}
+		enumerated[c.frame][c.w] = true
+	}
+
+	ctx := context.Background()
+	clock := replay.NewVirtualClock(replayStart)
+	sys, proc, agent := newReplaySources(t)
+	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, 1)
+
+	for name := range sizedFrames(m, 80, 24) {
+		widths, ok := enumerated[name]
+		if !ok {
+			t.Errorf("sizedFrames renders frame %q, which frameCases never enumerates: it is measured by neither test", name)
 			continue
 		}
-		if c.w == 80 && !known && c.frame != "help" {
-			t.Errorf("frame %q at 80x24 is neither asserted to fit nor listed in overflowAt80", c.frame)
+		for _, w := range []int{80, 160, 200} {
+			if !widths[w] {
+				t.Errorf("frame %q is not enumerated at %d columns", name, w)
+			}
 		}
 	}
 	for name := range overflowAt80 {

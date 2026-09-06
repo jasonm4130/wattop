@@ -70,10 +70,19 @@ func TestSoCGolden(t *testing.T) {
 }
 
 // TestDegradedRendersDash renders mactop-degraded.jsonl, which is missing the
-// dram_*_bw_gbs keys entirely, and asserts DRAM bandwidth renders as a dash.
-// Its ANE bandwidth key IS present and reads exactly 0, and that renders as
-// 0.0 GB/s: absence is a dash, a zero reading is a zero. Collapsing the two
-// is what hid live DRAM traffic behind a dash (QA 2026-09-06 §2).
+// dram_*_bw_gbs keys entirely, and asserts every bandwidth figure renders as
+// a dash.
+//
+// The ANE key IS present in that fixture and reads exactly 0, and it dashes
+// too. That is not the same rule the live sampler follows: internal/soc
+// tracks which ioreport.m branch produced DRAM bytes (DRAMBWSource) and can
+// therefore publish a measured 0.0 as a reading. mactop's headless JSON --
+// the only thing this fixture format carries -- has no such flag, so a 0 in
+// it is indistinguishable from an absent channel and
+// internal/collect/replay treats it as unresolved. Distinguishing the two
+// where the data allows it is what stopped live DRAM traffic hiding behind a
+// dash (QA 2026-09-06 §2); claiming to distinguish them where it does not
+// would be the same error in the other direction.
 func TestDegradedRendersDash(t *testing.T) {
 	sample := loadFixtureSample(t, "mactop-degraded.jsonl")
 	r, err := theme.Load("wattop-dark")
@@ -86,8 +95,8 @@ func TestDegradedRendersDash(t *testing.T) {
 	if !strings.Contains(out, "BW     DRAM R —  W —") {
 		t.Errorf("expected absent DRAM bandwidth channels to render as dashes, got:\n%s", out)
 	}
-	if !strings.Contains(out, "ANE 0.0 GB/s") {
-		t.Errorf("expected the present-but-zero ANE channel to render as a reading, got:\n%s", out)
+	if !strings.Contains(out, "BW     DRAM R —  W —  ANE —") {
+		t.Errorf("expected the present-but-zero ANE channel to dash on the headless-JSON path, got:\n%s", out)
 	}
 }
 

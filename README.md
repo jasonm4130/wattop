@@ -58,12 +58,14 @@ wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```
 
-**Terminal width: the session table needs at least 150 columns**, and 153
-for the widest row in the v0.1 test corpus. Below that it does not narrow —
-it renders at full width and the terminal wraps it. A long burn rate or a
-multi-million-token cache figure overruns its column and pushes the row
-wider still, so size the window generously; see
-[`docs/limitations.md`](docs/limitations.md).
+**Terminal width: the session table fits any width; the detail view needs
+103 columns.** The table narrows — columns shrink, the context gauge
+collapses to `~ 55%`, the token triple collapses to one figure, surplus
+rows become a `▼ N more` marker, and `$`, `$/HR`, `CPU%` and `RSS` survive
+at every width. Measured at 80x24 on live sessions it renders exactly 80
+cells with nothing past the terminal edge. The **detail view** (`enter`)
+has not been narrowed and still reserves 103 cells, so it is cut off below
+that; see [`docs/limitations.md`](docs/limitations.md).
 
 `wattop doctor` is the first thing to run on a new machine or after a
 macOS upgrade: it prints which SoC channels resolved, how many processes
@@ -127,7 +129,13 @@ hasn't published yet.
 - Bandwidth renders `—` only where no source exists; a channel that
   resolves and reads zero renders `0.0`. On this chip no DRAM byte
   counter resolves at all, so DRAM shows one power-derived total, marked
-  as an estimate (`Total ~9.2 GB/s`) with no read/write split.
+  as an estimate (`Total ~14.3 GB/s`) with no read/write split.
+- The temperature row shows the three semantic sensors (`CPU`, `GPU`,
+  `SOC`) and omits any that did not resolve, rather than every raw SMC key
+  the chip exposes.
+- `$/hr` counts only spend wattop watched happen. Cost already on disk when
+  it starts is baselined, so a fresh launch reads `$0.00/hr` rather than
+  extrapolating hours of history into a rate.
 
 See [`docs/limitations.md`](docs/limitations.md) for the full list with
 evidence, and [`docs/manual-qa.md`](docs/manual-qa.md) for the checklist
