@@ -91,7 +91,10 @@ func (b *Book) Cost(model string, u domain.Usage, promptTokens int64) (usd float
 	outputRate := tieredRate(e, "output_cost_per_token", promptTokens)
 	cacheReadRate := tieredRate(e, "cache_read_input_token_cost", promptTokens)
 	cacheCreateRate := tieredRate(e, "cache_creation_input_token_cost", promptTokens)
-	cacheCreate1hRate, _ := asFloat(e["cache_creation_input_token_cost_above_1hr"])
+	cacheCreate1hRate := tieredRate(e, "cache_creation_input_token_cost_above_1hr", promptTokens)
+	if cacheCreate1hRate == 0 && u.CacheCreate1h > 0 {
+		cacheCreate1hRate = cacheCreateRate
+	}
 
 	billableInput := u.Input - u.CachedInput
 	if billableInput < 0 {

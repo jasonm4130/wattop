@@ -121,6 +121,43 @@ func TestCodexCachedInputIsSubtracted(t *testing.T) {
 	}
 }
 
+// TestCache1hFallsBackWhenAboveKeyAbsent prices a synthetic entry that
+// carries cache_creation_input_token_cost (the 5m rate) but no
+// cache_creation_input_token_cost_above_1hr key at all -- the shape 40 of
+// the 66 committed table entries have. Reading the absent key as a bare 0
+// would silently price every ephemeral_1h_input_token at $0.00 while still
+// reporting Priced == true; the fallback must charge the 5m rate instead so
+// the total matches pricing the same tokens as CacheCreate5m.
+func TestCache1hFallsBackWhenAboveKeyAbsent(t *testing.T) {
+	b := bookFrom(modelTable{
+		"synthetic-no-1hr-key": modelEntry{
+			"input_cost_per_token":            1e-06,
+			"output_cost_per_token":           2e-06,
+			"cache_read_input_token_cost":     1e-07,
+			"cache_creation_input_token_cost": 1.25e-06,
+			// deliberately no cache_creation_input_token_cost_above_1hr
+		},
+	})
+
+	const tokens = 1_000_000
+
+	got1h, priced := b.Cost("synthetic-no-1hr-key", domain.Usage{CacheCreate1h: tokens}, 0)
+	if !priced {
+		t.Fatalf("Cost() priced = false, want true")
+	}
+	got5m, priced := b.Cost("synthetic-no-1hr-key", domain.Usage{CacheCreate5m: tokens}, 0)
+	if !priced {
+		t.Fatalf("Cost() priced = false, want true")
+	}
+
+	if got1h == 0 {
+		t.Fatalf("Cost() = 0 for CacheCreate1h with no above_1hr key, want the 5m rate applied as a fallback, never $0.00")
+	}
+	if !almostEqual(got1h, got5m, 1e-9) {
+		t.Fatalf("Cost() with CacheCreate1h = %.9f, want it to equal the CacheCreate5m total %.9f (fallback to the 5m rate)", got1h, got5m)
+	}
+}
+
 // TestTierSelectedFromPresentKeys asserts tier selection is driven by which
 // *_above_<N>_tokens keys an entry carries, never a hardcoded tier name:
 // gpt-5.6-terra genuinely carries *_above_272k_tokens rates, so a request
