@@ -1,0 +1,99 @@
+[
+  [
+    {
+      "pid": 1234,
+      "comm": "2.1.261",
+      "argv": ["claude"],
+      "cwd": "/home/u/project",
+      "rss_bytes": 512000000,
+      "cpu_pct": 12.5,
+      "disk_read_b": 1048576,
+      "disk_write_b": 262144,
+      "start_time": "2026-09-06T09:00:00Z",
+      "gpu_ms_per_sec": 20.026,
+      "gpu_pct_approx": 3.2
+    },
+    {
+      "pid": 5678,
+      "comm": "codex",
+      "argv": ["codex", "exec", "--json", "--cd", "/home/u/repo"],
+      "cwd": "/home/u/repo",
+      "rss_bytes": 210000000,
+      "cpu_pct": 4.1,
+      "disk_read_b": 4096,
+      "disk_write_b": 8192,
+      "start_time": "2026-09-06T09:05:00Z",
+      "gpu_ms_per_sec": null,
+      "gpu_pct_approx": null
+    },
+    {
+      "pid": 9012,
+      "comm": "bash",
+      "argv": ["bash", "-c", "sleep 60"],
+      "cwd": "/home/u",
+      "rss_bytes": 3145728,
+      "cpu_pct": 0.1,
+      "disk_read_b": 0,
+      "disk_write_b": 0,
+      "start_time": "2026-09-06T09:10:00Z",
+      "gpu_ms_per_sec": null,
+      "gpu_pct_approx": null
+    }
+  ],
+  [
+    {
+      "pid": 1234,
+      "comm": "2.1.261",
+      "argv": ["claude"],
+      "cwd": "/home/u/project",
+      "rss_bytes": 520000000,
+      "cpu_pct": 15.0,
+      "disk_read_b": 2097152,
+      "disk_write_b": 524288,
+      "start_time": "2026-09-06T09:00:00Z",
+      "gpu_ms_per_sec": null,
+      "gpu_pct_approx": null
+    },
+    {
+      "pid": 5678,
+      "comm": "codex",
+      "argv": ["codex", "exec", "--json", "--cd", "/home/u/repo"],
+      "cwd": "/home/u/repo",
+      "rss_bytes": 215000000,
+      "cpu_pct": 3.8,
+      "disk_read_b": 4096,
+      "disk_write_b": 8192,
+      "start_time": "2026-09-06T09:05:00Z",
+      "gpu_ms_per_sec": null,
+      "gpu_pct_approx": null
+    }
+  ],
+  [
+    {
+      "pid": 1234,
+      "comm": "2.1.261",
+      "argv": ["claude"],
+      "cwd": "/home/u/project",
+      "rss_bytes": 530000000,
+      "cpu_pct": 9.4,
+      "disk_read_b": 3145728,
+      "disk_write_b": 786432,
+      "start_time": "2026-09-06T09:00:00Z",
+      "gpu_ms_per_sec": 18.5,
+      "gpu_pct_approx": 2.9
+    },
+    {
+      "pid": 5678,
+      "comm": "codex",
+      "argv": ["codex", "exec", "--json", "--cd", "/home/u/repo"],
+      "cwd": "/home/u/repo",
+      "rss_bytes": 216000000,
+      "cpu_pct": 3.5,
+      "disk_read_b": 4096,
+      "disk_write_b": 8192,
+      "start_time": "2026-09-06T09:05:00Z",
+      "gpu_ms_per_sec": null,
+      "gpu_pct_approx": null
+    }
+  ]
+]
