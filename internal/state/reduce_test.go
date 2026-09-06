@@ -611,3 +611,40 @@ func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 		t.Fatalf("live spend after a backfill: BurnUSDPerHr = %v, implausibly large", *s.BurnUSDPerHr)
 	}
 }
+
+// TestExpiredSessionIsForgottenByTheBurnTracker: dropping a row past
+// sessionTTL must forget its burn state too. Otherwise the tracker keeps one
+// entry per session for the life of the process, and an id that comes back
+// is diffed against a cumulative cost from before it left — the backfill
+// spike in miniature.
+func TestExpiredSessionIsForgottenByTheBurnTracker(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+
+	mk := func(usage int64) domain.Session {
+		return domain.Session{
+			Agent:  "claude",
+			ID:     "s1",
+			Status: "busy",
+			Model:  "claude-opus-5",
+			Usage:  domain.Usage{Input: usage, Output: usage / 2},
+			Tools:  []domain.ToolCall{{Name: "Bash", ID: "t1", At: at(0)}},
+		}
+	}
+
+	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{mk(1_000_000)}})
+	st.Reduce(Inputs{At: at(1), Sessions: []domain.Session{mk(2_000_000)}})
+
+	// Vanish, then past sessionTTL: the row drops.
+	if snap := st.Reduce(Inputs{At: at(40)}); hasSession(snap, "claude", "s1") {
+		t.Fatalf("session still present past sessionTTL, want it dropped")
+	}
+
+	// The same id returns, having spent a great deal while it was gone.
+	back := mk(40_000_000)
+	back.Tools = []domain.ToolCall{{Name: "Bash", ID: "t2", At: at(41)}}
+	snap := st.Reduce(Inputs{At: at(41), Sessions: []domain.Session{back}})
+	s := findSession(t, snap, "claude", "s1")
+	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr != 0 {
+		t.Fatalf("returning session: BurnUSDPerHr = %v, want 0 — it must baseline again, not diff against pre-drop cost", s.BurnUSDPerHr)
+	}
+}

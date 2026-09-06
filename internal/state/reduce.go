@@ -101,6 +101,13 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 
 		if in.At.Sub(tr.ttlClock) > sessionTTL {
 			delete(st.tracked, key)
+			// The tracker keeps its own per-session state, so dropping the
+			// row here without forgetting it leaks one entry per session
+			// for the life of the process — and leaves a stale cumulative
+			// cost to diff against if the id ever comes back, which is the
+			// backfill spike in miniature. A returning session must
+			// baseline again like any first sighting.
+			st.burn.Forget(key.Agent + ":" + key.ID)
 			delete(st.burnLastCost, key.Agent+":"+key.ID)
 			delete(st.histories, key.Agent+":"+key.ID+":cpu")
 			delete(st.histories, key.Agent+":"+key.ID+":gpu")
