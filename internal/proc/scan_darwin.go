@@ -3,9 +3,9 @@
 // Package proc's Apple-Silicon implementation: a hand-written CGO process
 // scanner (no gopsutil, no third-party dependency). Enumeration and the
 // per-pid syscalls live in scan_darwin.c; this file owns orchestration, the
-// anchored start-time conversion (delta.go's StartWall) and the CPU/GPU
-// deltas (delta.go's trackers). All of it is passwordless for the calling
-// user's own processes.
+// wall-clock start-time conversion (delta.go's ProcStartWall) and the
+// CPU/GPU deltas (delta.go's trackers). All of it is passwordless for the
+// calling user's own processes.
 package proc
 
 /*
@@ -14,11 +14,11 @@ package proc
 #include <sys/types.h>
 #include <mach/mach_time.h>
 
-int wattop_list_pids(pid_t **out_pids, int *out_count);
+int wattop_list_pids(pid_t **out_pids, int64_t **out_start_usec, int *out_count);
 void wattop_free(void *p);
 int wattop_task_info(pid_t pid, uint64_t *rss_bytes, uint64_t *cpu_ticks);
 int wattop_comm(pid_t pid, char *buf, int buflen);
-int wattop_rusage(pid_t pid, uint64_t *diskread, uint64_t *diskwrite, uint64_t *start_abstime);
+int wattop_rusage(pid_t pid, uint64_t *diskread, uint64_t *diskwrite);
 int wattop_cwd(pid_t pid, char *buf, int buflen);
 int wattop_argv(pid_t pid, char *buf, int bufcap, int *out_size, int *out_argc);
 */
@@ -100,12 +100,13 @@ func (s *Scanner) Close() error { return nil }
 // CPUTracker and GPUTracker in delta.go.
 func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	s.tbOnce.Do(func() {
-		// The timebase converts Mach absolute ticks to nanoseconds and is
-		// load-bearing twice per pid: for cumulative CPU time and for the
-		// start-abstime anchor. It is 125/3 on Apple Silicon (1/1 on
-		// Intel); a failed read leaves both fields zero, so fall back to
+		// The timebase converts Mach absolute ticks to nanoseconds. It is
+		// load-bearing for exactly one field now — pti_total_user +
+		// pti_total_system, which proc_pidinfo reports in Mach units — and
+		// deliberately not for StartTime. It is 125/3 on Apple Silicon (1/1
+		// on Intel); a failed read leaves both fields zero, so fall back to
 		// 1/1 rather than letting MachTicksToNs's denom==0 guard silently
-		// zero every duration in the scan.
+		// zero every CPU duration in the scan.
 		var tb C.mach_timebase_info_data_t
 		if C.mach_timebase_info(&tb) != 0 || tb.denom == 0 {
 			s.timebaseNum, s.timebaseDen = 1, 1
@@ -115,18 +116,24 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 		s.timebaseDen = uint32(tb.denom)
 	})
 
-	// Read the anchor pair adjacently, once per scan (not once per pid) —
-	// see delta.go's StartWall doc comment for why this is load-bearing.
-	nowTicks := uint64(C.mach_absolute_time())
+	// One wall clock read per scan, so every CPU and GPU delta in this scan
+	// shares a basis. Process start times do NOT come from here, and do not
+	// come from any Mach clock — see the startUsec slice below.
 	nowWall := time.Now()
 
+	// The enumeration sysctl yields the pid list and, in the same pass,
+	// each process's wall-clock start time (kinfo_proc's p_starttime, in
+	// microseconds since the Unix epoch). The two slices are parallel.
 	var pidsPtr *C.pid_t
+	var startPtr *C.int64_t
 	var count C.int
-	if C.wattop_list_pids(&pidsPtr, &count) != 0 {
+	if C.wattop_list_pids(&pidsPtr, &startPtr, &count) != 0 {
 		return nil, fmt.Errorf("proc: sysctl(KERN_PROC_ALL) enumeration failed")
 	}
 	defer C.wattop_free(unsafe.Pointer(pidsPtr))
+	defer C.wattop_free(unsafe.Pointer(startPtr))
 	pids := unsafe.Slice(pidsPtr, int(count))
+	startUsec := unsafe.Slice(startPtr, int(count))
 
 	gpuTable, gpuErr := gpuNsTable()
 	var gpuMsPerSec map[int]float64
@@ -138,7 +145,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	out := make([]domain.ProcSample, 0, len(pids))
 	alive := make(map[int]bool, len(pids))
 
-	for _, cpid := range pids {
+	for i, cpid := range pids {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -167,14 +174,27 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 			comm = C.GoString(&commBuf[0])
 		}
 
-		var diskRead, diskWrite, startAbstime C.uint64_t
-		var startTime time.Time
-		if C.wattop_rusage(cpid, &diskRead, &diskWrite, &startAbstime) == 0 {
-			startTime = StartWall(uint64(startAbstime), nowTicks, s.timebaseNum, s.timebaseDen, nowWall)
-		}
-		// On rusage failure (permission error, or the pid is gone),
-		// disk counters stay zero and startTime stays the zero time —
-		// best-effort, per the spec: leave the field empty, carry on.
+		var diskRead, diskWrite C.uint64_t
+		_ = C.wattop_rusage(cpid, &diskRead, &diskWrite)
+		// On rusage failure (permission error, or the pid is gone), the
+		// disk counters stay zero — best-effort, per the spec: leave the
+		// field empty, carry on.
+
+		// StartTime comes from the enumeration's p_starttime, a wall-clock
+		// timeval, and never from a Mach tick count anchored against a
+		// clock read now. The plan's Task 6 specifies the latter; it cannot
+		// work, and the deviation is deliberate. Measured on this machine
+		// (uptime 9.74 days, of which 2.97 days asleep): loginwindow (pid
+		// 410, started 20s after boot) computes 2026-08-30 18:18 from an
+		// absolute-clock anchor against `ps`/kern.boottime's 2026-08-27
+		// 18:56, a 71.37h error; a continuous-clock anchor fixes that pid
+		// and breaks a just-started one by the same 71.37h, because
+		// ri_proc_start_abstime is itself stamped on the absolute clock (a
+		// 3.3ms-old process stamps it 78,444 ticks below the absolute
+		// reading and 6.17e12 below the continuous one). p_starttime
+		// matched `ps -o lstart=` to the second on both. Full reasoning in
+		// StartWall's doc comment in delta.go.
+		startTime := ProcStartWall(int64(startUsec[i]))
 
 		var cwdBuf [cwdBufSize]C.char
 		cwdBuf[0] = 0

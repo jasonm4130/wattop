@@ -158,13 +158,15 @@ func RescaleGPUPct(msPerSec map[int]float64, systemGPUActivePct *float64) map[in
 // Silicon the timebase is 125/3, so a tick is ~41.67ns and treating raw
 // ticks as nanoseconds understates every duration by ~41.7x.
 //
-// Two counters in this package are tick counts, not durations, and both
-// must come through here: proc_pidinfo(PROC_PIDTASKINFO)'s
-// pti_total_user + pti_total_system (filled from task_absolutetime_info,
-// which reports Mach units despite the plain "total_user" naming — a `yes`
-// process pinned to one core measured 2.39% before this conversion existed
-// and 99.66% after, against ps's 95.9% for the same pid), and
-// proc_pid_rusage's ri_proc_start_abstime (see StartWall).
+// One counter in this package is a tick count rather than a duration and
+// must come through here: proc_pidinfo(PROC_PIDTASKINFO)'s pti_total_user
+// + pti_total_system (filled from task_absolutetime_info, which reports
+// Mach units despite the plain "total_user" naming — a `yes` process pinned
+// to one core measured 2.39% before this conversion existed and 99.66%
+// after, against ps's 95.9% for the same pid). proc_pid_rusage's
+// ri_proc_start_abstime is also a tick count but is no longer read at all;
+// StartWall's doc comment explains why no timebase conversion of it yields
+// a wall-clock start.
 //
 // The division is done as quotient-plus-remainder so a large tick count
 // cannot overflow uint64 on the multiply. A zero denominator (a failed
@@ -176,6 +178,22 @@ func MachTicksToNs(ticks uint64, numer, denom uint32) uint64 {
 	}
 	q, r := ticks/uint64(denom), ticks%uint64(denom)
 	return q*uint64(numer) + r*uint64(numer)/uint64(denom)
+}
+
+// ProcStartWall converts a kinfo_proc p_starttime — microseconds since the
+// Unix epoch, stamped from the wall clock at exec and the same field `ps`
+// renders as lstart — into a time.Time. A non-positive value means the
+// kernel gave no start time; it returns the zero time.Time, which Task 9
+// must treat as "unmatched" rather than binding a rollout on it.
+//
+// This, not StartWall, is what the darwin scanner populates
+// domain.ProcSample.StartTime from. Read StartWall's doc comment below for
+// the measurements that forced the change.
+func ProcStartWall(usec int64) time.Time {
+	if usec <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(usec/1_000_000, (usec%1_000_000)*1000)
 }
 
 // StartWall converts a Mach start-abstime to a wall-clock instant using an
@@ -190,6 +208,39 @@ func MachTicksToNs(ticks uint64, numer, denom uint32) uint64 {
 // subtracted from an adjacently-read wall clock — is meaningful; the raw
 // tick count multiplied by the timebase and read as a Unix epoch lands
 // decades away from reality (see TestStartWall's negative case).
+//
+// # This function is deliberately NOT used by the scanner
+//
+// The plan's Task 6 specifies this anchor as the source of
+// domain.ProcSample.StartTime. It cannot be, and neither Mach clock fixes
+// it: the elapsed duration this computes is not the elapsed *wall* time
+// whenever the machine slept in between.
+//
+//   - mach_absolute_time() pauses during system sleep. Measured on the
+//     target laptop (uptime 9.74 days, 2.97 of them asleep): loginwindow
+//     (pid 410, started 20s after boot) anchors to 2026-08-30 18:18 where
+//     `ps -o lstart=` and kern.boottime both say 2026-08-27 18:56 — a
+//     71.37h error, exactly the accumulated sleep.
+//   - mach_continuous_time() keeps running through sleep, so swapping it in
+//     fixes boot-era pids and breaks recent ones by the same 71.37h. That
+//     is because ri_proc_start_abstime is itself stamped on the *absolute*
+//     clock: a process 3.3ms old stamps it 78,444 ticks below the absolute
+//     reading and 6.17e12 ticks below the continuous one. Anchoring an
+//     absolute-clock stamp against the continuous clock would have made a
+//     just-launched Claude Code process look three days old — worse for
+//     Task 9's rollout binding, which binds recent processes.
+//
+// No single-clock anchor can be right, because the wall gap between two
+// absolute-clock readings depends on sleep that happened between them and
+// the tick count does not record it. The scanner therefore reads the
+// kernel's own wall-clock stamp (kinfo_proc p_starttime, via
+// ProcStartWall), which matched `ps -o lstart=` to the second on both a
+// boot-era pid and a freshly-spawned one.
+//
+// StartWall is kept, exported and tested because the arithmetic is correct
+// for what it claims — an elapsed Mach duration subtracted from an anchor —
+// and TestStartWall pins the negative case (raw ticks read as an epoch land
+// decades away) that the plan asks for. Do not wire it back into Scan.
 func StartWall(startTicks, nowTicks uint64, numer, denom uint32, nowWall time.Time) time.Time {
 	if startTicks > nowTicks {
 		return time.Time{}

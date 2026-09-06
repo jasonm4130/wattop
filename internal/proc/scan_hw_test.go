@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,37 +199,128 @@ func TestScanHardware(t *testing.T) {
 			gpuRows, len(second))
 	}
 
-	// pid 1 (launchd) is the strongest epoch-anchoring check named in the
-	// spec: its start time must be within a few seconds of boot, where a
-	// short-lived test process's own start time would not catch a broken
-	// anchor. On this machine, run as a regular (non-root) user, pid 1 is
-	// launchd running as root: proc_pidinfo(PROC_PIDTASKINFO, 1) and
-	// proc_pid_rusage(1, ...) both fail with EPERM — confirmed directly
-	// with a small C probe outside this test, not assumed — so Scan skips
-	// pid 1's row entirely, the same way it skips any other-user pid. That
-	// is a genuine conflict between the plan's "no sudo prompt" acceptance
-	// requirement and its "assert it for pid 1" suggestion on this
-	// specific machine/user; this test degrades to a logged note rather
-	// than failing or requiring sudo.
+	// StartTime is cross-checked against `ps` for EVERY row, and this is
+	// the assertion that closes the start-time question. `ps` renders
+	// kinfo_proc's p_starttime, a wall-clock timeval stamped at exec, and
+	// so is fully independent of the Mach clocks — which is the point: an
+	// earlier revision of this scanner anchored StartTime on
+	// mach_absolute_time and dated pid 410 (loginwindow) 71.37h late on
+	// this machine, and nothing in this file caught it.
+	//
+	// The plan asks for the check to be made against pid 1, whose start
+	// must be within seconds of boot. That branch is gone rather than
+	// degraded to a log: pid 1 is root-owned launchd, proc_pidinfo(
+	// PROC_PIDTASKINFO, 1) fails EPERM without sudo, so Scan never emits a
+	// row for it and a pid-1 branch guards nothing on this machine/user.
+	// The `ps` cross-check below is strictly stronger — it covers hundreds
+	// of rows instead of one, it is exact rather than a boot-adjacency
+	// window, and it cannot silently skip.
 	boot := bootTime(t)
-	if initSample, ok := byPID[1]; ok {
-		if initSample.StartTime.IsZero() {
-			t.Fatalf("pid 1's StartTime is the zero time — epoch anchoring failed")
-		}
-		if initSample.StartTime.Before(boot.Add(-5*time.Second)) || initSample.StartTime.After(boot.Add(30*time.Second)) {
-			t.Fatalf("pid 1 StartTime %v is not within a few seconds of boot %v", initSample.StartTime, boot)
-		}
-	} else {
-		t.Logf("pid 1 (root-owned launchd) is not readable without sudo on this machine/user — skipping the pid-1-specific boot-time check; see comment above")
-	}
-
+	psStart := psStartTimes(t)
 	now := time.Now()
+
+	checked, zeroStart := 0, 0
+	var worstPID int
+	var worstSkew time.Duration
 	for _, ps := range second {
 		if ps.StartTime.IsZero() {
+			zeroStart++
 			continue
 		}
+		// A plausible wall-clock instant: no earlier than boot, no later
+		// than now. Weak on its own (it does not discriminate a
+		// sleep-skewed anchor, which moves start times forward), which is
+		// why it is the secondary check here and not the primary one.
 		if ps.StartTime.Before(boot.Add(-5*time.Second)) || ps.StartTime.After(now) {
 			t.Fatalf("pid %d StartTime %v is not a plausible wall-clock instant (want between boot %v and now %v)", ps.PID, ps.StartTime, boot, now)
 		}
+
+		want, ok := psStart[ps.PID]
+		if !ok {
+			// Started after, or exited before, the `ps` call — not a
+			// disagreement, just a race. Skip.
+			continue
+		}
+		skew := ps.StartTime.Sub(want)
+		if skew < 0 {
+			skew = -skew
+		}
+		if skew > psSkewTolerance {
+			t.Fatalf("pid %d (%s) StartTime %v disagrees with `ps -o lstart=` (%v) by %v, tolerance %v: "+
+				"StartTime must come from kinfo_proc p_starttime, never from a Mach tick count anchored "+
+				"against a clock read now — mach_absolute_time pauses during sleep and mach_continuous_time "+
+				"does not, so neither recovers a wall-clock start on a laptop that has slept",
+				ps.PID, ps.Comm, ps.StartTime, want, skew, psSkewTolerance)
+		}
+		if skew > worstSkew {
+			worstSkew, worstPID = skew, ps.PID
+		}
+		checked++
 	}
+
+	// Without a floor the loop above is vacuous: every row could carry a
+	// zero StartTime and nothing would be asserted. 20 is far below the
+	// hundreds of own-user processes any desktop session has and far above
+	// what a fluke could supply.
+	if checked < 20 {
+		t.Fatalf("only %d of %d rows had a StartTime cross-checked against `ps` (%d rows carried the zero time); "+
+			"want >= 20, or the start-time assertion is asserting nothing",
+			checked, len(second), zeroStart)
+	}
+	if zeroStart > 0 {
+		t.Logf("%d of %d rows carried a zero StartTime (kernel gave no p_starttime)", zeroStart, len(second))
+	}
+	fmt.Printf("start_time cross-checked against ps for %d pids; worst skew %v (pid %d), tolerance %v\n",
+		checked, worstSkew, worstPID, psSkewTolerance)
+}
+
+// psSkewTolerance bounds the disagreement between a row's StartTime and
+// `ps -o lstart=`. `ps` prints whole seconds, so a correct implementation
+// still differs by up to 1s of truncation; 2s leaves headroom without
+// coming anywhere near the multi-hour errors a mis-anchored Mach clock
+// produces.
+const psSkewTolerance = 2 * time.Second
+
+// psLstartLayout parses `ps -o lstart=` under LC_ALL=C, which prints e.g.
+// "Thu Aug 27 18:56:00 2026" — and "Sun Sep  6 12:43:08 2026" for a
+// single-digit day. The fields are re-joined with single spaces before
+// parsing, so the layout uses a plain "2" rather than "_2".
+const psLstartLayout = "Mon Jan 2 15:04:05 2006"
+
+// psStartTimes returns every pid's start time as `ps` reports it: the
+// kinfo_proc p_starttime wall-clock stamp, read through a path completely
+// independent of this package's syscalls. That independence is what makes
+// it a usable oracle for StartTime.
+func psStartTimes(t *testing.T) map[int]time.Time {
+	t.Helper()
+	cmd := exec.Command("ps", "-eo", "pid=,lstart=")
+	// LC_ALL must be forced: exec.Command inherits the parent environment,
+	// and the user's locale renders lstart as "Thu 27 Aug ..." rather than
+	// the "Thu Aug 27 ..." psLstartLayout expects. TZ is deliberately NOT
+	// forced — lstart is local time and ParseInLocation reads it as such.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("ps -eo pid=,lstart=: %v", err)
+	}
+	m := make(map[int]time.Time)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		when, err := time.ParseInLocation(psLstartLayout, strings.Join(fields[1:6], " "), time.Local)
+		if err != nil {
+			t.Fatalf("could not parse ps lstart %q: %v", line, err)
+		}
+		m[pid] = when
+	}
+	if len(m) < 50 {
+		t.Fatalf("ps reported start times for only %d pids, want >= 50 — the oracle did not parse", len(m))
+	}
+	return m
 }

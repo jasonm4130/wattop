@@ -1,6 +1,8 @@
 package proc
 
 import (
+	"os"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -307,4 +309,101 @@ func TestStartWall(t *testing.T) {
 			t.Fatalf("naive interpretation (%v) is not decades away from the correct anchor (%v): diff %v", naive, correct, diff)
 		}
 	})
+}
+
+func TestProcStartWall(t *testing.T) {
+	cases := []struct {
+		name string
+		usec int64
+		want time.Time
+	}{
+		{
+			// The real p_starttime measured for pid 410 (loginwindow) on
+			// the target laptop; `ps -o lstart= -p 410` printed
+			// "Thu Aug 27 18:56:00 2026" in AEST, i.e. 08:56:00 UTC.
+			name: "a real boot-era p_starttime",
+			usec: 1787820960200148,
+			want: time.Date(2026, 8, 27, 8, 56, 0, 200148000, time.UTC),
+		},
+		{
+			name: "microseconds survive the conversion",
+			usec: 1788662588402675,
+			want: time.Date(2026, 9, 6, 2, 43, 8, 402675000, time.UTC),
+		},
+		{
+			name: "zero means the kernel gave no start time",
+			usec: 0,
+			want: time.Time{},
+		},
+		{
+			name: "a negative stamp is garbage, not a pre-epoch process",
+			usec: -1,
+			want: time.Time{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ProcStartWall(tc.usec)
+			if !got.Equal(tc.want) {
+				t.Fatalf("ProcStartWall(%d) = %v, want %v", tc.usec, got.UTC(), tc.want)
+			}
+			if tc.want.IsZero() != got.IsZero() {
+				t.Fatalf("ProcStartWall(%d).IsZero() = %v, want %v", tc.usec, got.IsZero(), tc.want.IsZero())
+			}
+		})
+	}
+}
+
+// lineCommentRe strips whole-line and trailing // comments so the guard
+// below matches on code, not on the prose explaining the code.
+var lineCommentRe = regexp.MustCompile(`(?m)//.*$`)
+
+// TestScannerStartTimeIsNotMachAnchored is a source-text guard, and it is
+// deliberately a source-text guard: the defect it protects against lives in
+// scan_darwin.go, which carries //go:build darwin && arm64 && cgo and so is
+// never compiled — let alone tested — on Linux CI. This test runs
+// everywhere, including under CGO_ENABLED=0, and is the only thing that
+// turns the regression red before a human sees it on hardware.
+//
+// The regression: deriving domain.ProcSample.StartTime by subtracting a
+// Mach tick elapsed from a clock read now. Measured on the target laptop
+// (uptime 9.74 days, 2.97 of them asleep), a mach_absolute_time anchor put
+// pid 410's start 71.37h late against `ps -o lstart=`, and swapping in
+// mach_continuous_time moves the same error onto every recently-started
+// process instead — see StartWall's doc comment in delta.go for the full
+// measurement. The scanner must read the kernel's own wall-clock stamp
+// (kinfo_proc p_starttime, via ProcStartWall) and nothing else.
+func TestScannerStartTimeIsNotMachAnchored(t *testing.T) {
+	src, err := os.ReadFile("scan_darwin.go")
+	if err != nil {
+		t.Fatalf("reading scan_darwin.go: %v", err)
+	}
+	code := lineCommentRe.ReplaceAllString(string(src), "")
+
+	for _, banned := range []struct {
+		pattern *regexp.Regexp
+		why     string
+	}{
+		{
+			pattern: regexp.MustCompile(`mach_absolute_time`),
+			why:     "the absolute clock pauses during sleep, so an anchor on it dates every process that lived through a sleep too late by the accumulated sleep (71.37h measured on the target laptop)",
+		},
+		{
+			pattern: regexp.MustCompile(`mach_continuous_time`),
+			why:     "ri_proc_start_abstime is stamped on the absolute clock, so anchoring it against the continuous clock dates every recently-started process too early by the accumulated sleep — worse for Task 9, which binds recent processes",
+		},
+		{
+			pattern: regexp.MustCompile(`\bStartWall\(`),
+			why:     "StartWall is correct arithmetic over a Mach elapsed duration but no Mach clock yields a wall-clock start; use ProcStartWall over kinfo_proc p_starttime",
+		},
+	} {
+		if loc := banned.pattern.FindStringIndex(code); loc != nil {
+			t.Fatalf("scan_darwin.go calls %s at byte %d of its comment-stripped source: %s",
+				banned.pattern, loc[0], banned.why)
+		}
+	}
+
+	if !regexp.MustCompile(`\bProcStartWall\(`).MatchString(code) {
+		t.Fatalf("scan_darwin.go does not call ProcStartWall — StartTime must come from kinfo_proc p_starttime")
+	}
 }
