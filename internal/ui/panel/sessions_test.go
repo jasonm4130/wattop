@@ -679,3 +679,19 @@ func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
 		}
 	}
 }
+
+// TestUnknownModelRendersDash: the honesty rule applied to the MODEL
+// column. Two live Claude sessions on the 2026-09-06 QA machine rendered a
+// blank model cell, which reads as a broken renderer rather than as a
+// session whose transcript could not be found.
+func TestUnknownModelRendersDash(t *testing.T) {
+	r := loadDarkRoles(t)
+	out := SessionsRender([]domain.Session{
+		{Agent: "claude", ID: "sess-1", Status: "busy", BindConf: "exact", CWD: "/repo/x"},
+	}, r, 120, 3, -1, time.Time{}, Options{NoColor: true})
+
+	row := strings.Split(out, "\n")[1]
+	if !strings.Contains(row, "—") {
+		t.Errorf("a session with no model must render a dash in MODEL, got:\n%s", row)
+	}
+}

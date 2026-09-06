@@ -15,6 +15,7 @@ const (
 	actionThemeBack
 	actionCycleSort
 	actionToggleFilter
+	actionToggleShowAll
 	actionTogglePause
 	actionToggleHelp
 )
@@ -41,6 +42,8 @@ func keyAction(key string) action {
 		return actionCycleSort
 	case "f":
 		return actionToggleFilter
+	case "a":
+		return actionToggleShowAll
 	case "p":
 		return actionTogglePause
 	case "?":

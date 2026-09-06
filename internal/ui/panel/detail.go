@@ -35,7 +35,15 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	sectionHeader := func(text string) string { return styled(opts, r.Accent, text) }
 
 	lines = append(lines, fmt.Sprintf("Session  %s (%s)  bind=%s", s.ID, s.Agent, s.BindConf))
-	lines = append(lines, fmt.Sprintf("Model    %s   cwd %s", s.Model, s.CWD))
+	lines = append(lines, fmt.Sprintf("Model    %s   cwd %s", modelLabel(s.Model), s.CWD))
+	if s.Model == "" {
+		// An unresolved model says why on its own line rather than leaving
+		// the field blank: no transcript on disk means no model, no tokens
+		// and no cost for this session, and all three otherwise read as a
+		// genuine zero. Its own line, not a suffix on the one above, so the
+		// note cannot push the Model line past a narrow terminal's width.
+		lines = append(lines, "         no transcript on disk: tokens and cost unavailable")
+	}
 	lines = append(lines, "")
 
 	cost := "—"

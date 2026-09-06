@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,7 +59,18 @@ type sessionAgg struct {
 	subagentSizes    map[string]int64
 	highWaterMark    int64
 	lastPromptTokens int64
+	// nextTranscriptScan throttles the search for a transcript this
+	// session does not (yet) have one of. tail.Path stays empty until one
+	// is found, which is also what makes Model render as "—".
+	nextTranscriptScan time.Time
 }
+
+// transcriptRescanInterval is how long Poll waits before looking again for
+// a transcript it could not find. Short enough that a session whose file
+// appears a moment after the session file does still gets read; long enough
+// that a `claude -p` run with no transcript at all costs one directory glob
+// a minute rather than one per poll.
+const transcriptRescanInterval = time.Minute
 
 // resetAccumulators drops everything derived by summing or maximising over
 // transcript lines, for use when Tail reports the transcript was truncated
@@ -170,17 +182,29 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		s.agg[f.SessionID] = agg
 	}
 
-	transcriptPath := s.transcriptPath(f.CWD, f.SessionID)
-	if agg.tail.Path == "" {
-		agg.tail.Path = transcriptPath
+	// Resolving the transcript is a stat (plus, at most once every
+	// transcriptRescanInterval, a glob), so a session whose transcript has
+	// not appeared yet keeps being looked for instead of being written off
+	// on the first poll — while a headless run that will never have one
+	// does not re-glob every second for the life of the process.
+	if agg.tail.Path == "" && !now.Before(agg.nextTranscriptScan) {
+		if path, ok := s.resolveTranscript(f.CWD, f.SessionID); ok {
+			agg.tail.Path = path
+		} else {
+			agg.nextTranscriptScan = now.Add(transcriptRescanInterval)
+		}
 	}
 
-	res, err := Tail(agg.tail)
-	if err != nil && !os.IsNotExist(err) {
-		return domain.Session{}, err
+	var res TailResult
+	var err error
+	if agg.tail.Path != "" {
+		res, err = Tail(agg.tail)
+		if err != nil && !os.IsNotExist(err) {
+			return domain.Session{}, err
+		}
 	}
 	var lines [][]byte
-	if err == nil {
+	if agg.tail.Path != "" && err == nil {
 		if res.Reset {
 			// The transcript was truncated or replaced at the same path —
 			// Claude Code compacts a session's context in place — so the
@@ -323,12 +347,57 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	return sess, nil
 }
 
-// transcriptPath returns ~/.claude/projects/<cwd with '/' -> '-'>/<sessionId>.jsonl
+// transcriptPath returns ~/.claude/projects/<sanitised cwd>/<sessionId>.jsonl
 // — a sibling of the <sessionId>/ directory, not inside it.
 func (s *Source) transcriptPath(cwd, sessionID string) string {
 	return filepath.Join(s.projectsDir, sanitizeCWD(cwd), sessionID+".jsonl")
 }
 
+// resolveTranscript returns the path of this session's transcript, and
+// whether one was found at all.
+//
+// The derived path is tried first. When it does not exist the session's id
+// is looked for under every project directory instead: a session resumed in
+// a different cwd keeps its id but writes under the project directory it
+// was resumed in, so the id is the only identifier that survives.
+//
+// A session with no transcript anywhere is a real state, not an error — a
+// headless `claude -p` run has a session file and a subagents directory
+// under ~/.claude/projects but no <id>.jsonl of its own — so the caller
+// renders "—" for its model rather than an empty cell.
+func (s *Source) resolveTranscript(cwd, sessionID string) (string, bool) {
+	derived := s.transcriptPath(cwd, sessionID)
+	if _, err := os.Stat(derived); err == nil {
+		return derived, true
+	}
+	matches, err := filepath.Glob(filepath.Join(s.projectsDir, "*", sessionID+".jsonl"))
+	if err != nil || len(matches) == 0 {
+		return "", false
+	}
+	sort.Strings(matches) // deterministic when a session id somehow appears twice.
+	return matches[0], true
+}
+
+// sanitizeCWD encodes a cwd the way Claude Code names its project
+// directories: every character outside [A-Za-z0-9-] becomes '-'. In
+// practice that is '/', '.' and '_' — `/Users/me/.local/share/chezmoi`
+// becomes `-Users-me--local-share-chezmoi` (note the doubled dash where
+// `.local` lost its dot), and `dot_local` becomes `dot-local`.
+//
+// Replacing only '/' — which is what this did until the QA run of
+// 2026-09-06 — derives a directory that does not exist for any cwd
+// containing a dot or an underscore, so those sessions silently got no
+// transcript, and therefore no model, no usage and no cost.
 func sanitizeCWD(cwd string) string {
-	return strings.ReplaceAll(cwd, "/", "-")
+	var b strings.Builder
+	b.Grow(len(cwd))
+	for _, r := range cwd {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }

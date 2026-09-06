@@ -80,6 +80,7 @@ status — all without ever entering the TUI.
 | `t` / `T` | Cycle theme forward / back |
 | `s` | Cycle sort (status → cost → burn → cpu) |
 | `f` | Toggle subagent rows |
+| `a` | Show dormant sessions — stale rows bound to no live process are hidden by default, and the footer says how many |
 | `p` | Pause the display (collection keeps running) |
 | `?` | Toggle the help overlay |
 | `q` / `ctrl+c` | Quit |

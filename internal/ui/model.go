@@ -37,10 +37,14 @@ type Model struct {
 
 	sortIdx        int
 	filterHeadless bool
-	paused         bool
-	showDetail     bool
-	showHelp       bool
-	selected       int
+	// showAll disables the dormant-row filter (the `a` key). Off by
+	// default: a machine that ran Codex earlier in the day carries a dozen
+	// dead rollouts that would otherwise bury every live session.
+	showAll    bool
+	paused     bool
+	showDetail bool
+	showHelp   bool
+	selected   int
 
 	// noColor drops every ANSI escape from the rendered panels. cmd/wattop
 	// (Task 13) owns the --no-color flag and NO_COLOR; internal/ui reads
@@ -146,6 +150,9 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
 	case actionToggleFilter:
 		m.filterHeadless = !m.filterHeadless
 		m.clampSelection()
+	case actionToggleShowAll:
+		m.showAll = !m.showAll
+		m.clampSelection()
 	case actionTogglePause:
 		m.paused = !m.paused
 	case actionToggleHelp:
@@ -174,15 +181,34 @@ func (m *Model) cycleTheme(dir int) {
 	}
 }
 
-// visibleSessions applies the current sort and the headless-child filter.
-// filterHeadless hides subagent rows entirely (the child rows a headless
-// Task invocation spawns) rather than the top-level sessions.
+// dormant reports whether a session is both stale and bound to no live
+// process — a rollout or session file left behind by something that has
+// finished. Stale alone is not enough (a live process can idle past the
+// threshold) and unbound alone is not enough (a recent rollout whose pid
+// join failed is still worth showing); only the pair means nothing about
+// the row can be current.
+func dormant(s domain.Session) bool {
+	return s.Status == "stale" && (s.PID == nil || s.BindConf == "unknown")
+}
+
+// visibleSessions applies the dormant-row filter, the current sort and the
+// headless-child filter. filterHeadless hides subagent rows entirely (the
+// child rows a headless Task invocation spawns) rather than the top-level
+// sessions.
+//
+// It never mutates m.snap: the footer's machine totals, and --json, still
+// count every session including the ones hidden here.
 func (m Model) visibleSessions() []domain.Session {
 	if m.snap == nil {
 		return nil
 	}
-	out := make([]domain.Session, len(m.snap.Sessions))
-	copy(out, m.snap.Sessions)
+	out := make([]domain.Session, 0, len(m.snap.Sessions))
+	for _, s := range m.snap.Sessions {
+		if !m.showAll && dormant(s) {
+			continue
+		}
+		out = append(out, s)
+	}
 
 	if m.filterHeadless {
 		for i := range out {
@@ -190,25 +216,45 @@ func (m Model) visibleSessions() []domain.Session {
 		}
 	}
 
+	// Liveness is the primary key under every sort: a dormant row (shown
+	// only under `a`) never sits above a session that is running right
+	// now, whatever its cost or CPU. The metric is the secondary key, so
+	// the sort the user chose still orders the rows they came for.
+	metric := func(i, j int) bool { return false }
 	switch sortKeys[m.sortIdx] {
 	case "cost":
-		sort.SliceStable(out, func(i, j int) bool {
-			return costOrZero(out[i]) > costOrZero(out[j])
-		})
+		metric = func(i, j int) bool { return costOrZero(out[i]) > costOrZero(out[j]) }
 	case "burn":
-		sort.SliceStable(out, func(i, j int) bool {
-			return burnOrZero(out[i]) > burnOrZero(out[j])
-		})
+		metric = func(i, j int) bool { return burnOrZero(out[i]) > burnOrZero(out[j]) }
 	case "cpu":
-		sort.SliceStable(out, func(i, j int) bool {
-			return cpuOrZero(out[i]) > cpuOrZero(out[j])
-		})
+		metric = func(i, j int) bool { return cpuOrZero(out[i]) > cpuOrZero(out[j]) }
 	case "status":
-		// Default order: whatever Reduce/the sources produced. Status is
-		// not a metric to sort a slice by numerically, so "status" leaves
-		// ordering as-is rather than imposing an arbitrary rank.
+		// No numeric metric: "status" leaves each liveness group in
+		// whatever order Reduce and the sources produced.
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if di, dj := dormant(out[i]), dormant(out[j]); di != dj {
+			return !di
+		}
+		return metric(i, j)
+	})
 	return out
+}
+
+// hiddenSessions is how many top-level sessions the dormant filter is
+// currently keeping off screen — the count the footer advertises, so a
+// hidden row is never silently hidden.
+func (m Model) hiddenSessions() int {
+	if m.snap == nil || m.showAll {
+		return 0
+	}
+	n := 0
+	for _, s := range m.snap.Sessions {
+		if dormant(s) {
+			n++
+		}
+	}
+	return n
 }
 
 func costOrZero(s domain.Session) float64 {
@@ -307,7 +353,7 @@ func (m Model) View() tea.View {
 
 	soc := panel.Render(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
 	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, tableH, m.selected, m.snap.At, m.renderOpts())
-	footer := panel.FooterRender(m.snap, m.roles, m.width, footerH, sortKeys[m.sortIdx], m.themeName(), m.paused, m.renderOpts())
+	footer := panel.FooterRender(m.snap, m.roles, m.width, footerH, sortKeys[m.sortIdx], m.themeName(), m.paused, m.hiddenSessions(), m.renderOpts())
 
 	// A section given 0 height still contributes an empty string, and
 	// joining with a bare "+ \"\\n\" +" would insert a spurious blank line

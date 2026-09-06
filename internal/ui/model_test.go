@@ -363,3 +363,120 @@ func TestSoCPanelHeightInvariant(t *testing.T) {
 		}
 	}
 }
+
+// pidOf is a helper for building a bound session in the tests below.
+func pidOf(p int) *int { return &p }
+
+// dormantCorpus is the shape the 2026-09-06 QA run found on the live
+// machine: two live sessions buried under stale, unbound Codex rollouts.
+func dormantCorpus() []domain.Session {
+	return []domain.Session{
+		{Agent: "codex", ID: "rollout-old-1", Status: "stale", BindConf: "unknown"},
+		{Agent: "claude", ID: "live-1", Status: "busy", BindConf: "exact", PID: pidOf(101)},
+		{Agent: "codex", ID: "rollout-old-2", Status: "stale", BindConf: "unknown"},
+		{Agent: "claude", ID: "live-2", Status: "waiting", BindConf: "exact", PID: pidOf(102)},
+		{Agent: "codex", ID: "stale-but-bound", Status: "stale", BindConf: "exact", PID: pidOf(103)},
+	}
+}
+
+// TestDormantRowsHiddenByDefault: a session that is both stale and bound to
+// no process is off the table until `a` asks for it, and a stale session
+// that still holds a pid is never hidden.
+func TestDormantRowsHiddenByDefault(t *testing.T) {
+	m := newTestModel(t)
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	m = mi.(Model)
+
+	got := make([]string, 0, 5)
+	for _, s := range m.visibleSessions() {
+		got = append(got, s.ID)
+	}
+	if len(got) != 3 {
+		t.Fatalf("visible sessions = %v, want the two live rows plus the stale-but-bound one", got)
+	}
+	for _, id := range got {
+		if strings.HasPrefix(id, "rollout-old") {
+			t.Errorf("a stale, unbound rollout is still on the table: %v", got)
+		}
+	}
+	if m.hiddenSessions() != 2 {
+		t.Errorf("hiddenSessions() = %d, want 2", m.hiddenSessions())
+	}
+	if n := len(m.snap.Sessions); n != 5 {
+		t.Errorf("the snapshot itself lost rows: %d, want all 5 kept for the machine totals", n)
+	}
+}
+
+// TestShowAllTogglesDormantRows: `a` brings the hidden rows back, drops the
+// footer's count to zero, and toggles off again.
+func TestShowAllTogglesDormantRows(t *testing.T) {
+	m := newTestModel(t)
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	m = mi.(Model)
+
+	mi, _ = m.Update(keyMsg("a"))
+	m = mi.(Model)
+	if n := len(m.visibleSessions()); n != 5 {
+		t.Fatalf("after `a`, visible sessions = %d, want all 5", n)
+	}
+	if m.hiddenSessions() != 0 {
+		t.Errorf("after `a`, hiddenSessions() = %d, want 0", m.hiddenSessions())
+	}
+
+	mi, _ = m.Update(keyMsg("a"))
+	m = mi.(Model)
+	if n := len(m.visibleSessions()); n != 3 {
+		t.Errorf("after a second `a`, visible sessions = %d, want 3 again", n)
+	}
+}
+
+// TestLiveSessionsSortFirst: under `a`, a dormant row never sits above a
+// live one, whatever the sort key says — including "cost", where the
+// dormant row is the most expensive session on the machine.
+func TestLiveSessionsSortFirst(t *testing.T) {
+	m := newTestModel(t)
+	expensive := 500.0
+	cheap := 1.0
+	sessions := []domain.Session{
+		{Agent: "codex", ID: "dormant-expensive", Status: "stale", BindConf: "unknown", CostUSD: &expensive, Priced: true},
+		{Agent: "claude", ID: "live-cheap", Status: "busy", BindConf: "exact", PID: pidOf(1), CostUSD: &cheap, Priced: true},
+	}
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), sessions))
+	m = mi.(Model)
+
+	mi, _ = m.Update(keyMsg("a")) // show all
+	m = mi.(Model)
+	for sortKeys[m.sortIdx] != "cost" {
+		mi, _ = m.Update(keyMsg("s"))
+		m = mi.(Model)
+	}
+
+	vis := m.visibleSessions()
+	if len(vis) != 2 {
+		t.Fatalf("want both sessions visible, got %d", len(vis))
+	}
+	if vis[0].ID != "live-cheap" {
+		t.Errorf("sorted by cost, the order is %s then %s; a live session must sort above a dormant one",
+			vis[0].ID, vis[1].ID)
+	}
+}
+
+// TestFooterAdvertisesHiddenCount: a hidden row is never silently hidden —
+// the footer says how many, and which key brings them back.
+func TestFooterAdvertisesHiddenCount(t *testing.T) {
+	m := newTestModel(t)
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	m = mi.(Model)
+	m.width, m.height = 120, 40
+
+	out := m.View().Content
+	if !strings.Contains(out, "2 hidden (a)") {
+		t.Errorf("footer does not report the hidden rows; got:\n%s", out)
+	}
+
+	mi, _ = m.Update(keyMsg("a"))
+	m = mi.(Model)
+	if out := m.View().Content; strings.Contains(out, "hidden (a)") {
+		t.Errorf("footer still claims hidden rows after `a`; got:\n%s", out)
+	}
+}

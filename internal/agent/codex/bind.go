@@ -173,6 +173,19 @@ func nearestNotBefore(cands []candidate, metaAt time.Time) (int, bool) {
 	return best, true
 }
 
+// anyCodexCandidate reports whether procs contains any process that could
+// own a rollout. Source.Poll uses it as the cheap gate on reading rollouts
+// older than its lookback window: with no codex process running, no old
+// rollout can be pid-bound, so none of them needs opening.
+func anyCodexCandidate(procs []domain.ProcSample, resolvedCodexPath string) bool {
+	for _, p := range procs {
+		if isCodexCandidate(p, resolvedCodexPath) {
+			return true
+		}
+	}
+	return false
+}
+
 func isCodexCandidate(p domain.ProcSample, resolvedCodexPath string) bool {
 	if len(p.Argv) == 0 {
 		return false

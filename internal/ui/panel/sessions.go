@@ -294,7 +294,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	pid := padLine(pidCell(s, cols.PID), cols.PID)
 
 	agent := s.Agent
-	model := truncate(s.Model, cols.Model)
+	model := truncate(modelLabel(s.Model), cols.Model)
 	if s.Kind != "" && s.Kind != "interactive" {
 		// A background claude -p / sdk-cli run must never look like the
 		// session a person is typing into: mute the identity columns
@@ -346,6 +346,19 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	}
 	parts = append(parts, padLine(truncate(rss, cols.RSS), cols.RSS))
 	return strings.Join(parts, " ")
+}
+
+// modelLabel renders a session's model id, or the unresolved dash when the
+// source could not read one — a session whose transcript is not on disk
+// (a headless `claude -p` run writes none) has no model to report, and an
+// empty cell reads as a rendering bug rather than as missing data. The
+// dash never reaches domain.Session.Model itself: --json keeps the empty
+// string, and the pricing table is never asked to price "—".
+func modelLabel(model string) string {
+	if model == "" {
+		return "—"
+	}
+	return model
 }
 
 // pidCell renders the pid cell, keyed on BindConf == "unknown" (never on

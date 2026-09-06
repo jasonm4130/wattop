@@ -12,6 +12,7 @@ var helpEntries = []struct{ key, desc string }{
 	{"t / T", "cycle theme forward / back"},
 	{"s", "cycle sort"},
 	{"f", "filter headless children"},
+	{"a", "show all sessions (stale, unbound rows are hidden by default)"},
 	{"p", "pause"},
 	{"?", "toggle this help"},
 }

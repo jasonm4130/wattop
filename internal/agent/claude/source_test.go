@@ -450,3 +450,151 @@ func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 		t.Fatalf("compaction of the parent relit a hung child: %+v", sub)
 	}
 }
+
+// TestSanitizeCWDEncodesDotsAndUnderscores pins the encoding Claude Code
+// actually uses for ~/.claude/projects/<dir>: every character outside
+// [A-Za-z0-9-] becomes '-', not just '/'. The dotted and underscored cases
+// are the ones the 2026-09-06 QA run caught — a session in
+// ~/.local/share/chezmoi derived a directory that does not exist, so it
+// silently had no transcript, no model, no tokens and no cost.
+func TestSanitizeCWDEncodesDotsAndUnderscores(t *testing.T) {
+	cases := []struct{ cwd, want string }{
+		{"/repo/x", "-repo-x"},
+		{"/Users/me/.local/share/chezmoi", "-Users-me--local-share-chezmoi"},
+		{"/Users/me/.local/share/chezmoi/dot_local/src/claude-hooks", "-Users-me--local-share-chezmoi-dot-local-src-claude-hooks"},
+		{"/tmp/a.b_c-d", "-tmp-a-b-c-d"},
+	}
+	for _, tc := range cases {
+		if got := sanitizeCWD(tc.cwd); got != tc.want {
+			t.Errorf("sanitizeCWD(%q) = %q, want %q", tc.cwd, got, tc.want)
+		}
+	}
+}
+
+// TestPollReadsTranscriptForDottedCWD is the end-to-end half of the same
+// defect: a session whose cwd carries a dot and an underscore must still
+// find its transcript, and therefore report its model and its usage.
+func TestPollReadsTranscriptForDottedCWD(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	const cwd = "/Users/me/.local/share/chezmoi/dot_local"
+	projectDir := filepath.Join(projectsDir, "-Users-me--local-share-chezmoi-dot-local")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	writeFile(t, filepath.Join(sessionsDir, "4321.json"),
+		`{"pid":4321,"sessionId":"sess-dot","cwd":"`+cwd+`","status":"busy","kind":"interactive",`+
+			`"entrypoint":"cli","updatedAt":1757116800000,"statusUpdatedAt":1757116800000}`)
+	writeFile(t, filepath.Join(projectDir, "sess-dot.jsonl"), assistantRecord(10, "Bash", ""))
+
+	sessions, err := NewSource(sessionsDir, projectsDir, nil).Poll(context.Background(), time.Now(), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("want 1 session, got %d", len(sessions))
+	}
+	if sessions[0].Model != "claude-opus-5" {
+		t.Errorf("model = %q, want claude-opus-5 (transcript path derived from a dotted cwd)", sessions[0].Model)
+	}
+	if sessions[0].Usage.Input != 10 {
+		t.Errorf("usage.Input = %d, want 10", sessions[0].Usage.Input)
+	}
+}
+
+// TestPollFindsTranscriptResumedInAnotherProject covers the second way a
+// derived path misses: a session resumed in a different cwd keeps its id
+// but writes its transcript under the project directory it was resumed in.
+// The id is the only identifier that survives, so the id is what is looked
+// for once the derived path comes up empty.
+func TestPollFindsTranscriptResumedInAnotherProject(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	elsewhere := filepath.Join(projectsDir, "-somewhere-else")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	writeFile(t, filepath.Join(sessionsDir, "5555.json"),
+		`{"pid":5555,"sessionId":"sess-moved","cwd":"/repo/y","status":"busy","kind":"interactive",`+
+			`"entrypoint":"cli","updatedAt":1757116800000,"statusUpdatedAt":1757116800000}`)
+	writeFile(t, filepath.Join(elsewhere, "sess-moved.jsonl"), assistantRecord(7, "Read", ""))
+
+	sessions, err := NewSource(sessionsDir, projectsDir, nil).Poll(context.Background(), time.Now(), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].Model != "claude-opus-5" {
+		t.Fatalf("want the resumed session's model, got %+v", sessions)
+	}
+}
+
+// TestPollWithNoTranscriptLeavesModelEmpty pins the honest end of the same
+// path: a headless `claude -p` run has a session file and no transcript
+// anywhere, so its model stays the empty string here (the panel renders
+// that as "—"), rather than the poll failing or inventing one.
+func TestPollWithNoTranscriptLeavesModelEmpty(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+		t.Fatalf("mkdir projects: %v", err)
+	}
+	writeFile(t, filepath.Join(sessionsDir, "6666.json"),
+		`{"pid":6666,"sessionId":"sess-headless","cwd":"/repo/z","status":"busy","kind":"interactive",`+
+			`"entrypoint":"sdk-cli","updatedAt":1757116800000,"statusUpdatedAt":1757116800000}`)
+
+	sessions, err := NewSource(sessionsDir, projectsDir, nil).Poll(context.Background(), time.Now(), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("want 1 session, got %d", len(sessions))
+	}
+	if sessions[0].Model != "" {
+		t.Errorf("model = %q, want \"\" (no transcript on disk)", sessions[0].Model)
+	}
+}
+
+// TestPollPicksUpATranscriptThatAppearsLater guards the throttle on the
+// id search: a session polled before its transcript exists must still pick
+// it up once it does, rather than being written off on the first poll.
+func TestPollPicksUpATranscriptThatAppearsLater(t *testing.T) {
+	sessionsDir := filepath.Join(t.TempDir(), "sessions")
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	projectDir := filepath.Join(projectsDir, "-repo-late")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	writeFile(t, filepath.Join(sessionsDir, "7777.json"),
+		`{"pid":7777,"sessionId":"sess-late","cwd":"/repo/late","status":"busy","kind":"interactive",`+
+			`"entrypoint":"cli","updatedAt":1757116800000,"statusUpdatedAt":1757116800000}`)
+
+	s := NewSource(sessionsDir, projectsDir, nil)
+	now := time.Now()
+	if sessions, err := s.Poll(context.Background(), now, nil); err != nil {
+		t.Fatalf("Poll: %v", err)
+	} else if sessions[0].Model != "" {
+		t.Fatalf("precondition: model should be empty before the transcript exists, got %q", sessions[0].Model)
+	}
+
+	writeFile(t, filepath.Join(projectDir, "sess-late.jsonl"), assistantRecord(4, "Bash", ""))
+
+	sessions, err := s.Poll(context.Background(), now.Add(2*transcriptRescanInterval), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if sessions[0].Model != "claude-opus-5" {
+		t.Errorf("model = %q, want claude-opus-5 once the transcript appeared", sessions[0].Model)
+	}
+}

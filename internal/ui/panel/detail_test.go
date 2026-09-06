@@ -114,7 +114,7 @@ func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 	s := domain.Session{
 		Agent: "claude", ID: "sess-busy", BindConf: "exact",
 		ToolCounts: map[string]int{
-			"Bash": 521,
+			"Bash":                        521,
 			"mcp__tavily__tavily_extract": 3,
 		},
 	}
@@ -221,7 +221,7 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 		SelfCPUPct:        1.2,
 	}
 
-	out := FooterRender(snap, r, 120, 5, "cost", "nord", false, Options{})
+	out := FooterRender(snap, r, 120, 5, "cost", "nord", false, 0, Options{})
 
 	if !strings.Contains(out, "estimates") || !strings.Contains(out, "ignore subscription plans") {
 		t.Errorf("expected the estimate caveat in every footer render, got:\n%s", out)
@@ -252,7 +252,7 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 func TestFooterCaveatSurvivesAtProductionHeight(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{UnpricedModels: []string{"claude-nightly-experimental"}}
-	out := FooterRender(snap, r, 120, 4, "status", "dark", false, Options{})
+	out := FooterRender(snap, r, 120, 4, "status", "dark", false, 0, Options{})
 	if !strings.Contains(out, "ignore subscription plans") {
 		t.Errorf("expected the estimate caveat to survive at footerH 4 alongside the status line, got:\n%s", out)
 	}
@@ -264,7 +264,7 @@ func TestFooterCaveatSurvivesAtProductionHeight(t *testing.T) {
 func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
-	out := FooterRender(snap, r, 120, 4, "status", "dark", false, Options{})
+	out := FooterRender(snap, r, 120, 4, "status", "dark", false, 0, Options{})
 	if strings.Contains(out, "unpriced") {
 		t.Errorf("expected no unpriced line when UnpricedModels is empty, got:\n%s", out)
 	}
@@ -279,7 +279,7 @@ func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 func TestFooterStatusLineAdvertisesKeymap(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
-	out := FooterRender(snap, r, 120, 4, "cost", "nord", false, Options{})
+	out := FooterRender(snap, r, 120, 4, "cost", "nord", false, 0, Options{})
 
 	if !strings.Contains(out, "sort:cost") {
 		t.Errorf("expected the active sort key in the footer, got:\n%s", out)
@@ -300,7 +300,7 @@ func TestFooterStatusLineAdvertisesKeymap(t *testing.T) {
 func TestFooterShowsPaused(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
-	out := FooterRender(snap, r, 120, 4, "status", "dark", true, Options{})
+	out := FooterRender(snap, r, 120, 4, "status", "dark", true, 0, Options{})
 
 	if !strings.Contains(out, "[PAUSED]") {
 		t.Errorf("expected a [PAUSED] marker while paused, got:\n%s", out)
@@ -320,12 +320,74 @@ func TestFooterStatusLineSurvivesTruncation(t *testing.T) {
 		UnpricedModels: []string{"claude-nightly-experimental"},
 		Degraded:       []string{"soc: ioreport"},
 	}
-	out := FooterRender(snap, r, 120, 3, "burn", "nord", true, Options{})
+	out := FooterRender(snap, r, 120, 3, "burn", "nord", true, 0, Options{})
 
 	if !strings.Contains(out, "sort:burn") || !strings.Contains(out, "theme:nord") {
 		t.Errorf("expected sort/theme to survive truncation at height 3, got:\n%s", out)
 	}
 	if !strings.Contains(out, "[PAUSED]") {
 		t.Errorf("expected [PAUSED] to survive truncation at height 3, got:\n%s", out)
+	}
+}
+
+// TestFooterFitsAt80Columns is the QA defect of 2026-09-06: the Machine
+// line is a plain Sprintf of four segments, frame() pads short lines but
+// never truncates long ones, and at 80 columns the line ran 15 cells past
+// the terminal and wrapped over the row below it. Segments are dropped
+// whole rather than truncated -- a "$335.19 session total" cut mid-number
+// reads as a smaller, wrong figure.
+func TestFooterFitsAt80Columns(t *testing.T) {
+	r := loadDarkRoles(t)
+	watts := 8.4
+	snap := &domain.Snapshot{
+		Sys:               domain.SysSample{Power: domain.Power{SystemWatts: &watts}},
+		TotalCostUSD:      335.19,
+		TotalBurnUSDPerHr: 102.53,
+		SelfCPUPct:        0.4,
+	}
+
+	out := FooterRender(snap, r, 80, 4, "status", "wattop-dark", true, 3, Options{})
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("footer line %d is %d cells wide at width 80: %q", i, w, line)
+		}
+	}
+	if !strings.Contains(out, "$335.19 session total") {
+		t.Errorf("the session total was truncated rather than a whole segment dropped, got:\n%s", out)
+	}
+	if !strings.Contains(out, "3 hidden (a)") || !strings.Contains(out, "PAUSED") {
+		t.Errorf("the hidden count and [PAUSED] must survive a narrow terminal, got:\n%s", out)
+	}
+}
+
+// TestFooterKeepsEverySegmentWhenItFits guards the drop rule from the
+// other side: at 120 columns nothing is dropped.
+func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
+	r := loadDarkRoles(t)
+	watts := 8.4
+	snap := &domain.Snapshot{
+		Sys:          domain.SysSample{Power: domain.Power{SystemWatts: &watts}},
+		TotalCostUSD: 335.19,
+		SelfCPUPct:   0.4,
+	}
+	out := FooterRender(snap, r, 120, 4, "status", "wattop-dark", false, 0, Options{})
+	for _, want := range []string{"8.4W total", "session total", "wattop self 0.4% CPU"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("footer at 120 columns dropped %q, got:\n%s", want, out)
+		}
+	}
+}
+
+// TestDetailSaysWhyTheModelIsUnknown: a session with no transcript on disk
+// (a headless `claude -p` run writes none) renders a dash and a reason,
+// never a blank field that reads as a rendering bug.
+func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
+	r := loadDarkRoles(t)
+	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, Options{})
+	if !strings.Contains(out, "Model    —") {
+		t.Errorf("an unresolved model must render as a dash, got:\n%s", out)
+	}
+	if !strings.Contains(out, "no transcript on disk") {
+		t.Errorf("the detail view must say why the model is unknown, got:\n%s", out)
 	}
 }
