@@ -51,6 +51,25 @@ type sessionAgg struct {
 	lastPromptTokens   int64
 }
 
+// resetAccumulators drops everything derived by summing or maximising over
+// transcript lines, for use when Tail reports the transcript was truncated
+// or replaced and is being re-read from byte 0.
+//
+// The invariant is reset accumulators, keep last-observed facts. model and
+// rateLimit survive: they are the last value seen rather than a running
+// total, and blanking them would render an empty model column (pushing the
+// row into the reducer's UnpricedModels) and drop a still-in-force
+// rate-limit banner merely because compaction dropped the line that
+// announced it.
+func (a *sessionAgg) resetAccumulators() {
+	a.usage = domain.Usage{}
+	a.tools = nil
+	a.toolCounts = make(map[string]int)
+	a.resultedToolUseIDs = make(map[string]bool)
+	a.highWaterMark = 0
+	a.lastPromptTokens = 0
+}
+
 // Source implements domain.AgentSource for Claude Code by polling
 // ~/.claude/sessions/ and tailing each live session's transcript under
 // ~/.claude/projects/. It ignores the procs argument entirely: Claude's own
@@ -117,12 +136,25 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		agg.tail.Path = transcriptPath
 	}
 
-	newTail, lines, err := Tail(agg.tail)
+	res, err := Tail(agg.tail)
 	if err != nil && !os.IsNotExist(err) {
 		return domain.Session{}, err
 	}
+	var lines [][]byte
 	if err == nil {
-		agg.tail = newTail
+		if res.Reset {
+			// The transcript was truncated or replaced at the same path —
+			// Claude Code compacts a session's context in place — so the
+			// lines below start at byte 0 of a file whose earlier content
+			// is gone. Everything summed or maximised over transcript
+			// lines must be discarded before they are applied, or the
+			// rewritten prefix is counted twice and every session total
+			// derived from it (tokens, cost, burn rate, context fill)
+			// stays wrong for the rest of the session's life.
+			agg.resetAccumulators()
+		}
+		agg.tail = res.State
+		lines = res.Lines
 	}
 
 	pid := f.PID

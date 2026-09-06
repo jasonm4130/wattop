@@ -37,6 +37,20 @@ type rawSubagentMeta struct {
 // resultedToolUseIDs is the set of tool_use ids that already have a
 // matching tool_result in the parent transcript — the back-link a subagent
 // finished. A subagent is Live when its own toolUseId is not in this set.
+//
+// KNOWN GAP, deliberately left to the reducer. The spec's liveness rule is
+// a conjunction: a subagent is live when its jsonl is growing AND the
+// parent has recorded no matching tool_result yet. Only the second half is
+// evaluated here, because the first needs the previous cycle's size and
+// mtime and this package holds no cross-cycle state by design — the
+// reducer in internal/state does, and it already owns every other
+// "has this stopped moving" judgement (session retention, Codex's
+// mtime-derived stale). Two consequences for whoever adds the growth half
+// there: a child that died or hung before the parent wrote its tool_result
+// reads Live until that record lands, and after a context compaction
+// resets the parent's transcript, resultedToolUseIDs is re-derived from a
+// file that may no longer carry those tool_result lines, so finished
+// subagents can flip back to Live.
 func Walk(dir string, resultedToolUseIDs map[string]bool) ([]domain.Subagent, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
