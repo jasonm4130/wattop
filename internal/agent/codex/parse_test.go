@@ -79,7 +79,7 @@ func TestContextWindowFromTranscript(t *testing.T) {
 		t.Fatalf("full-turn: ContextMax = %d, want 258400", full.ContextMax)
 	}
 	if full.ContextUsed != 5380 {
-		t.Fatalf("full-turn: ContextUsed = %d, want 5380 (total_tokens)", full.ContextUsed)
+		t.Fatalf("full-turn: ContextUsed = %d, want 5380 (last_token_usage.total_tokens; this single-turn fixture has last == total)", full.ContextUsed)
 	}
 
 	// billable_input = input - cached_input, and both fields must be raw
@@ -104,6 +104,34 @@ func TestContextWindowFromTranscript(t *testing.T) {
 	}
 	if override.ContextMax != 128000 {
 		t.Fatalf("model-override: ContextMax = %d, want 128000 (task_started fallback)", override.ContextMax)
+	}
+}
+
+// TestContextUsedIsLastTurnNotCumulative: on a multi-turn rollout,
+// total_token_usage.total_tokens sums every turn and can exceed
+// model_context_window many times over, while last_token_usage.total_tokens
+// (this turn's actual context occupancy) stays under it. ContextUsed must
+// track the latter or the gauge reads over 100% on a real long session.
+func TestContextUsedIsLastTurnNotCumulative(t *testing.T) {
+	r, err := LoadRollout(codexFixture(t, "multi-turn.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ContextMax != 258400 {
+		t.Fatalf("ContextMax = %d, want 258400", r.ContextMax)
+	}
+	// The fixture's final token_count has total_token_usage.total_tokens =
+	// 261188 (> ContextMax) and last_token_usage.total_tokens = 62844 (well
+	// under it) — pinning the regression this fix closes.
+	if r.ContextUsed != 62844 {
+		t.Fatalf("ContextUsed = %d, want 62844 (last_token_usage.total_tokens, not the cumulative 261188)", r.ContextUsed)
+	}
+	if r.ContextUsed >= r.ContextMax {
+		t.Fatalf("ContextUsed = %d >= ContextMax = %d: gauge would read over 100%%", r.ContextUsed, r.ContextMax)
+	}
+	// Usage (cost) stays cumulative, sourced from total_token_usage.
+	if r.Usage.Input != 253000 {
+		t.Fatalf("Usage.Input = %d, want 253000 (cumulative total_token_usage.input_tokens)", r.Usage.Input)
 	}
 }
 

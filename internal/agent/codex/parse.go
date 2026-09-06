@@ -42,6 +42,7 @@ type tokenUsage struct {
 
 type tokenCountInfo struct {
 	TotalTokenUsage    tokenUsage `json:"total_token_usage"`
+	LastTokenUsage     tokenUsage `json:"last_token_usage"`
 	ModelContextWindow int64      `json:"model_context_window"`
 }
 
@@ -143,7 +144,17 @@ func (r *Rollout) Apply(line []byte) error {
 					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier; bucketed here for cost.go's sake.
 					Thinking:      u.ReasoningOutputTokens,
 				}
-				r.ContextUsed = u.TotalTokens
+				// ContextUsed is current context occupancy, not cumulative
+				// session spend: last_token_usage.total_tokens reflects the most
+				// recent turn's context, while total_token_usage.total_tokens sums
+				// every turn and can exceed model_context_window many times over on
+				// a long session. r.Usage above stays sourced from total_token_usage
+				// since cost is correctly cumulative.
+				if p.Info.LastTokenUsage.TotalTokens > 0 {
+					r.ContextUsed = p.Info.LastTokenUsage.TotalTokens
+				} else {
+					r.ContextUsed = u.TotalTokens
+				}
 				if p.Info.ModelContextWindow > 0 {
 					r.ContextMax = p.Info.ModelContextWindow
 					r.ContextExact = true
