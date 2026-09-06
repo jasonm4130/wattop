@@ -7,9 +7,13 @@ package proc
 import "time"
 
 // CPUPct computes Δcpu_ns / Δwall_ns × 100 from two cumulative CPU-time
-// samples (proc_pidinfo PROC_PIDTASKINFO's pti_total_user+pti_total_system)
-// taken wall apart. It is never a lifetime average: callers must pass the
-// previous sample from the last scan, not a value from process start.
+// samples taken wall apart. Both arguments must already be nanoseconds:
+// proc_pidinfo(PROC_PIDTASKINFO)'s pti_total_user+pti_total_system are Mach
+// absolute ticks and must be passed through MachTicksToNs first, or every
+// percentage reads ~41.7x low on Apple Silicon.
+//
+// It is never a lifetime average: callers must pass the previous sample
+// from the last scan, not a value from process start.
 //
 // Guards against a non-positive wall duration and against a wrapped or
 // reset counter (curNs < prevNs, e.g. the pid was reused) by returning 0
@@ -149,6 +153,31 @@ func RescaleGPUPct(msPerSec map[int]float64, systemGPUActivePct *float64) map[in
 	return out
 }
 
+// MachTicksToNs converts a Mach absolute-time tick count into nanoseconds
+// using the timebase (numer/denom) from mach_timebase_info. On Apple
+// Silicon the timebase is 125/3, so a tick is ~41.67ns and treating raw
+// ticks as nanoseconds understates every duration by ~41.7x.
+//
+// Two counters in this package are tick counts, not durations, and both
+// must come through here: proc_pidinfo(PROC_PIDTASKINFO)'s
+// pti_total_user + pti_total_system (filled from task_absolutetime_info,
+// which reports Mach units despite the plain "total_user" naming — a `yes`
+// process pinned to one core measured 2.39% before this conversion existed
+// and 99.66% after, against ps's 95.9% for the same pid), and
+// proc_pid_rusage's ri_proc_start_abstime (see StartWall).
+//
+// The division is done as quotient-plus-remainder so a large tick count
+// cannot overflow uint64 on the multiply. A zero denominator (a failed
+// mach_timebase_info) returns 0 rather than panicking; callers treat that
+// as "no reading".
+func MachTicksToNs(ticks uint64, numer, denom uint32) uint64 {
+	if denom == 0 {
+		return 0
+	}
+	q, r := ticks/uint64(denom), ticks%uint64(denom)
+	return q*uint64(numer) + r*uint64(numer)/uint64(denom)
+}
+
 // StartWall converts a Mach start-abstime to a wall-clock instant using an
 // anchor pair (nowTicks, nowWall) read adjacently in the same scan.
 // numer/denom come from mach_timebase_info. Returns the zero time when
@@ -165,7 +194,6 @@ func StartWall(startTicks, nowTicks uint64, numer, denom uint32, nowWall time.Ti
 	if startTicks > nowTicks {
 		return time.Time{}
 	}
-	elapsedTicks := nowTicks - startTicks
-	elapsedNs := elapsedTicks * uint64(numer) / uint64(denom)
+	elapsedNs := MachTicksToNs(nowTicks-startTicks, numer, denom)
 	return nowWall.Add(-time.Duration(elapsedNs))
 }

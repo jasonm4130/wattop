@@ -16,7 +16,7 @@ package proc
 
 int wattop_list_pids(pid_t **out_pids, int *out_count);
 void wattop_free(void *p);
-int wattop_task_info(pid_t pid, uint64_t *rss_bytes, uint64_t *cpu_ns);
+int wattop_task_info(pid_t pid, uint64_t *rss_bytes, uint64_t *cpu_ticks);
 int wattop_comm(pid_t pid, char *buf, int buflen);
 int wattop_rusage(pid_t pid, uint64_t *diskread, uint64_t *diskwrite, uint64_t *start_abstime);
 int wattop_cwd(pid_t pid, char *buf, int buflen);
@@ -100,8 +100,17 @@ func (s *Scanner) Close() error { return nil }
 // CPUTracker and GPUTracker in delta.go.
 func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	s.tbOnce.Do(func() {
+		// The timebase converts Mach absolute ticks to nanoseconds and is
+		// load-bearing twice per pid: for cumulative CPU time and for the
+		// start-abstime anchor. It is 125/3 on Apple Silicon (1/1 on
+		// Intel); a failed read leaves both fields zero, so fall back to
+		// 1/1 rather than letting MachTicksToNs's denom==0 guard silently
+		// zero every duration in the scan.
 		var tb C.mach_timebase_info_data_t
-		C.mach_timebase_info(&tb)
+		if C.mach_timebase_info(&tb) != 0 || tb.denom == 0 {
+			s.timebaseNum, s.timebaseDen = 1, 1
+			return
+		}
 		s.timebaseNum = uint32(tb.numer)
 		s.timebaseDen = uint32(tb.denom)
 	})
@@ -138,8 +147,8 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 
 		pid := int(cpid)
 
-		var rss, cpuNs C.uint64_t
-		if C.wattop_task_info(cpid, &rss, &cpuNs) != 0 {
+		var rss, cpuTicks C.uint64_t
+		if C.wattop_task_info(cpid, &rss, &cpuTicks) != 0 {
 			// Exited between enumeration and this call, or owned by
 			// another user — proc_pidinfo(PROC_PIDTASKINFO) is
 			// passwordless only for the calling user's own processes.
@@ -182,7 +191,20 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 		// On argv failure (permission error, or the pid is gone), argv
 		// stays nil — best-effort, per the spec.
 
-		cpuPct, _ := s.cpu.Update(pid, uint64(cpuNs), nowWall)
+		// pti_total_user+pti_total_system come back as Mach absolute
+		// ticks, NOT nanoseconds (see wattop_task_info in scan_darwin.c).
+		// CPUTracker/CPUPct are documented in nanoseconds, so the timebase
+		// conversion has to happen here, before the tracker sees the
+		// value; skipping it reads ~41.7x low on Apple Silicon.
+		cpuNs := MachTicksToNs(uint64(cpuTicks), s.timebaseNum, s.timebaseDen)
+
+		// The ok return is deliberately discarded: it distinguishes "no
+		// baseline yet" (the first scan of a pid) from a genuine 0%, but
+		// domain.ProcSample.CPUPct is a plain float64, not a *float64, and
+		// internal/domain is out of this task's scope. A first-scan row
+		// therefore reports 0% rather than "no percentage yet" — a forced
+		// compromise with the existing type, not an oversight.
+		cpuPct, _ := s.cpu.Update(pid, cpuNs, nowWall)
 
 		ps := domain.ProcSample{
 			PID:        pid,

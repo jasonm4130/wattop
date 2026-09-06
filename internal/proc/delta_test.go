@@ -66,6 +66,85 @@ func TestCPUPct(t *testing.T) {
 	}
 }
 
+func TestMachTicksToNs(t *testing.T) {
+	cases := []struct {
+		name  string
+		ticks uint64
+		numer uint32
+		denom uint32
+		want  uint64
+	}{
+		{
+			name:  "apple silicon timebase: 24e6 ticks is 1 second",
+			ticks: 24_000_000,
+			numer: 125,
+			denom: 3,
+			want:  1_000_000_000,
+		},
+		{
+			name:  "identity timebase (Intel) leaves the value alone",
+			ticks: 1_234_567_890,
+			numer: 1,
+			denom: 1,
+			want:  1_234_567_890,
+		},
+		{
+			name:  "zero denominator returns 0 rather than panicking",
+			ticks: 24_000_000,
+			numer: 125,
+			denom: 0,
+			want:  0,
+		},
+		{
+			name:  "remainder is not lost: 7 ticks * 125/3 floors to 291",
+			ticks: 7,
+			numer: 125,
+			denom: 3,
+			want:  291,
+		},
+		{
+			name:  "a decade of ticks does not overflow uint64",
+			ticks: 24_000_000 * 86_400 * 365 * 10,
+			numer: 125,
+			denom: 3,
+			want:  1_000_000_000 * 86_400 * 365 * 10,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := MachTicksToNs(c.ticks, c.numer, c.denom)
+			if got != c.want {
+				t.Fatalf("MachTicksToNs(%d, %d, %d) = %d, want %d", c.ticks, c.numer, c.denom, got, c.want)
+			}
+		})
+	}
+}
+
+// TestCPUPctFromRawMachTicksIsWrong is the negative test for the bug this
+// conversion exists to prevent: a process pinned to 100% of one core
+// accumulates 24e6 Mach ticks per second on Apple Silicon, and feeding
+// those ticks to CPUPct as if they were nanoseconds reports 2.4%, not
+// 100%. It is the arithmetic behind the 2.39% a `yes` process reported
+// before scan_darwin.go applied the timebase.
+func TestCPUPctFromRawMachTicksIsWrong(t *testing.T) {
+	const numer, denom = 125, 3
+	// One second of CPU on one core, in Mach ticks.
+	const oneCoreSecondTicks = 24_000_000
+
+	raw := CPUPct(0, oneCoreSecondTicks, time.Second)
+	if raw > 3 {
+		t.Fatalf("raw-ticks CPUPct = %v, expected the ~2.4%% underreport this test documents", raw)
+	}
+
+	converted := CPUPct(0, MachTicksToNs(oneCoreSecondTicks, numer, denom), time.Second)
+	if converted < 99.9 || converted > 100.1 {
+		t.Fatalf("converted CPUPct = %v, want ~100", converted)
+	}
+	if converted/raw < 40 || converted/raw > 42 {
+		t.Fatalf("conversion factor = %v, want ~41.67 (125/3)", converted/raw)
+	}
+}
+
 func TestCPUTrackerFirstSampleYieldsNoPercentage(t *testing.T) {
 	tr := NewCPUTracker()
 	now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)

@@ -60,17 +60,26 @@ void wattop_free(void *p) {
     free(p);
 }
 
-// wattop_task_info fills rss_bytes and cpu_ns (cumulative user+system CPU
-// time) via proc_pidinfo(PROC_PIDTASKINFO). Returns 0 on success, -1 when
-// the pid is gone or unreadable (e.g. another user's process).
-int wattop_task_info(pid_t pid, uint64_t *rss_bytes, uint64_t *cpu_ns) {
+// wattop_task_info fills rss_bytes and cpu_ticks via
+// proc_pidinfo(PROC_PIDTASKINFO). Returns 0 on success, -1 when the pid is
+// gone or unreadable (e.g. another user's process).
+//
+// cpu_ticks is cumulative user+system CPU time in MACH ABSOLUTE TICKS, not
+// nanoseconds: the kernel fills pti_total_user/pti_total_system from
+// task_absolutetime_info, whose units are Mach absolute time despite the
+// bare "total_user" naming. On Apple Silicon a tick is 125/3 ns, so a
+// caller that reads these as nanoseconds understates CPU by ~41.7x — a
+// `yes` process pinned to one core read 2.39% that way. The Go side runs
+// this value through proc.MachTicksToNs before any percentage arithmetic;
+// the parameter is named cpu_ticks so the units travel with it.
+int wattop_task_info(pid_t pid, uint64_t *rss_bytes, uint64_t *cpu_ticks) {
     struct proc_taskinfo ti;
     int n = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &ti, sizeof(ti));
     if (n != (int)sizeof(ti)) {
         return -1;
     }
     *rss_bytes = ti.pti_resident_size;
-    *cpu_ns = ti.pti_total_user + ti.pti_total_system;
+    *cpu_ticks = ti.pti_total_user + ti.pti_total_system;
     return 0;
 }
 

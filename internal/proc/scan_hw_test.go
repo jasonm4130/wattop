@@ -15,6 +15,26 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
+// spinner starts a shell busy-loop pinned to one core and returns its pid.
+// It is the magnitude check for CPU%: a process consuming one full core for
+// the whole inter-scan window must be reported near 100%, and the unit bug
+// this file guards against (Mach ticks read as nanoseconds) reports it at
+// ~2.4% instead — a value the "at least one process has cpu>0" assertion
+// happily accepts. The pid comes from Process.Pid, never from matching
+// comm: p_comm is display-only here as everywhere else.
+func spinner(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", "while :; do :; done")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the busy-loop child: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	return cmd.Process.Pid
+}
+
 // bootTime shells out to `sysctl -n kern.boottime` and parses its
 // "{ sec = <n>, usec = <n> } ..." output. No cgo needed for this one read,
 // so this test file only carries the `hardware` build tag (per the spec's
@@ -48,6 +68,8 @@ func bootTime(t *testing.T) time.Time {
 // it), so `go test -tags=hardware ./internal/proc/ -v` is the artifact
 // those acceptance commands check.
 func TestScanHardware(t *testing.T) {
+	spinPID := spinner(t)
+
 	s := NewScanner()
 	defer s.Close()
 
@@ -78,6 +100,7 @@ func TestScanHardware(t *testing.T) {
 
 	anyCPUNonZero := false
 	anyGPULine := false
+	gpuRows := 0
 	selfPID := os.Getpid()
 	var selfSample domain.ProcSample
 	sawSelf := false
@@ -88,6 +111,9 @@ func TestScanHardware(t *testing.T) {
 		fmt.Printf("pid=%d comm=%s rss=%dKB cpu=%.2f%%\n", ps.PID, ps.Comm, ps.RSSBytes/1024, ps.CPUPct)
 		if ps.CPUPct > 0 {
 			anyCPUNonZero = true
+		}
+		if ps.GPUMsPerSec != nil {
+			gpuRows++
 		}
 		if ps.GPUMsPerSec != nil && *ps.GPUMsPerSec > 0 {
 			fmt.Printf("pid=%d gpu_ms_per_sec=%.3f\n", ps.PID, *ps.GPUMsPerSec)
@@ -106,6 +132,25 @@ func TestScanHardware(t *testing.T) {
 	if !anyCPUNonZero {
 		t.Fatalf("no process reported nonzero CPU%% across two scans 1s apart")
 	}
+
+	// Magnitude, not just sign. The busy-loop child held one full core for
+	// the whole 1s window, so its CPU% must be near 100. Reading
+	// pti_total_user/pti_total_system as nanoseconds instead of Mach ticks
+	// puts it at ~2.4% (measured: a `yes` process at 2.39% while `ps`
+	// reported 95.9%), which every sign-only assertion in this file passes.
+	// The band is wide because scheduling on a loaded machine is noisy; it
+	// is still an order of magnitude clear of the bug.
+	spin, ok := byPID[spinPID]
+	if !ok {
+		t.Fatalf("the busy-loop child (pid %d) did not appear in the second scan", spinPID)
+	}
+	if spin.CPUPct < 50 || spin.CPUPct > 200 {
+		t.Fatalf("busy-loop child (pid %d) reported cpu=%.2f%%, want ~100%% (50-200): "+
+			"a value near 2.4%% means CPU ticks are being read as nanoseconds without the mach timebase",
+			spinPID, spin.CPUPct)
+	}
+	fmt.Printf("pid=%d comm=%s rss=%dKB cpu=%.2f%% (busy-loop child, want ~100%%)\n",
+		spin.PID, spin.Comm, spin.RSSBytes/1024, spin.CPUPct)
 	if !sawSelf {
 		t.Fatalf("this test's own pid (%d) did not appear in the second scan", selfPID)
 	}
@@ -140,8 +185,17 @@ func TestScanHardware(t *testing.T) {
 	}
 	fmt.Printf("pid=%d argv=%v\n", otherArgvSample.PID, otherArgvSample.Argv)
 
+	// The plan's acceptance requires >=1 nonzero gpu_ms_per_sec line, so
+	// this fails rather than logs. The diagnostic distinguishes the two
+	// failure modes: gpuRows==0 means soc.GPUProcessStats returned no pid
+	// that also survived this scanner's own-user filter (nothing to
+	// difference), while gpuRows>0 with no nonzero value means the table
+	// resolved but nothing touched the GPU between the two scans.
 	if !anyGPULine {
-		t.Logf("no pid reported nonzero gpu_ms_per_sec on this scan pair (GPU load is workload-dependent; re-run under GPU load — e.g. scroll a page in a GPU-accelerated app — if this acceptance line is required right now)")
+		t.Fatalf("no pid reported nonzero gpu_ms_per_sec across two scans 1s apart "+
+			"(%d of %d rows carried a GPU delta at all); if the machine is truly GPU-idle, "+
+			"re-run with a GPU-accelerated window on screen",
+			gpuRows, len(second))
 	}
 
 	// pid 1 (launchd) is the strongest epoch-anchoring check named in the
