@@ -90,12 +90,20 @@ for a human at this machine to complete.
       that distorts what it measures must be accountable for its own
       overhead, and this number belongs in the README, not just here.
       Observed (range over 60 s): `bin/wattop --json` piped to a file for
-      60 s, 46 Snapshots. `Snapshot.self_cpu_pct` settled to **4.2%-7.0%
-      (mean 5.35%)** after a startup transient (first ~5 samples spiked
-      to 192-297%, a proc-scanner warmup artifact — the CPU-delta
-      baseline for wattop's own pid is itself still being established;
-      see docs/limitations.md). Independently, `ps -o %cpu` on the running
-      pid read 5.4% at t+3s, agreeing with the steady-state figure.
+      60 s, 46 Snapshots. Raw `self_cpu_pct` sequence, first 5 samples:
+      `0, 18.4, 5.6, 296.6, 192.7`, then settling. `Snapshot.self_cpu_pct`
+      settled to **4.2%-7.0% (mean 5.35%)** for the remaining ~41 samples.
+      Independently, `ps -o %cpu` on the running pid read 5.4% at t+3s,
+      agreeing with the steady-state figure. The samples-4-and-5 spike
+      (296.6%, 192.7%) follows a plausible 5.6% reading, not a missing
+      baseline, so it is not the same "no CPU baseline yet" warmup this
+      README describes for a fresh Codex pid — that case renders a dash,
+      not a number. This looks like a transient over-read in
+      `internal/proc`'s CPU-delta arithmetic (elapsed-interval or
+      baseline-reuse candidate) rather than a UI/state-layer issue; see
+      docs/limitations.md. Not root-caused or fixed as part of this task
+      (`internal/proc` is Task 6's file, out of scope here) — flagged for
+      follow-up.
 
 - [ ] **12. Terminal resize.** Resize the terminal to 80×24 and to
       200×60. Confirm no wrapping corruption in either direction.

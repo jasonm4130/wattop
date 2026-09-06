@@ -76,6 +76,22 @@ ABI. `make vendor-diff` re-fetches the pinned mactop commit and diffs the
 16 verbatim-copied files against it; there is no automated alert beyond
 running it.
 
+## Self-CPU shows an unexplained transient over-read on startup
+
+Over a 60-second `--json` run (see `docs/manual-qa.md` item 11), the first
+five `Snapshot.self_cpu_pct` samples were `0, 18.4, 5.6, 296.6, 192.7`
+before settling to a 4.2%-7.0% steady state that an independent `ps -o
+%cpu` reading corroborates. The spike lands on samples 4 and 5, after a
+plausible 5.6% reading — not on sample 1, where a genuinely missing
+CPU-delta baseline would show up (and which `CPUTracker.Update` reports as
+`ok=false`, not a number, per `internal/proc/delta.go`). This is not the
+same thing as the documented "no baseline yet" warmup a fresh Codex pid
+shows as a dash. The likely candidate is `internal/proc`'s per-pid
+CPU-delta arithmetic — either the elapsed wall interval between the
+scanner's own early scans, or a stale/reused baseline — producing a
+too-large percentage for one or two ticks. Not root-caused or fixed here;
+`internal/proc` is out of this task's scope.
+
 ## Untested outside this machine
 
 Everything above, and the dashboard generally, has been built and tested

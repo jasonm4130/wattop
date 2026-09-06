@@ -20,7 +20,8 @@ runtime — macOS system frameworks only, one static-enough binary.
 
 ## Install
 
-Via the Homebrew tap (once a release is published):
+Via the Homebrew tap (once `jasonm4130/homebrew-wattop` exists and a release
+has been published to it — see `.goreleaser.yml`'s `brews` pipe):
 
 ```
 brew install jasonm4130/wattop/wattop
@@ -31,12 +32,13 @@ brew install jasonm4130/wattop/wattop
 Requires Go 1.27 and Xcode command line tools (for CGO) on Apple Silicon.
 
 ```
-CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 make build
+make build
 ```
 
-produces `bin/wattop`. `CGO_ENABLED=1` is not optional — the SoC panel is
-IOReport/SMC data reached through vendored Objective-C (see
-`internal/soc/VENDOR.md`); `make build` sets it for you.
+produces `bin/wattop`. The Makefile already sets `CGO_ENABLED=1
+GOOS=darwin GOARCH=arm64` — `CGO_ENABLED=1` is not optional, since the SoC
+panel is IOReport/SMC data reached through vendored Objective-C (see
+`internal/soc/VENDOR.md`).
 
 ## Usage
 
@@ -121,12 +123,12 @@ this release was verified against.
 Measured over a 60-second `--json` run on the M5 Max this was built on:
 `Snapshot.self_cpu_pct` settles to **4.2%-7.0% (mean 5.35%)** in steady
 state, corroborated independently by `ps -o %cpu` on the running process
-(5.4%). The first ~5 samples after startup spike to 190-300% while the
-process scanner's CPU-delta baseline for wattop's own pid is still being
-established — the same warmup this README already describes for a Codex
-row's first ~2 seconds, not a sustained cost. A monitor that distorts what
-it measures must be accountable for its own overhead; this is that
-accounting.
+(5.4%). The first ~5 samples after startup show a transient over-read of
+190-300% before settling — not a sustained cost, but also not yet fully
+explained; see [`docs/limitations.md`](docs/limitations.md) and
+[`docs/manual-qa.md`](docs/manual-qa.md) item 11 for the raw sample
+sequence. A monitor that distorts what it measures must be accountable for
+its own overhead; this is that accounting.
 
 ## Attribution
 
