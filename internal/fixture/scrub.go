@@ -1,10 +1,14 @@
 package fixture
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"strings"
 	"unicode/utf8"
 )
@@ -86,6 +90,53 @@ func Scrub(line []byte) ([]byte, error) {
 		out = append(out, '\n')
 	}
 	return out, nil
+}
+
+// ScrubStream scrubs a JSON-lines stream: it reads r one record per line,
+// applies Scrub to each, and writes the result to w. name labels the source
+// in the warning it logs when a line cannot be scrubbed.
+//
+// Line terminators are carried through exactly as they were read. That is
+// load-bearing rather than tidy: a .jsonl file recorded from a live
+// transcript ends mid-write, so its final line is both partial JSON and
+// unterminated, and that missing final newline is precisely what makes the
+// fixture exercise a byte-offset tailer's buffering path instead of its
+// parse-failure path. Splitting the stream with bufio.Scanner would strip
+// the terminators before Scrub ever saw them and silently append a newline
+// the source did not have, so this reads with bufio.Reader.ReadBytes and
+// hands Scrub the raw line, terminator included or not.
+//
+// A line that fails to scrub — the mid-write partial record above being the
+// common case — is copied through byte-for-byte with a warning, so one
+// truncated tail never aborts a whole file.
+func ScrubStream(r io.Reader, w io.Writer, name string) error {
+	br := bufio.NewReader(r)
+	lineNum := 0
+
+	for {
+		line, readErr := br.ReadBytes('\n')
+
+		// ReadBytes returns the final unterminated chunk together with
+		// io.EOF, so the line is processed before the error is checked.
+		if len(line) > 0 {
+			lineNum++
+			scrubbed, err := Scrub(line)
+			if err != nil {
+				log.Printf("fixture: %s:%d: %v (copied through unscrubbed)", name, lineNum, err)
+				scrubbed = line
+			}
+			if _, err := w.Write(scrubbed); err != nil {
+				return err
+			}
+		}
+
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
+		}
+	}
 }
 
 // scrubValue consumes exactly one JSON value from dec and writes its

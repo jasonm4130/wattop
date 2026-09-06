@@ -78,11 +78,12 @@ func main() {
 // opening "[", the object, and the closing "]" as separate lines, for
 // instance) — so it is read and scrubbed whole.
 //
-// A ".jsonl" file is one JSON record per line, scrubbed line by line so a
-// line that fails to scrub (most commonly a partial JSON object left by a
-// mid-write tail) can be copied through unchanged with a warning instead of
-// aborting the whole file: a recorder capturing a live transcript will hit
-// exactly this case on its last line.
+// A ".jsonl" file is one JSON record per line and goes through
+// fixture.ScrubStream, which scrubs it line by line — copying a line that
+// fails to scrub (most commonly a partial JSON object left by a mid-write
+// tail) through unchanged with a warning instead of aborting the whole
+// file — and reproduces each line's terminator exactly, so a file whose
+// final line is unterminated stays unterminated.
 func scrubFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -114,23 +115,11 @@ func scrubFile(src, dst string) error {
 	defer out.Close()
 
 	w := bufio.NewWriter(out)
-	defer w.Flush()
-
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := append(scanner.Bytes(), '\n')
-
-		scrubbed, err := fixture.Scrub(line)
-		if err != nil {
-			log.Printf("wattop-scrub: %s:%d: %v (copied through unscrubbed)", src, lineNum, err)
-			scrubbed = line
-		}
-		if _, err := w.Write(scrubbed); err != nil {
-			return err
-		}
+	if err := fixture.ScrubStream(in, w, src); err != nil {
+		return err
 	}
-	return scanner.Err()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	return out.Close()
 }

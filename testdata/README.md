@@ -123,7 +123,11 @@ path or username" property — not a claim made here.
   parse-failure path instead. (`wc -l` therefore reports 2, not 3.) `Scrub`
   itself rejects this line (`TestScrubRejectsTruncatedJSON`); the file is
   otherwise unscrubbed at that final line because there's nothing valid to
-  parse.
+  parse. `fixture.ScrubStream` — the line loop `cmd/wattop-scrub` runs —
+  reproduces each terminator exactly rather than re-appending one, so
+  re-scrubbing this file cannot quietly terminate it
+  (`TestScrubStreamPreservesMissingFinalNewline` and
+  `TestScrubStreamPreservesCorpusLineFraming`).
 - **`cache-1h.jsonl`** — an assistant record whose
   `message.usage.cache_creation` has `ephemeral_1h_input_tokens > 0` and
   `ephemeral_5m_input_tokens == 0` (`jq -e` in the acceptance check

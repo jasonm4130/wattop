@@ -153,3 +153,112 @@ func TestScrubRejectsTruncatedJSON(t *testing.T) {
 		t.Fatal("Scrub of truncated JSON: want error, got nil")
 	}
 }
+
+// TestScrubStreamPreservesMissingFinalNewline is the tailer's invariant:
+// a .jsonl file recorded from a live transcript ends mid-write, so its last
+// line carries no terminator, and the scrubbed copy must not grow one. A
+// line-splitter that strips terminators and re-appends '\n' passes every
+// other test here and fails this one.
+func TestScrubStreamPreservesMissingFinalNewline(t *testing.T) {
+	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"first"}]}}` + "\n" +
+		`{"type":"user","message":{"content":[{"type":"text","text":"café — naïve 日本語"}]}}`)
+
+	var out bytes.Buffer
+	if err := ScrubStream(bytes.NewReader(in), &out, "test"); err != nil {
+		t.Fatalf("ScrubStream: %v", err)
+	}
+
+	got := out.Bytes()
+	if bytes.HasSuffix(got, []byte("\n")) {
+		t.Errorf("output ends in a newline the input did not have: %q", got[len(got)-8:])
+	}
+	if len(got) != len(in) {
+		t.Errorf("len(out) = %d, want %d (byte length must survive scrubbing)", len(got), len(in))
+	}
+	if n := bytes.Count(got, []byte("\n")); n != 1 {
+		t.Errorf("newline count = %d, want 1", n)
+	}
+}
+
+// TestScrubStreamPreservesTrailingNewline is the other half: a terminated
+// final line stays terminated, with exactly one newline and no extra blank
+// line appended.
+func TestScrubStreamPreservesTrailingNewline(t *testing.T) {
+	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"first"}]}}` + "\n" +
+		`{"type":"user","message":{"content":[{"type":"text","text":"second"}]}}` + "\n")
+
+	var out bytes.Buffer
+	if err := ScrubStream(bytes.NewReader(in), &out, "test"); err != nil {
+		t.Fatalf("ScrubStream: %v", err)
+	}
+
+	got := out.Bytes()
+	if !bytes.HasSuffix(got, []byte("}\n")) {
+		t.Errorf("output does not end in exactly one terminated record: %q", got[len(got)-8:])
+	}
+	if n := bytes.Count(got, []byte("\n")); n != 2 {
+		t.Errorf("newline count = %d, want 2", n)
+	}
+	if len(got) != len(in) {
+		t.Errorf("len(out) = %d, want %d", len(got), len(in))
+	}
+}
+
+// TestScrubStreamCopiesTruncatedFinalLineThrough covers the error branch,
+// which is the path testdata/agent/claude/truncated-final-line.jsonl
+// actually takes: the partial record cannot be parsed, so it is written out
+// byte-for-byte — still partial, still unterminated.
+func TestScrubStreamCopiesTruncatedFinalLineThrough(t *testing.T) {
+	partial := `{"type":"user","message":{"content":[{"type":"text","text":"Half of th`
+	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"whole"}]}}` + "\n" + partial)
+
+	var out bytes.Buffer
+	if err := ScrubStream(bytes.NewReader(in), &out, "test"); err != nil {
+		t.Fatalf("ScrubStream: %v", err)
+	}
+
+	got := out.Bytes()
+	if !bytes.HasSuffix(got, []byte(partial)) {
+		t.Errorf("truncated final line was not copied through verbatim: %q", got)
+	}
+}
+
+// TestScrubStreamPreservesCorpusLineFraming re-scrubs every committed
+// .jsonl fixture and asserts the framing survives: same number of lines,
+// same trailing-terminator state. Byte equality is deliberately not
+// asserted — Scrub rewrites identifiers by hashing them, so re-scrubbing an
+// already-scrubbed uuid yields a different (equally valid) uuid.
+func TestScrubStreamPreservesCorpusLineFraming(t *testing.T) {
+	root := filepath.Join(CorpusDir(), "agent")
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+
+		in, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var out bytes.Buffer
+		if err := ScrubStream(bytes.NewReader(in), &out, filepath.Base(path)); err != nil {
+			t.Errorf("%s: ScrubStream: %v", path, err)
+			return nil
+		}
+
+		got := out.Bytes()
+		if a, b := bytes.HasSuffix(in, []byte("\n")), bytes.HasSuffix(got, []byte("\n")); a != b {
+			t.Errorf("%s: trailing newline present = %v after re-scrub, want %v", path, b, a)
+		}
+		if a, b := bytes.Count(in, []byte("\n")), bytes.Count(got, []byte("\n")); a != b {
+			t.Errorf("%s: newline count = %d after re-scrub, want %d", path, b, a)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+}
