@@ -1,0 +1,23 @@
+{
+  "foreground": "#1f2328",
+  "background": "#ffffff",
+  "accent": "#0969da",
+  "muted": "#6e7781",
+  "border": "#d0d7de",
+  "idle": "#0969da",
+  "busy": "#1a7f37",
+  "waiting": "#9a6700",
+  "warn": "#bc4c00",
+  "hot": "#cf222e",
+  "error": "#cf222e",
+  "cost_hot": "#cf222e",
+  "gauge_low": "#1a7f37",
+  "gauge_mid": "#9a6700",
+  "gauge_high": "#cf222e",
+  "bar_track": "#d0d7de",
+  "bar_fill": "#0969da",
+  "chart_cpu": "#0550ae",
+  "chart_gpu": "#6639ba",
+  "chart_watts": "#bc4c00",
+  "chart_cost": "#1a7f37"
+}
