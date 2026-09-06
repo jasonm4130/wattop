@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -304,16 +305,61 @@ func TestNoColorSuppressesEscapes(t *testing.T) {
 
 // TestViewRendersSoCPanel asserts View() actually composes the SoC panel
 // above the session table -- panel.Render existing and being covered by
-// its own golden tests is not evidence Model.View calls it.
+// its own golden tests is not evidence Model.View calls it. It checks the
+// cluster line and the last SoC row (net/disk) specifically: a bare
+// substring check for "SoC" would pass even if socHeight clipped the
+// bottom of the panel, since only the border/name lines are guaranteed
+// present at any height.
 func TestViewRendersSoCPanel(t *testing.T) {
 	m := newTestModel(t)
-	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
-		{Agent: "claude", ID: "a", Status: "busy", Model: "claude-opus-5"},
-	}))
+	in := state.Inputs{
+		At: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
+		Sys: domain.SysSample{
+			Clusters: []domain.Cluster{{Label: "P", CoreCount: 12}},
+		},
+		Sessions: []domain.Session{
+			{Agent: "claude", ID: "a", Status: "busy", Model: "claude-opus-5"},
+		},
+	}
+	mi, _ := m.Update(CycleMsg{Inputs: in})
 	m = mi.(Model)
 
 	view := m.View().Content
-	if !strings.Contains(view, "SoC") {
-		t.Errorf("expected View() to render the SoC panel, got:\n%q", view)
+	clusterLine := regexp.MustCompile(`(?m)^P \(\d+\)`)
+	if !clusterLine.MatchString(view) {
+		t.Errorf("expected View() to render a cluster line matching %s, got:\n%q", clusterLine, view)
+	}
+	if !strings.Contains(view, "Power  CPU") {
+		t.Errorf("expected View() to render the power row, got:\n%q", view)
+	}
+	if !strings.Contains(view, "Net    ") {
+		t.Errorf("expected View() to render the net/disk row (the SoC panel's last line), got:\n%q", view)
+	}
+}
+
+// TestSoCPanelHeightInvariant asserts the SoC strip, session table and
+// footer heights always sum to exactly m.height, across a range from a
+// generous terminal down to a single row. socHeight is fixed per sample
+// (10 + len(Clusters)), so on a short terminal it must itself be capped --
+// otherwise the three regions' declared heights would exceed the frame
+// Model.View was asked to fill.
+func TestSoCPanelHeightInvariant(t *testing.T) {
+	for _, height := range []int{40, 12, 5, 1} {
+		m := newTestModel(t)
+		mi, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: height})
+		m = mi.(Model)
+		mi, _ = m.Update(CycleMsg{Inputs: state.Inputs{
+			At: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
+			Sys: domain.SysSample{
+				Clusters: []domain.Cluster{{Label: "P", CoreCount: 12}},
+			},
+		}})
+		m = mi.(Model)
+
+		view := m.View().Content
+		lines := strings.Split(view, "\n")
+		if len(lines) != height {
+			t.Errorf("height %d: rendered %d lines, want exactly %d", height, len(lines), height)
+		}
 	}
 }

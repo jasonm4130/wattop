@@ -5,6 +5,7 @@ package ui
 
 import (
 	"sort"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -153,6 +154,16 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// themeName returns the active palette's name for the footer status line,
+// or "—" when New was never given any themes to choose from (cycleTheme
+// guards the same empty case).
+func (m Model) themeName() string {
+	if len(m.themeNames) == 0 {
+		return "—"
+	}
+	return m.themeNames[m.themeIdx]
+}
+
 func (m *Model) cycleTheme(dir int) {
 	if len(m.themeNames) == 0 {
 		return
@@ -278,16 +289,37 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	socH := socHeight(m.snap.Sys)
-	tableH := m.height - socH - 3
-	if tableH < 0 {
-		tableH = 0
-	}
+	// footerH, socH and tableH must always sum to exactly m.height: each
+	// panel is framed independently to its own declared height, so if the
+	// three didn't add up the frame would either fall short of the
+	// terminal or overflow it. socHeight's fixed count (10 + len(Clusters))
+	// is a want, not a guarantee -- on a terminal shorter than the footer
+	// plus the SoC panel it is capped, and the footer itself shrinks
+	// before anything is asked to render at a negative height.
+	footerH := min(3, max(0, m.height))
+	socH := min(socHeight(m.snap.Sys), max(0, m.height-footerH))
+	tableH := max(0, m.height-socH-footerH)
 
 	soc := panel.Render(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
 	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, tableH, m.selected, m.snap.At, m.renderOpts())
-	footer := panel.FooterRender(m.snap, m.roles, m.width, 3, m.renderOpts())
-	return tea.NewView(soc + "\n" + table + "\n" + footer)
+	footer := panel.FooterRender(m.snap, m.roles, m.width, footerH, sortKeys[m.sortIdx], m.themeName(), m.paused, m.renderOpts())
+
+	// A section given 0 height still contributes an empty string, and
+	// joining with a bare "+ \"\\n\" +" would insert a spurious blank line
+	// for it (two adjacent separators around nothing). Skipping zero-height
+	// sections keeps socH+tableH+footerH == the exact line count of the
+	// joined frame.
+	parts := make([]string, 0, 3)
+	if socH > 0 {
+		parts = append(parts, soc)
+	}
+	if tableH > 0 {
+		parts = append(parts, table)
+	}
+	if footerH > 0 {
+		parts = append(parts, footer)
+	}
+	return tea.NewView(strings.Join(parts, "\n"))
 }
 
 // socHeight is the number of lines panel.Render emits for sample: a border
