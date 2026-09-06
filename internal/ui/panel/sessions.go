@@ -15,6 +15,23 @@ const spinnerGlyph = "⠋"
 
 const ctxBarWidth = 10
 
+// Column widths shared between sessionsHeader and sessionRow/subagentRow so
+// the two cannot drift out of alignment. wCTX is 18, not 16: the gauge's
+// widest form (marker + bracket + ctxBarWidth-wide bar + bracket + " NNN%")
+// is 18 visible columns, and a header slot narrower than its widest row
+// content misaligns every column to its right.
+const (
+	wStatus = 16
+	wPID    = 13
+	wAgent  = 6
+	wModel  = 14
+	wCWD    = 16
+	wCTX    = 18
+	wTok    = 18
+	wCost   = 7
+	wBurn   = 8
+)
+
 // unknownPID is the literal string a BindConf == "unknown" session renders
 // in place of a real pid -- keyed on BindConf, never on Proc == nil, since
 // a session can in principle carry BindConf == "unknown" with a populated
@@ -29,9 +46,24 @@ const unknownPID = "(pid unknown)"
 //
 // Subagents render as indented child rows directly under their parent
 // session, in the order Session.Subagents lists them.
+//
+// When the flattened row count exceeds the frame's data height, the table
+// scrolls: the visible window is recentred on selected (windowRows), and
+// the first/last visible line becomes a "▲/▼ N more" marker whenever rows
+// are hidden on that side, so an off-screen selection is never silent and
+// never itself hidden behind a marker.
 func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, selected int, at time.Time, opts Options) string {
-	lines := []string{sessionsHeader()}
+	rows := sessionRows(sessions, r, at, opts, selected)
+	rows = windowRows(rows, height-1, selected)
 
+	lines := append([]string{sessionsHeader()}, rows...)
+	return frame(lines, width, height)
+}
+
+// sessionRows flattens sessions (and their subagents) into one
+// already-styled line per row, in flattened-row order.
+func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Options, selected int) []string {
+	var lines []string
 	row := 0
 	for _, s := range sessions {
 		lines = append(lines, styleSelected(sessionRow(r, s, at, opts), row == selected, opts))
@@ -41,8 +73,42 @@ func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, sel
 			row++
 		}
 	}
+	return lines
+}
 
-	return frame(lines, width, height)
+// windowRows returns at most visible lines from rows, scrolled so selected
+// (a flattened row index, or -1 for none) stays on screen. When rows are
+// hidden above or below the window, the first/last visible line is
+// replaced with a "▲/▼ N more" marker -- unless that line is the selected
+// row itself, in which case the marker is skipped rather than hiding the
+// selection.
+func windowRows(rows []string, visible, selected int) []string {
+	n := len(rows)
+	if visible <= 0 {
+		return nil
+	}
+	if n <= visible {
+		return rows
+	}
+
+	first := selected - visible/2
+	if first < 0 {
+		first = 0
+	}
+	if max := n - visible; first > max {
+		first = max
+	}
+
+	window := make([]string, visible)
+	copy(window, rows[first:first+visible])
+
+	if first > 0 && first != selected {
+		window[0] = fmt.Sprintf("▲ %d more", first+1)
+	}
+	if last := first + visible - 1; last < n-1 && last != selected {
+		window[visible-1] = fmt.Sprintf("▼ %d more", n-last)
+	}
+	return window
 }
 
 func styleSelected(line string, isSelected bool, opts Options) string {
@@ -53,13 +119,19 @@ func styleSelected(line string, isSelected bool, opts Options) string {
 }
 
 func sessionsHeader() string {
-	return fmt.Sprintf("%-16s %-13s %-6s %-14s %-16s %-16s %-18s %-7s %-8s %3s %3s %5s %6s %6s",
-		"STATUS", "PID", "AGENT", "MODEL", "CWD", "CTX", "IN/OUT/CACHE", "$", "$/HR", "TL", "SA", "CPU%", "GPU/s", "RSS")
+	return fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %-*s %3s %3s %5s %6s %6s",
+		wStatus, "STATUS", wPID, "PID", wAgent, "AGENT", wModel, "MODEL", wCWD, "CWD", wCTX, "CTX",
+		wTok, "IN/OUT/CACHE", wCost, "$", wBurn, "$/HR", "TL", "SA", "CPU%", "GPU/s", "RSS")
 }
 
 func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options) string {
+	// Every cell is assembled plain and padded to its column width with
+	// padLine (which measures visible width via lipgloss.Width) before any
+	// ANSI styling is applied. Padding a styled cell with a fmt width verb
+	// counts escape bytes as columns and silently produces a short cell,
+	// shifting every column to its right.
 	statusColor, statusLabel := statusInfo(r, s, at)
-	status := styled(opts, statusColor, fmt.Sprintf("%-16s", truncate(statusLabel, 16)))
+	status := styled(opts, statusColor, padLine(truncate(statusLabel, wStatus), wStatus))
 
 	pid := unknownPID
 	if s.BindConf != "unknown" {
@@ -69,30 +141,36 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options) str
 			pid = "—"
 		}
 	}
+	pid = padLine(pid, wPID)
 
 	agent := s.Agent
-	model := truncate(s.Model, 14)
+	model := truncate(s.Model, wModel)
 	if s.Kind != "" && s.Kind != "interactive" {
 		// A background claude -p / sdk-cli run must never look like the
 		// session a person is typing into: mute the identity columns
 		// rather than let a $9/hr Nightshift run blend in with the row
 		// beside it.
-		agent = styled(opts, r.Muted, agent+"*")
-		model = styled(opts, r.Muted, model)
+		agent = styled(opts, r.Muted, padLine(agent+"*", wAgent))
+		model = styled(opts, r.Muted, padLine(model, wModel))
+	} else {
+		agent = padLine(agent, wAgent)
+		model = padLine(model, wModel)
 	}
 
-	cwd := shortenLeft(s.CWD, 16)
+	cwd := padLine(shortenLeft(s.CWD, wCWD), wCWD)
 	ctx := ctxGauge(r, s, opts)
-	tok := fmt.Sprintf("%s/%s/%s", formatTokens(s.Usage.Input), formatTokens(s.Usage.Output), formatTokens(s.Usage.CacheRead+s.Usage.CacheCreate5m+s.Usage.CacheCreate1h))
+	tok := padLine(fmt.Sprintf("%s/%s/%s", formatTokens(s.Usage.Input), formatTokens(s.Usage.Output), formatTokens(s.Usage.CacheRead+s.Usage.CacheCreate5m+s.Usage.CacheCreate1h)), wTok)
 
 	cost := "$—"
 	if s.Priced && s.CostUSD != nil {
 		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
 	}
+	cost = padLine(cost, wCost)
 	burn := "—"
 	if s.BurnUSDPerHr != nil {
 		burn = fmt.Sprintf("$%.2f/hr", *s.BurnUSDPerHr)
 	}
+	burn = padLine(burn, wBurn)
 
 	cpu, gpu, rss := "—", "—", "—"
 	if s.BindConf != "unknown" && s.Proc != nil {
@@ -101,7 +179,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options) str
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
 	}
 
-	return fmt.Sprintf("%s %-13s %-6s %-14s %-16s %-16s %-18s %-7s %-8s %3d %3d %5s %6s %6s",
+	return fmt.Sprintf("%s %s %s %s %s %s %s %s %s %3d %3d %5s %6s %6s",
 		status, pid, agent, model, cwd, ctx, tok, cost, burn, len(s.Tools), len(s.Subagents), cpu, gpu, rss)
 }
 
@@ -120,9 +198,10 @@ func subagentRow(r theme.Roles, sa *domain.Subagent, opts Options) string {
 	if sa.CostUSD != nil {
 		cost = fmt.Sprintf("$%.2f", *sa.CostUSD)
 	}
-	label := styled(opts, color, fmt.Sprintf("%-11s", state))
-	return fmt.Sprintf("  %s %-13s %-6s %-14s %-16s %-16s %-18s %-7s %-8s",
-		label, "", sa.AgentType, truncate(sa.Model, 14), truncate(sa.Description, 16), "", "", cost, "")
+	label := styled(opts, color, padLine(state, 11))
+	return fmt.Sprintf("  %s %s %s %s %s %s %s %s %s",
+		label, padLine("", wPID), padLine(sa.AgentType, wAgent), padLine(truncate(sa.Model, wModel), wModel),
+		padLine(truncate(sa.Description, wCWD), wCWD), padLine("", wCTX), padLine("", wTok), padLine(cost, wCost), padLine("", wBurn))
 }
 
 // statusInfo maps a Session.Status to its severity color and display
@@ -179,16 +258,55 @@ func ctxGauge(r theme.Roles, s domain.Session, opts Options) string {
 	if !s.ContextExact {
 		left, right, marker = "┊", "┊", "~"
 	}
-	return fmt.Sprintf("%s%s%s%s%3.0f%%", marker, left, bar, right, pct)
+	// bar already carries ANSI fill/empty styling; padLine measures its
+	// visible width via lipgloss.Width, so padding here (rather than with
+	// a fmt width verb) stays correct regardless of that styling.
+	return padLine(fmt.Sprintf("%s%s%s%s%3.0f%%", marker, left, bar, right, pct), wCTX)
 }
 
 // formatTokens renders a token count compactly: below 1000 as-is, at or
-// above 1000 as "N.Nk".
+// above 1000 as "N.Nk"/"N.NM"/"N.NG".
 func formatTokens(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
+	return humanCount(n)
+}
+
+// humanCount renders a raw count with a k/M/G suffix once it clears 1000,
+// keeping one decimal place at every scale -- a 6-8 digit raw number (token
+// counts, cache-read counters) is the widest, least readable cell in the
+// sessions table and overruns its column.
+func humanCount(n int64) string {
+	neg := ""
+	if n < 0 {
+		neg = "-"
+		n = -n
 	}
-	return fmt.Sprintf("%.1fk", float64(n)/1000)
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%s%.1fG", neg, float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%s%.1fM", neg, float64(n)/1e6)
+	case n >= 1000:
+		return fmt.Sprintf("%s%.1fk", neg, float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%s%d", neg, n)
+	}
+}
+
+// humanBytes renders a byte count with a KB/MB/GB suffix once it clears
+// 1000, one decimal place at every scale -- used wherever a raw byte
+// counter (disk cumulative r/w) would otherwise render as an 8-9 digit
+// integer.
+func humanBytes(n uint64) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fGB", float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fMB", float64(n)/1e6)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fKB", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%dB", n)
+	}
 }
 
 // truncate cuts s to at most n runes, marking the cut with a trailing "…".
