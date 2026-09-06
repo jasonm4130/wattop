@@ -168,6 +168,46 @@ func TestUnpricedContributesZeroAndIsFlagged(t *testing.T) {
 	}
 }
 
+// TestCostTierKeysOnLastPromptNotCumulativeUsage: a session whose
+// cumulative Usage has crossed claude-sonnet-4-5's 200k-token tier
+// threshold, but whose last request (ContextUsed) was well under it, must
+// still price at the base rate — tier selection keys on the per-request
+// prompt size, never on the lifetime sum. Pricing this at the long-context
+// tier because the running total happens to exceed 200k would overcharge
+// essentially every real multi-turn session within a handful of turns.
+func TestCostTierKeysOnLastPromptNotCumulativeUsage(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+
+	s := domain.Session{
+		Agent: "claude", ID: "s1", Status: "busy",
+		Model: "claude-sonnet-4-5",
+		Usage: domain.Usage{
+			Input:     120_000,
+			Output:    60_000,
+			CacheRead: 4_800_000,
+		},
+		ContextUsed: 130_000,
+	}
+
+	snap := st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{s}})
+	got := findSession(t, snap, "claude", "s1")
+	if got.CostUSD == nil {
+		t.Fatalf("CostUSD is nil, want a value")
+	}
+
+	// Base-rate cost computed directly from the sonnet-4-5 base per-token
+	// rates, independent of reduce.go's own tier logic.
+	const (
+		inputRate     = 3e-06
+		outputRate    = 1.5e-05
+		cacheReadRate = 3e-07
+	)
+	want := float64(s.Usage.Input)*inputRate + float64(s.Usage.Output)*outputRate + float64(s.Usage.CacheRead)*cacheReadRate
+	if diff := *got.CostUSD - want; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("CostUSD = %v, want base-tier price %v (cumulative usage exceeds the 200k tier threshold but the last prompt, ContextUsed=%d, did not)", *got.CostUSD, want, s.ContextUsed)
+	}
+}
+
 // TestSubagentCostSurvivesAfterItFinishes: a subagent's cost is folded into
 // the session total, and stays there once the subagent drops out of the
 // live set (Live: false) on a later cycle — it is never re-subtracted.
