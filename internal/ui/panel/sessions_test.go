@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -331,6 +332,85 @@ func TestBackgroundSessionStyledDifferently(t *testing.T) {
 	}
 }
 
+// TestSelectedRowHighlightSpansWholeLine asserts the reverse-video wrapper
+// applied to a selected row covers the entire assembled line, including the
+// text after its lipgloss-rendered status cell -- a hand-rolled
+// \x1b[7m...\x1b[0m wrapper collapses at the first embedded reset, leaving
+// only the STATUS column highlighted.
+func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
+	r := loadDarkRoles(t)
+	s := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5", CWD: "/home/u/project"}
+
+	out := SessionsRender([]domain.Session{s}, r, 160, 3, 0, fixtureAt, Options{})
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least a header and one data line, got %d:\n%s", len(lines), out)
+	}
+	row := lines[1]
+
+	// The reverse-video SGR (7) must still be in effect at the very end of
+	// the row -- i.e. no unmatched reset (0) after the last "7" and before
+	// the row ends -- rather than closing partway through at the status
+	// cell's own embedded reset.
+	lastReverse := strings.LastIndex(row, "\x1b[7m")
+	if lastReverse == -1 {
+		t.Fatalf("expected a reverse-video SGR on the selected row, got:\n%q", row)
+	}
+	if resetAfter := strings.Index(row[lastReverse:], "\x1b[0m"); resetAfter != -1 && resetAfter < len(row)-lastReverse-len("RSS") {
+		// A reset that lands well before the end of the row (rather than
+		// exactly closing out the final cell) means the highlight
+		// collapsed early.
+		tail := row[lastReverse+resetAfter+len("\x1b[0m"):]
+		if strings.TrimSpace(stripANSI(tail)) != "" && !strings.Contains(tail, "\x1b[7m") {
+			t.Errorf("reverse video reset before the end of the row, leaving unhighlighted trailing content: %q", tail)
+		}
+	}
+	if !strings.Contains(row, "512M") && !strings.Contains(row, "—") {
+		t.Fatalf("sanity: row missing expected trailing cell content:\n%q", row)
+	}
+}
+
+// stripANSI removes CSI SGR escape sequences for length/content checks.
+func stripANSI(s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i == -1 {
+			return s
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		if j == -1 {
+			return s
+		}
+		s = s[:i] + s[i+j+1:]
+	}
+}
+
+// TestSelectionGutterSurvivesNoColor asserts the selected row is still
+// visibly marked (via the "▸" gutter) when NO_COLOR/--no-color drops all
+// ANSI styling, and that no other row carries the marker.
+func TestSelectionGutterSurvivesNoColor(t *testing.T) {
+	r := loadDarkRoles(t)
+	sessions := []domain.Session{
+		{Agent: "claude", ID: "s1", Status: "busy"},
+		{Agent: "codex", ID: "s2", Status: "waiting"},
+	}
+
+	out := SessionsRender(sessions, r, 120, 4, 1, fixtureAt, Options{NoColor: true})
+	if strings.Contains(out, "\x1b[") {
+		t.Errorf("NoColor render still contains an ANSI escape sequence:\n%q", out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected a header plus 2 data lines, got %d:\n%s", len(lines), out)
+	}
+	if strings.Contains(lines[1], selectionGutter) {
+		t.Errorf("unselected row 0 unexpectedly carries the selection gutter:\n%q", lines[1])
+	}
+	if !strings.Contains(lines[2], selectionGutter) {
+		t.Errorf("selected row 1 missing the %q gutter under NoColor:\n%q", selectionGutter, lines[2])
+	}
+}
+
 // TestFilterHeadlessHidesSubagentRows exercises the subagent-tree render
 // path (a three-subagent session, one live) and confirms the child rows
 // disappear once callers filter them out, mirroring model.go's 'f'
@@ -362,5 +442,174 @@ func TestSubagentRowsRenderIndented(t *testing.T) {
 	filteredOut := SessionsRender([]domain.Session{filtered}, r, 120, 5, -1, snap.At, Options{})
 	if strings.Contains(filteredOut, "live") || strings.Contains(filteredOut, "finished") {
 		t.Errorf("filtering subagents out should drop their rows entirely, got:\n%s", filteredOut)
+	}
+}
+
+// TestHumanCountScalesToMAndG pins formatTokens/humanCount past the "k"
+// ceiling: a raw session's token counters routinely clear a million, and
+// stopping at "k" rendered a real session as "1431.2k" or "286059.5k" --
+// the widest, least readable cell in the table.
+func TestHumanCountScalesToMAndG(t *testing.T) {
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1.0k"},
+		{1_431_200, "1.4M"},
+		{286_059_500, "286.1M"}, // %.1f rounding of 286.0595
+		{1_000_000_000, "1.0G"},
+		{-1500, "-1.5k"},
+	}
+	for _, c := range cases {
+		if got := humanCount(c.n); got != c.want {
+			t.Errorf("humanCount(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+// TestHumanBytesScalesToMAndG pins the byte-counter formatter used for the
+// detail view's disk (cumulative) r/w figures, which otherwise render as
+// raw 8-9 digit integers (e.g. 580444160 B).
+func TestHumanBytesScalesToMAndG(t *testing.T) {
+	cases := []struct {
+		n    uint64
+		want string
+	}{
+		{0, "0B"},
+		{999, "999B"},
+		{1000, "1.0KB"},
+		{580_444_160, "580.4MB"},
+		{1_000_000_000, "1.0GB"},
+	}
+	for _, c := range cases {
+		if got := humanBytes(c.n); got != c.want {
+			t.Errorf("humanBytes(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+// manySessions builds n one-row synthetic sessions ("s0".."s(n-1)"), each a
+// distinct, greppable status label so a test can assert on which rows
+// actually made it into a truncated/windowed render.
+func manySessions(n int) []domain.Session {
+	out := make([]domain.Session, n)
+	for i := range out {
+		out[i] = domain.Session{Agent: "claude", ID: fmt.Sprintf("s%d", i), Status: fmt.Sprintf("row%d", i)}
+	}
+	return out
+}
+
+// TestSessionsScrollKeepsSelectionOnScreen pins the scrolling fix: with far
+// more rows than fit, a selection deep in the list (well past the frame's
+// data height) must still appear -- in reverse video -- rather than
+// silently walking off-screen the way an unwindowed render used to.
+func TestSessionsScrollKeepsSelectionOnScreen(t *testing.T) {
+	r := loadDarkRoles(t)
+	sessions := manySessions(30)
+
+	out := SessionsRender(sessions, r, 120, 18, 25, time.Time{}, Options{}) // 17 data rows, row 25 selected
+
+	var selectedLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "row25") {
+			selectedLine = line
+			break
+		}
+	}
+	if selectedLine == "" {
+		t.Fatalf("selected row 25 scrolled out of a 17-row window entirely, got:\n%s", out)
+	}
+	if !strings.HasPrefix(selectedLine, "\x1b[7m") {
+		t.Errorf("selected row 25 rendered but lost its reverse-video highlight, got line:\n%q", selectedLine)
+	}
+}
+
+// TestSessionsScrollShowsMoreMarkers asserts a windowed render marks both
+// hidden regions -- rows above and rows below the visible slice -- so a
+// truncated table is never silently indistinguishable from a complete one.
+func TestSessionsScrollShowsMoreMarkers(t *testing.T) {
+	r := loadDarkRoles(t)
+	sessions := manySessions(30)
+
+	out := SessionsRender(sessions, r, 120, 18, 15, time.Time{}, Options{}) // selection mid-list: hidden above and below
+	if !strings.Contains(out, "▲") {
+		t.Errorf("expected a \"▲ N more\" marker for rows hidden above the window, got:\n%s", out)
+	}
+	if !strings.Contains(out, "▼") {
+		t.Errorf("expected a \"▼ N more\" marker for rows hidden below the window, got:\n%s", out)
+	}
+}
+
+// TestSessionsScrollNoMarkersWhenEverythingFits guards against markers
+// appearing when the row count already fits the frame -- the common case,
+// and every pre-existing golden/behavioural test in this file depends on
+// it rendering exactly as before.
+func TestSessionsScrollNoMarkersWhenEverythingFits(t *testing.T) {
+	r := loadDarkRoles(t)
+	sessions := manySessions(5)
+
+	out := SessionsRender(sessions, r, 120, 18, 2, time.Time{}, Options{})
+	if strings.Contains(out, "▲") || strings.Contains(out, "▼") {
+		t.Errorf("did not expect a scroll marker when all rows fit the frame, got:\n%s", out)
+	}
+	for i := 0; i < 5; i++ {
+		if want := fmt.Sprintf("row%d", i); !strings.Contains(out, want) {
+			t.Errorf("expected %q to render when every row fits, got:\n%s", want, out)
+		}
+	}
+}
+
+// TestWindowRowsNeverHidesTheSelectedRowBehindAMarker exercises windowRows
+// directly across every window position for a small visible size, where a
+// naive centred window can otherwise land the selection on the exact line
+// a "N more" marker would overwrite.
+func TestWindowRowsNeverHidesTheSelectedRowBehindAMarker(t *testing.T) {
+	const n = 10
+	rows := make([]string, n)
+	for i := range rows {
+		rows[i] = fmt.Sprintf("row%d", i)
+	}
+
+	for visible := 1; visible <= n; visible++ {
+		for selected := 0; selected < n; selected++ {
+			got := windowRows(rows, visible, selected)
+			want := fmt.Sprintf("row%d", selected)
+			found := false
+			for _, line := range got {
+				if line == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("visible=%d selected=%d: selection missing or hidden behind a marker in %v", visible, selected, got)
+			}
+		}
+	}
+}
+
+// TestCtxGaugeOverBudgetRendersLiteralOverflow exercises ctxGauge directly.
+// A session within its context window still renders the plain "NNN%"
+// number; one over its window (ContextUsed > ContextMax, e.g. a Codex row
+// whose reported total overruns model_context_window) must render the
+// literal ">100%" rather than an unclamped three-digit percentage that
+// disagrees with Bar()'s own 100%-clamped fill.
+func TestCtxGaugeOverBudgetRendersLiteralOverflow(t *testing.T) {
+	r := loadDarkRoles(t)
+
+	within := domain.Session{ContextUsed: 61000, ContextMax: 200000, ContextExact: true}
+	if got := ctxGauge(r, within, Options{NoColor: true}); !strings.Contains(got, " 31%") {
+		t.Errorf("within-budget gauge = %q, want it to contain \" 31%%\"", got)
+	}
+
+	over := domain.Session{ContextUsed: 946000, ContextMax: 200000, ContextExact: true}
+	got := ctxGauge(r, over, Options{NoColor: true})
+	if !strings.Contains(got, ">100%") {
+		t.Errorf("over-budget gauge = %q, want it to contain the literal \">100%%\"", got)
+	}
+	if strings.Contains(got, "473") {
+		t.Errorf("over-budget gauge = %q, must not render the raw unclamped percentage", got)
 	}
 }
