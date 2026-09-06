@@ -19,7 +19,8 @@ const recentToolLogLen = 5
 // histogram by name, a recent tool log, the subagent tree with resolved
 // model ids and live/finished state, the token breakdown by cache tier,
 // per-session cost and burn, Codex rate limits where present, and the bind
-// confidence. This is the only place DiskReadB/DiskWriteB surface in v0.1.
+// confidence. This is the only place DiskReadB/DiskWriteB surface in v0.1,
+// and they surface as cumulative byte counters, labelled as such.
 //
 // Each section header carries its own one-line summary rather than a
 // separate header-then-data pair, so a 12-entry tool-call histogram (the
@@ -132,12 +133,20 @@ func subagentTreeLines(subagents []domain.Subagent) []string {
 	return out
 }
 
+// processLines renders the selected session's process detail. The disk
+// figures are labelled "(cumulative)" and carry a plain B unit because
+// that is exactly what they are: proc_pid_rusage's
+// ri_diskio_bytesread/byteswritten, counted since the process started and
+// passed through internal/proc with no delta tracker behind them. A "/s"
+// suffix here would read as a rate and be wrong by however long the
+// process has been alive -- on the one screen in v0.1 where these two
+// fields surface at all.
 func processLines(s domain.Session) []string {
 	if s.BindConf == "unknown" || s.Proc == nil {
-		return []string{"  (pid unknown) cpu — gpu — rss — disk r/w —/—"}
+		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}
 	}
 	p := s.Proc
-	return []string{fmt.Sprintf("  pid %d  cpu %.1f%%  gpu %s ms/s  rss %.0fM  disk r %d B/s w %d B/s",
+	return []string{fmt.Sprintf("  pid %d  cpu %.1f%%  gpu %s ms/s  rss %.0fM  disk (cumulative) r %d B  w %d B",
 		p.PID, p.CPUPct, fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, p.DiskReadB, p.DiskWriteB)}
 }
 

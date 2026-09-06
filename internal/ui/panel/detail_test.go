@@ -118,6 +118,33 @@ func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 	}
 }
 
+// TestDetailDiskIOLabelledCumulativeNotRate pins the unit on the disk
+// figures. ProcSample.DiskReadB/DiskWriteB are proc_pid_rusage counters
+// accumulated since the process started -- internal/proc keeps no delta
+// tracker for them -- so a "B/s" suffix would sell a lifetime total as a
+// per-second rate, wrong by however long the process has been alive. The
+// negative assertion is on "B/s" and not on "/s", because "gpu ... ms/s"
+// on the same line legitimately is a rate.
+func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
+	r := loadDarkRoles(t)
+
+	bound := DetailRender(sessionWithHistogram(), r, 120, 40, Options{})
+	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}, r, 120, 40, Options{})
+
+	for name, out := range map[string]string{"bound": bound, "unbound": unbound} {
+		if !strings.Contains(out, "disk (cumulative)") {
+			t.Errorf("%s: expected the disk counters marked cumulative, got:\n%s", name, out)
+		}
+		if strings.Contains(out, "B/s") {
+			t.Errorf("%s: disk bytes are cumulative counters, never a per-second rate, got:\n%s", name, out)
+		}
+	}
+
+	if !strings.Contains(bound, "r 1048576 B") || !strings.Contains(bound, "w 262144 B") {
+		t.Errorf("expected raw cumulative byte counts with a plain B unit, got:\n%s", bound)
+	}
+}
+
 // TestDetailUnboundShowsPidUnknown asserts the process section falls back
 // to "(pid unknown)" for a session whose bind confidence is unknown, never
 // a crash or a zeroed process line.

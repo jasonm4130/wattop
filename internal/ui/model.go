@@ -41,6 +41,11 @@ type Model struct {
 	showHelp       bool
 	selected       int
 
+	// noColor drops every ANSI escape from the rendered panels. cmd/wattop
+	// (Task 13) owns the --no-color flag and NO_COLOR; internal/ui reads
+	// neither, so the resolved answer arrives through WithNoColor.
+	noColor bool
+
 	width, height int
 }
 
@@ -67,6 +72,20 @@ func New(st *state.State, themeName string, roles theme.Roles) Model {
 	}
 }
 
+// WithNoColor returns m with colour suppression set. It is a setter rather
+// than a New parameter so Task 13 can wire --no-color without every other
+// caller of New changing shape.
+func (m Model) WithNoColor(v bool) Model {
+	m.noColor = v
+	return m
+}
+
+// renderOpts is the one place the model's display flags become panel
+// options, so a new flag reaches every panel by being added here once.
+func (m Model) renderOpts() panel.Options {
+	return panel.Options{NoColor: m.noColor}
+}
+
 // Init starts the program with no initial command: the sampling cycle that
 // drives CycleMsg lives entirely in Task 13's supervisor, outside this
 // model.
@@ -86,6 +105,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.snap = m.st.Reduce(msg.Inputs)
 		m.clampSelection()
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		// The frame is drawn to whatever the terminal currently is, so a
+		// resize re-lays out on the next View rather than corrupting the
+		// old width's padding. New's 120x40 is only the pre-resize default.
+		if msg.Width > 0 && msg.Height > 0 {
+			m.width, m.height = msg.Width, msg.Height
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -241,16 +269,16 @@ func (m Model) View() tea.View {
 	}
 
 	if m.showHelp {
-		return tea.NewView(panel.HelpRender(m.roles, m.width, m.height, panel.Options{}))
+		return tea.NewView(panel.HelpRender(m.roles, m.width, m.height, m.renderOpts()))
 	}
 
 	if m.showDetail {
 		if s, ok := m.selectedSession(); ok {
-			return tea.NewView(panel.DetailRender(s, m.roles, m.width, m.height, panel.Options{}))
+			return tea.NewView(panel.DetailRender(s, m.roles, m.width, m.height, m.renderOpts()))
 		}
 	}
 
-	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, m.height-3, m.selected, m.snap.At, panel.Options{})
-	footer := panel.FooterRender(m.snap, m.roles, m.width, 3, panel.Options{})
+	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, m.height-3, m.selected, m.snap.At, m.renderOpts())
+	footer := panel.FooterRender(m.snap, m.roles, m.width, 3, m.renderOpts())
 	return tea.NewView(table + "\n" + footer)
 }

@@ -257,3 +257,47 @@ func TestUpdateIsNonBlocking(t *testing.T) {
 		}
 	}
 }
+
+// TestWindowResizeUpdatesFrameSize asserts a terminal resize reaches the
+// model, so View lays out to the real terminal rather than New's 120x40
+// default. Both directions are checked -- 80x24 and 200x60 are the two
+// sizes manual QA resizes to -- and a degenerate 0x0 (which some
+// terminals emit while a resize is in flight) must not blank the frame.
+func TestWindowResizeUpdatesFrameSize(t *testing.T) {
+	m := newTestModel(t)
+
+	for _, sz := range []struct{ w, h int }{{80, 24}, {200, 60}} {
+		mi, _ := m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+		m = mi.(Model)
+		if m.width != sz.w || m.height != sz.h {
+			t.Errorf("after %dx%d resize: got %dx%d", sz.w, sz.h, m.width, m.height)
+		}
+	}
+
+	mi, _ := m.Update(tea.WindowSizeMsg{Width: 0, Height: 0})
+	m = mi.(Model)
+	if m.width != 200 || m.height != 60 {
+		t.Errorf("a 0x0 resize must be ignored, got %dx%d", m.width, m.height)
+	}
+}
+
+// TestNoColorSuppressesEscapes asserts the --no-color answer cmd/wattop
+// resolves (Task 13) actually reaches every panel: with it set, the
+// rendered frame carries no ANSI escape at all.
+func TestNoColorSuppressesEscapes(t *testing.T) {
+	m := newTestModel(t).WithNoColor(true)
+	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
+		{Agent: "claude", ID: "a", Status: "busy", Model: "claude-opus-5"},
+	}))
+	m = mi.(Model)
+
+	for _, view := range []string{
+		m.View().Content,
+		func() string { mi, _ := m.Update(keyMsg("enter")); return mi.(Model).View().Content }(),
+		func() string { mi, _ := m.Update(keyMsg("?")); return mi.(Model).View().Content }(),
+	} {
+		if strings.Contains(view, "\x1b[") {
+			t.Errorf("expected no ANSI escapes under WithNoColor(true), got:\n%q", view)
+		}
+	}
+}

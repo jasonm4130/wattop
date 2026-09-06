@@ -30,7 +30,7 @@ Subagents (2)
   └─ worker     implement task 4         model=claude-sonnet-5      live     $—                                         
                                                                                                                         
 Process:                                                                                                                
-  pid 1234  cpu 12.5%  gpu — ms/s  rss 512M  disk r 1048576 B/s w 262144 B/s                                            
+  pid 1234  cpu 12.5%  gpu — ms/s  rss 512M  disk (cumulative) r 1048576 B  w 262144 B                                  
                                                                                                                         
 Codex rate limits                                                                                                       
   primary  used 42.5%  window 300m resets 14:00                                                                         
