@@ -1,0 +1,40 @@
+STATUS           PID           AGENT  MODEL          CWD              CTX              IN/OUT/CACHE       $       $/HR      TL  SA  CPU%  GPU/s    RSS
+[38;2;86;211;100m⠋ Busy          [m pid 1234      claude claude-opus-5  /home/u/project  ~┊[38;2;86;211;100m███[m[38;2;48;54;61m░░░░░░░[m┊ 30% 42.0k/3.1k/18.9k   $0.30   $0.00/hr   2   0 12.5%   20.0   512M
+[38;2;210;153;34mWaiting         [m pid 5678      [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra[m /home/u/repo     [[38;2;86;211;100m[m[38;2;48;54;61m░░░░░░░░░░[m]  4% 9.8k/640/0         $0.02   $0.00/hr   1   0  4.1%      —   210M
+[38;2;110;118;129mUnknown         [m (pid unknown) [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra…[m …me/u/other-repo [[38;2;86;211;100m[m[38;2;48;54;61m░░░░░░░░░░[m]  2% 5.0k/300/0         $0.01   $0.00/hr   0   0     —      —      —
+[38;2;210;153;34mWaiting         [m (pid unknown) claude claude-nightl… …/u/side-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░░░░░░░░[m┊  1% 1.2k/80/0          $—      —          0   0     —      —      —
+[38;2;86;211;100m⠋ Busy          [m (pid unknown) claude claude-opus-5  /home/u/monorepo ~┊[38;2;86;211;100m███████[m[38;2;48;54;61m░░░[m┊ 68% 88.0k/6.2k/41.5k   $0.90   $0.00/hr   3   3     —      —      —
+  [38;2;110;118;129mfinished   [m               Explore claude-fable-… search the code…                                     $0.17           
+  [38;2;110;118;129mfinished   [m               worker claude-sonnet… implement task 4                                     $0.08            
+  [38;2;86;211;100mlive       [m               worker claude-sonnet… implement task 5                                     $0.02            
+[38;2;210;153;34mWaiting         [m (pid unknown) claude claude-sonnet… …e/u/old-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░░░░░░░░[m┊  0% 500/40/0           $0.00   $0.00/hr   0   0     —      —      —
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

@@ -1,0 +1,256 @@
+// Package ui is wattop's Bubble Tea program: the Model in model.go, its
+// keybindings in keys.go, and the widgets it composes from internal/ui/panel
+// and internal/ui/theme.
+package ui
+
+import (
+	"sort"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/jasonm4130/wattop/internal/domain"
+	"github.com/jasonm4130/wattop/internal/state"
+	"github.com/jasonm4130/wattop/internal/ui/panel"
+	"github.com/jasonm4130/wattop/internal/ui/theme"
+)
+
+// CycleMsg carries one coordinated sampling cycle. Task 13's supervisor
+// sends exactly one of these per cycle -- never three separate messages for
+// Sys/Procs/Sessions -- so that Reduce always sees one instant's worth of
+// data at once.
+type CycleMsg struct {
+	Inputs state.Inputs
+}
+
+// Model is wattop's Bubble Tea model. It holds a *state.State constructed
+// by cmd/wattop (Task 13) and passed in here, never built by the model
+// itself: the pricing book and burn tracker State wraps must outlive any
+// single frame, and Update must never construct anything that does I/O.
+type Model struct {
+	st   *state.State
+	snap *domain.Snapshot
+
+	themeNames []string
+	themeIdx   int
+	roles      theme.Roles
+
+	sortIdx        int
+	filterHeadless bool
+	paused         bool
+	showDetail     bool
+	showHelp       bool
+	selected       int
+
+	width, height int
+}
+
+// New constructs a Model. st is owned by the caller for the life of the
+// program; roles is the initially selected theme (resolved by cmd/wattop
+// from --theme/WATTOP_THEME before this is called, since internal/ui does
+// not read flags or the environment).
+func New(st *state.State, themeName string, roles theme.Roles) Model {
+	names := theme.Names()
+	idx := 0
+	for i, n := range names {
+		if n == themeName {
+			idx = i
+			break
+		}
+	}
+	return Model{
+		st:         st,
+		themeNames: names,
+		themeIdx:   idx,
+		roles:      roles,
+		width:      120,
+		height:     40,
+	}
+}
+
+// Init starts the program with no initial command: the sampling cycle that
+// drives CycleMsg lives entirely in Task 13's supervisor, outside this
+// model.
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
+// Update handles exactly one message per call and returns immediately.
+// Nothing that blocks may run here: a CycleMsg triggers one Reduce call
+// (pure, per internal/state's own contract) and a keypress only mutates
+// the model's own display state.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case CycleMsg:
+		if m.paused {
+			return m, nil
+		}
+		m.snap = m.st.Reduce(msg.Inputs)
+		m.clampSelection()
+		return m, nil
+
+	case tea.KeyPressMsg:
+		return m.handleKey(msg.String())
+	}
+	return m, nil
+}
+
+func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
+	switch keyAction(key) {
+	case actionQuit:
+		return m, tea.Quit
+	case actionUp:
+		if m.selected > 0 {
+			m.selected--
+		}
+	case actionDown:
+		if m.selected < m.flatRowCount()-1 {
+			m.selected++
+		}
+	case actionToggleDetail:
+		m.showDetail = !m.showDetail
+	case actionThemeForward:
+		m.cycleTheme(1)
+	case actionThemeBack:
+		m.cycleTheme(-1)
+	case actionCycleSort:
+		m.sortIdx = (m.sortIdx + 1) % len(sortKeys)
+	case actionToggleFilter:
+		m.filterHeadless = !m.filterHeadless
+		m.clampSelection()
+	case actionTogglePause:
+		m.paused = !m.paused
+	case actionToggleHelp:
+		m.showHelp = !m.showHelp
+	}
+	return m, nil
+}
+
+func (m *Model) cycleTheme(dir int) {
+	if len(m.themeNames) == 0 {
+		return
+	}
+	m.themeIdx = (m.themeIdx + dir + len(m.themeNames)) % len(m.themeNames)
+	if r, err := theme.Load(m.themeNames[m.themeIdx]); err == nil {
+		m.roles = r
+	}
+}
+
+// visibleSessions applies the current sort and the headless-child filter.
+// filterHeadless hides subagent rows entirely (the child rows a headless
+// Task invocation spawns) rather than the top-level sessions.
+func (m Model) visibleSessions() []domain.Session {
+	if m.snap == nil {
+		return nil
+	}
+	out := make([]domain.Session, len(m.snap.Sessions))
+	copy(out, m.snap.Sessions)
+
+	if m.filterHeadless {
+		for i := range out {
+			out[i].Subagents = nil
+		}
+	}
+
+	switch sortKeys[m.sortIdx] {
+	case "cost":
+		sort.SliceStable(out, func(i, j int) bool {
+			return costOrZero(out[i]) > costOrZero(out[j])
+		})
+	case "burn":
+		sort.SliceStable(out, func(i, j int) bool {
+			return burnOrZero(out[i]) > burnOrZero(out[j])
+		})
+	case "cpu":
+		sort.SliceStable(out, func(i, j int) bool {
+			return cpuOrZero(out[i]) > cpuOrZero(out[j])
+		})
+	case "status":
+		// Default order: whatever Reduce/the sources produced. Status is
+		// not a metric to sort a slice by numerically, so "status" leaves
+		// ordering as-is rather than imposing an arbitrary rank.
+	}
+	return out
+}
+
+func costOrZero(s domain.Session) float64 {
+	if s.CostUSD == nil {
+		return 0
+	}
+	return *s.CostUSD
+}
+
+func burnOrZero(s domain.Session) float64 {
+	if s.BurnUSDPerHr == nil {
+		return 0
+	}
+	return *s.BurnUSDPerHr
+}
+
+func cpuOrZero(s domain.Session) float64 {
+	if s.Proc == nil {
+		return 0
+	}
+	return s.Proc.CPUPct
+}
+
+// flatRowCount is how many selectable rows visibleSessions renders: one
+// per session plus one per visible subagent.
+func (m Model) flatRowCount() int {
+	n := 0
+	for _, s := range m.visibleSessions() {
+		n += 1 + len(s.Subagents)
+	}
+	return n
+}
+
+func (m *Model) clampSelection() {
+	if n := m.flatRowCount(); m.selected >= n {
+		m.selected = n - 1
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+}
+
+// selectedSession returns the top-level session owning the currently
+// selected flattened row (a subagent row's parent), or false when there is
+// nothing to select.
+func (m Model) selectedSession() (domain.Session, bool) {
+	row := 0
+	for _, s := range m.visibleSessions() {
+		if row == m.selected {
+			return s, true
+		}
+		row++
+		for range s.Subagents {
+			if row == m.selected {
+				return s, true
+			}
+			row++
+		}
+	}
+	return domain.Session{}, false
+}
+
+// View renders only from the stored Snapshot -- never a collector, never
+// the clock -- and returns a tea.View per the v2 Model interface (v1's
+// View() string no longer satisfies it).
+func (m Model) View() tea.View {
+	if m.snap == nil {
+		return tea.NewView("wattop: waiting for the first sample...")
+	}
+
+	if m.showHelp {
+		return tea.NewView(panel.HelpRender(m.roles, m.width, m.height, panel.Options{}))
+	}
+
+	if m.showDetail {
+		if s, ok := m.selectedSession(); ok {
+			return tea.NewView(panel.DetailRender(s, m.roles, m.width, m.height, panel.Options{}))
+		}
+	}
+
+	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, m.height-3, m.selected, m.snap.At, panel.Options{})
+	footer := panel.FooterRender(m.snap, m.roles, m.width, 3, panel.Options{})
+	return tea.NewView(table + "\n" + footer)
+}

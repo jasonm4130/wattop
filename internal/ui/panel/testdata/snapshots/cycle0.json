@@ -1,0 +1,389 @@
+{
+  "at": "2026-09-06T12:00:00Z",
+  "sys": {
+    "at": "2026-09-06T12:00:00Z",
+    "soc_name": "",
+    "clusters": null,
+    "gpu": {
+      "active_pct": null,
+      "freq_mhz": null,
+      "core_count": 0
+    },
+    "power": {
+      "cpu_watts": null,
+      "gpu_watts": null,
+      "ane_watts": null,
+      "dram_watts": null,
+      "system_watts": null
+    },
+    "bandwidth": {
+      "dram_read_gbs": null,
+      "dram_write_gbs": null,
+      "ane_combined_gbs": null
+    },
+    "temps": null,
+    "fans": null,
+    "thermal_state": 0,
+    "memory": {
+      "total_bytes": 0,
+      "used_bytes": 0,
+      "available_bytes": 0,
+      "swap_total_bytes": 0,
+      "swap_used_bytes": 0
+    },
+    "net": {
+      "in_bytes_per_sec": 0,
+      "out_bytes_per_sec": 0
+    },
+    "disk": {
+      "read_bytes_per_sec": 0,
+      "write_bytes_per_sec": 0
+    },
+    "missing": null
+  },
+  "sessions": [
+    {
+      "agent": "claude",
+      "id": "sess-busy-claude",
+      "pid": 1234,
+      "bind_conf": "exact",
+      "cwd": "/home/u/project",
+      "name": "wattop",
+      "cmdline": "claude",
+      "kind": "interactive",
+      "status": "busy",
+      "status_since": "2026-09-06T09:01:00Z",
+      "model": "claude-opus-5",
+      "usage": {
+        "input": 42000,
+        "output": 3100,
+        "cache_read": 18000,
+        "cache_create_5m": 900,
+        "cache_create_1h": 0,
+        "thinking": 500,
+        "cached_input": 0
+      },
+      "cost_usd": 0.30212500000000003,
+      "burn_usd_per_hr": 0,
+      "priced": true,
+      "context_used": 61000,
+      "context_max": 200000,
+      "context_exact": false,
+      "tools": [
+        {
+          "name": "Read",
+          "at": "2026-09-06T09:01:10Z",
+          "id": "tool-1"
+        },
+        {
+          "name": "Edit",
+          "at": "2026-09-06T09:01:40Z",
+          "id": "tool-2"
+        }
+      ],
+      "tool_counts": {
+        "Edit": 1,
+        "Read": 1
+      },
+      "subagents": [],
+      "proc": {
+        "pid": 1234,
+        "comm": "2.1.261",
+        "argv": [
+          "claude"
+        ],
+        "cwd": "/home/u/project",
+        "rss_bytes": 512000000,
+        "cpu_pct": 12.5,
+        "disk_read_b": 1048576,
+        "disk_write_b": 262144,
+        "start_time": "2026-09-06T09:00:00Z",
+        "gpu_ms_per_sec": 20.026,
+        "gpu_pct_approx": 3.2
+      },
+      "rate_limits": []
+    },
+    {
+      "agent": "codex",
+      "id": "sess-waiting-codex",
+      "pid": 5678,
+      "bind_conf": "exact",
+      "cwd": "/home/u/repo",
+      "name": "codex exec",
+      "cmdline": "codex exec --json --cd /home/u/repo",
+      "kind": "exec",
+      "status": "waiting",
+      "status_since": "2026-09-06T09:06:00Z",
+      "model": "gpt-5.6-terra",
+      "usage": {
+        "input": 9800,
+        "output": 640,
+        "cache_read": 0,
+        "cache_create_5m": 0,
+        "cache_create_1h": 0,
+        "thinking": 0,
+        "cached_input": 2200
+      },
+      "cost_usd": 0.02332,
+      "burn_usd_per_hr": 0,
+      "priced": true,
+      "context_used": 10440,
+      "context_max": 272000,
+      "context_exact": true,
+      "tools": [
+        {
+          "name": "shell",
+          "at": "2026-09-06T09:06:20Z",
+          "id": "call-1"
+        }
+      ],
+      "tool_counts": {
+        "shell": 1
+      },
+      "subagents": [],
+      "proc": {
+        "pid": 5678,
+        "comm": "codex",
+        "argv": [
+          "codex",
+          "exec",
+          "--json",
+          "--cd",
+          "/home/u/repo"
+        ],
+        "cwd": "/home/u/repo",
+        "rss_bytes": 210000000,
+        "cpu_pct": 4.1,
+        "disk_read_b": 4096,
+        "disk_write_b": 8192,
+        "start_time": "2026-09-06T09:05:00Z",
+        "gpu_ms_per_sec": null,
+        "gpu_pct_approx": null
+      },
+      "rate_limits": [
+        {
+          "scope": "primary",
+          "used_pct": 42.5,
+          "window_mins": 300,
+          "resets_at": "2026-09-06T14:05:00Z",
+          "rejected": false
+        }
+      ]
+    },
+    {
+      "agent": "codex",
+      "id": "sess-unbound-rollout",
+      "pid": null,
+      "bind_conf": "unknown",
+      "cwd": "/home/u/other-repo",
+      "name": "codex",
+      "cmdline": "",
+      "kind": "exec",
+      "status": "unknown",
+      "status_since": "2026-09-06T08:50:00Z",
+      "model": "gpt-5.6-terra-mini",
+      "usage": {
+        "input": 5000,
+        "output": 300,
+        "cache_read": 0,
+        "cache_create_5m": 0,
+        "cache_create_1h": 0,
+        "thinking": 0,
+        "cached_input": 0
+      },
+      "cost_usd": 0.013600000000000001,
+      "burn_usd_per_hr": 0,
+      "priced": true,
+      "context_used": 5300,
+      "context_max": 272000,
+      "context_exact": true,
+      "tools": [],
+      "tool_counts": {},
+      "subagents": [],
+      "proc": null,
+      "rate_limits": []
+    },
+    {
+      "agent": "claude",
+      "id": "sess-unpriced-model",
+      "pid": null,
+      "bind_conf": "unknown",
+      "cwd": "/home/u/side-project",
+      "name": "side-project",
+      "cmdline": "claude",
+      "kind": "interactive",
+      "status": "waiting",
+      "status_since": "2026-09-06T08:40:00Z",
+      "model": "claude-nightly-experimental",
+      "usage": {
+        "input": 1200,
+        "output": 80,
+        "cache_read": 0,
+        "cache_create_5m": 0,
+        "cache_create_1h": 0,
+        "thinking": 0,
+        "cached_input": 0
+      },
+      "cost_usd": null,
+      "burn_usd_per_hr": null,
+      "priced": false,
+      "context_used": 1280,
+      "context_max": 200000,
+      "context_exact": false,
+      "tools": [],
+      "tool_counts": {},
+      "subagents": [],
+      "proc": null,
+      "rate_limits": []
+    },
+    {
+      "agent": "claude",
+      "id": "sess-three-subagents",
+      "pid": null,
+      "bind_conf": "unknown",
+      "cwd": "/home/u/monorepo",
+      "name": "monorepo",
+      "cmdline": "claude",
+      "kind": "interactive",
+      "status": "busy",
+      "status_since": "2026-09-06T09:02:00Z",
+      "model": "claude-opus-5",
+      "usage": {
+        "input": 88000,
+        "output": 6200,
+        "cache_read": 40000,
+        "cache_create_5m": 1500,
+        "cache_create_1h": 0,
+        "thinking": 900,
+        "cached_input": 0
+      },
+      "cost_usd": 0.8984750000000001,
+      "burn_usd_per_hr": 0,
+      "priced": true,
+      "context_used": 135100,
+      "context_max": 200000,
+      "context_exact": false,
+      "tools": [
+        {
+          "name": "Task",
+          "at": "2026-09-06T09:02:30Z",
+          "id": "tool-10"
+        },
+        {
+          "name": "Task",
+          "at": "2026-09-06T09:02:31Z",
+          "id": "tool-11"
+        },
+        {
+          "name": "Task",
+          "at": "2026-09-06T09:02:32Z",
+          "id": "tool-12"
+        }
+      ],
+      "tool_counts": {
+        "Task": 3
+      },
+      "subagents": [
+        {
+          "hash": "agent-1",
+          "agent_type": "Explore",
+          "description": "search the codebase",
+          "model": "claude-fable-5-1",
+          "tool_use_id": "tool-10",
+          "spawn_depth": 1,
+          "usage": {
+            "input": 12000,
+            "output": 900,
+            "cache_read": 4000,
+            "cache_create_5m": 200,
+            "cache_create_1h": 0,
+            "thinking": 0,
+            "cached_input": 0
+          },
+          "live": false,
+          "cost_usd": 0.1685
+        },
+        {
+          "hash": "agent-2",
+          "agent_type": "worker",
+          "description": "implement task 4",
+          "model": "claude-sonnet-5",
+          "tool_use_id": "tool-11",
+          "spawn_depth": 1,
+          "usage": {
+            "input": 30000,
+            "output": 2100,
+            "cache_read": 8000,
+            "cache_create_5m": 400,
+            "cache_create_1h": 0,
+            "thinking": 0,
+            "cached_input": 0
+          },
+          "live": false,
+          "cost_usd": 0.08360000000000001
+        },
+        {
+          "hash": "agent-3",
+          "agent_type": "worker",
+          "description": "implement task 5",
+          "model": "claude-sonnet-5",
+          "tool_use_id": "tool-12",
+          "spawn_depth": 1,
+          "usage": {
+            "input": 9000,
+            "output": 400,
+            "cache_read": 0,
+            "cache_create_5m": 0,
+            "cache_create_1h": 0,
+            "thinking": 0,
+            "cached_input": 0
+          },
+          "live": true,
+          "cost_usd": 0.022
+        }
+      ],
+      "proc": null,
+      "rate_limits": []
+    },
+    {
+      "agent": "claude",
+      "id": "sess-goes-stale-then-drops",
+      "pid": null,
+      "bind_conf": "unknown",
+      "cwd": "/home/u/old-project",
+      "name": "old-project",
+      "cmdline": "claude",
+      "kind": "interactive",
+      "status": "waiting",
+      "status_since": "2026-09-06T08:00:00Z",
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input": 500,
+        "output": 40,
+        "cache_read": 0,
+        "cache_create_5m": 0,
+        "cache_create_1h": 0,
+        "thinking": 0,
+        "cached_input": 0
+      },
+      "cost_usd": 0.0014,
+      "burn_usd_per_hr": 0,
+      "priced": true,
+      "context_used": 540,
+      "context_max": 200000,
+      "context_exact": false,
+      "tools": [],
+      "tool_counts": {},
+      "subagents": [],
+      "proc": null,
+      "rate_limits": []
+    }
+  ],
+  "total_cost_usd": 1.2389200000000002,
+  "total_burn_usd_per_hr": 0,
+  "unpriced_models": [
+    "claude-nightly-experimental"
+  ],
+  "degraded": [],
+  "self_cpu_pct": 0
+}
