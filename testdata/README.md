@@ -91,6 +91,13 @@ path or username" property — not a claim made here.
   the `^\d+\.json$` allowlist Task 8's walker enforces in production, so a
   test that needs one of them to survive that allowlist must copy it into a
   `t.TempDir()` under a pid name rather than point the walker here.
+- **`sessions/idle.json`** — the same shape with `"status":"idle"`, one of
+  the raw values real Claude Code emits (docs/manual-qa.md) that is outside
+  the five domain statuses. `ListSessionFiles` must normalise it to
+  `"waiting"`, not pass it through or default it to `"unknown"`.
+- **`sessions/shell.json`** — the same shape with `"status":"shell"`,
+  another raw value observed in production. `ListSessionFiles` must
+  normalise it to `"busy"`.
 - **`subagent-tree.jsonl`** plus **`subagents/agent-1.jsonl`**,
   **`subagents/agent-2.jsonl`**, **`subagents/agent-3.jsonl`** and their
   `.meta.json` siblings — a parent turn that fans out three concurrent
