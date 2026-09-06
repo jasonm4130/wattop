@@ -194,6 +194,96 @@ func TestContextHighWaterMarkResetsWithTheTranscript(t *testing.T) {
 	}
 }
 
+// TestRateLimitExpiresAtResetsAt is the regression for a session latching
+// to "rate-limited" forever: agg.rateLimit is a last-observed fact that
+// survives a compaction reset, and nothing else ever clears it, so it must
+// be checked against the wall clock instead. The fixture's quotaLimits
+// record carries resetsAt 2026-09-06T14:00:00Z.
+func TestRateLimitExpiresAtResetsAt(t *testing.T) {
+	s, transcript := sourceFixture(t)
+	lines := readFixtureLines(t, "agent", "claude", "rate-limited.jsonl")
+	var content []byte
+	for _, l := range lines {
+		content = append(content, l...)
+		content = append(content, '\n')
+	}
+	writeFile(t, transcript, string(content))
+
+	resetsAt := time.Date(2026, 9, 6, 14, 0, 0, 0, time.UTC)
+
+	sessions, err := s.Poll(context.Background(), resetsAt.Add(-time.Minute), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].Status != "rate-limited" {
+		t.Fatalf("Status before resetsAt = %+v, want rate-limited", sessions)
+	}
+
+	sessions, err = s.Poll(context.Background(), resetsAt.Add(time.Minute), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].Status == "rate-limited" {
+		t.Fatalf("Status after resetsAt = %+v, want the session file's own status restored, not a latched rate-limited", sessions)
+	}
+	if len(sessions[0].RateLimits) != 0 {
+		t.Fatalf("RateLimits = %+v after resetsAt, want none", sessions[0].RateLimits)
+	}
+}
+
+// TestDeadSessionAggIsPruned covers the memory leak: once a session's file
+// disappears from ~/.claude/sessions (its process exited), Poll must stop
+// returning it AND its accumulator — including the full tool-call log — must
+// not be retained forever.
+func TestDeadSessionAggIsPruned(t *testing.T) {
+	s, transcript := sourceFixture(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	writeFile(t, transcript, assistantRecord(10, "Read", ""))
+	if _, err := s.Poll(context.Background(), now, nil); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if _, ok := s.agg["sess-1"]; !ok {
+		t.Fatalf("precondition: sess-1 should have an accumulator after being polled")
+	}
+
+	sessionFile := filepath.Join(s.sessionsDir, "1234.json")
+	if err := os.Remove(sessionFile); err != nil {
+		t.Fatalf("remove session file: %v", err)
+	}
+
+	sessions, err := s.Poll(context.Background(), now.Add(time.Second), nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("got %d sessions after the session file was removed, want 0", len(sessions))
+	}
+	if _, ok := s.agg["sess-1"]; ok {
+		t.Fatalf("s.agg still holds sess-1's accumulator after its session file disappeared")
+	}
+}
+
+// TestToolLogIsCapped pins the ring-buffer half of the pruning fix: a
+// session's tool log must not grow without bound over its lifetime, since
+// the only consumer (the detail view) ever shows the last few.
+func TestToolLogIsCapped(t *testing.T) {
+	s, transcript := sourceFixture(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	var records string
+	for i := 0; i < maxRetainedTools+10; i++ {
+		records += assistantRecord(1, "Read", "")
+	}
+	writeFile(t, transcript, records)
+
+	got := pollOnly(t, s, now)
+	if got.toolCalls != maxRetainedTools {
+		t.Fatalf("toolCalls = %d after %d tool_use records, want capped at %d",
+			got.toolCalls, maxRetainedTools+10, maxRetainedTools)
+	}
+}
+
 func statSize(t *testing.T, path string) int64 {
 	t.Helper()
 	fi, err := os.Stat(path)

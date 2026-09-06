@@ -34,6 +34,11 @@ func contextWindow(hwm int64) int64 {
 // Claude has been observed to emit.
 const fiveHourRateLimitScope = "five_hour"
 
+// maxRetainedTools caps sessionAgg.tools so a long-lived session's tool log
+// does not grow without bound. The detail view only ever shows the last 5
+// (panel/detail.go's recentToolLogLen), so this is generous headroom.
+const maxRetainedTools = 64
+
 // sessionAgg is what Source remembers across polls for one live session id:
 // the tail position into its transcript, everything accumulated from the
 // lines read so far, and the running high-water mark that drives the
@@ -127,6 +132,11 @@ func (s *Source) Poll(_ context.Context, now time.Time, _ []domain.ProcSample) (
 		return nil, err
 	}
 
+	live := make(map[string]bool, len(files))
+	for _, f := range files {
+		live[f.SessionID] = true
+	}
+
 	sessions := make([]domain.Session, 0, len(files))
 	for _, f := range files {
 		sess, err := s.pollOne(f, now)
@@ -135,6 +145,17 @@ func (s *Source) Poll(_ context.Context, now time.Time, _ []domain.ProcSample) (
 		}
 		sessions = append(sessions, sess)
 	}
+
+	// Drop accumulator state for any session id that no longer has a session
+	// file — its process exited and it will never be polled again — so a
+	// long-running wattop does not retain a full tool-call log per dead
+	// session forever.
+	for id := range s.agg {
+		if !live[id] {
+			delete(s.agg, id)
+		}
+	}
+
 	return sessions, nil
 }
 
@@ -207,6 +228,9 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		}
 		for _, tc := range ev.Tools {
 			agg.tools = append(agg.tools, tc)
+			if len(agg.tools) > maxRetainedTools {
+				agg.tools = agg.tools[len(agg.tools)-maxRetainedTools:]
+			}
 			agg.toolCounts[tc.Name]++
 		}
 		for _, id := range ev.ToolResultIDs {
@@ -216,6 +240,16 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 			agg.rateLimit = ev.RateLimit
 			agg.rateLimitAt = ev.Timestamp
 		}
+	}
+
+	// A five-hour rate limit is only ever set here, never cleared as new
+	// lines are parsed — the transcript has no "rate limit lifted" event to
+	// react to. So expiry has to be checked against the wall clock instead:
+	// once now is past the window's own ResetsAt, the limit is stale and the
+	// session's real status (from its session file) should show again.
+	if agg.rateLimit != nil && !agg.rateLimit.ResetsAt.IsZero() && now.After(agg.rateLimit.ResetsAt) {
+		agg.rateLimit = nil
+		agg.rateLimitAt = time.Time{}
 	}
 
 	if agg.rateLimit != nil {
