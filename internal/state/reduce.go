@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -85,6 +86,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			tr.ttlClock = in.At
 			tr.heldByOutage = true
 			enriched := tr.session
+			clearTokenRates(&enriched)
 			st.enrichSession(&enriched, procByPID, unpriced, in.At)
 			sessions = append(sessions, enriched)
 			continue
@@ -121,6 +123,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		}
 
 		enriched := tr.session
+		clearTokenRates(&enriched)
 		st.enrichSession(&enriched, procByPID, unpriced, in.At)
 		sessions = append(sessions, enriched)
 	}
@@ -159,10 +162,27 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		Degraded:          degraded,
 		SelfCPUPct:        selfCPU,
 	}
+	for _, s := range sessions {
+		addTokenRate(&snap.TokenRate, s.TokenRate)
+		for _, child := range s.Subagents {
+			addTokenRate(&snap.TokenRate, child.TokenRate)
+		}
+	}
+	input, output := math.NaN(), math.NaN()
+	if snap.TokenRate != nil {
+		input, output = snap.TokenRate.InputPerSec, snap.TokenRate.OutputPerSec
+	}
+	st.recordHistory("tokens_in", input)
+	st.recordHistory("tokens_out", output)
+	st.recordHistory("time", float64(in.At.UnixMilli())/1000)
 
-	st.recordHistory("cpu", machineCPUPct(sys.Clusters))
-	st.recordHistory("gpu", derefOr(sys.GPU.ActivePct, 0))
-	st.recordHistory("watts", derefOr(sys.Power.SystemWatts, 0))
+	cpu, gpu, watts := machineCPUPct(sys.Clusters), derefOr(sys.GPU.ActivePct, math.NaN()), derefOr(sys.Power.SystemWatts, math.NaN())
+	if healthFailed["soc"] {
+		cpu, gpu, watts = math.NaN(), math.NaN(), math.NaN()
+	}
+	st.recordHistory("cpu", cpu)
+	st.recordHistory("gpu", gpu)
+	st.recordHistory("watts", watts)
 	st.recordHistory("cost", totalBurn)
 
 	for _, s := range sessions {
@@ -180,6 +200,26 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	}
 
 	return snap
+}
+
+func clearTokenRates(s *domain.Session) {
+	s.TokenRate = nil
+	s.Subagents = append([]domain.Subagent(nil), s.Subagents...)
+	for i := range s.Subagents {
+		s.Subagents[i].TokenRate = nil
+	}
+}
+
+func addTokenRate(total **domain.TokenRate, rate *domain.TokenRate) {
+	if rate == nil {
+		return
+	}
+	if *total == nil {
+		*total = &domain.TokenRate{}
+	}
+	(*total).InputPerSec += rate.InputPerSec
+	(*total).OutputPerSec += rate.OutputPerSec
+	(*total).CacheReadPerSec += rate.CacheReadPerSec
 }
 
 // enrichSession joins s to its ProcSample by pid, prices it (and its
@@ -296,7 +336,7 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 // ActivePcts weighted by core count, since a plain mean would over-weight a
 // small cluster (this box is 12 P-cores against 6 S-cores). Clusters with a
 // nil ActivePct do not resolve and are excluded from both sums; an
-// all-nil topology (or none reported) contributes 0.
+// all-nil topology (or none reported) leaves a gap in the graph.
 func machineCPUPct(clusters []domain.Cluster) float64 {
 	var weighted float64
 	var cores int
@@ -308,7 +348,7 @@ func machineCPUPct(clusters []domain.Cluster) float64 {
 		cores += c.CoreCount
 	}
 	if cores == 0 {
-		return 0
+		return math.NaN()
 	}
 	return weighted / float64(cores)
 }

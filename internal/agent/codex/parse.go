@@ -135,8 +135,25 @@ func (r *Rollout) Apply(line []byte) error {
 		case "task_complete":
 			r.Status = "waiting"
 		case "token_count":
+			if !recAt.IsZero() && recAt.Before(r.lastUsageAt) {
+				break // replayed prefix after file rotation, not new usage
+			}
 			if p.Info != nil {
 				u := p.Info.TotalTokenUsage
+				input, output, cached := u.InputTokens-r.Usage.Input, u.OutputTokens-r.Usage.Output, u.CachedInputTokens-r.Usage.CachedInput
+				if !r.hasUsage || input < 0 || output < 0 || cached < 0 {
+					// First record or a reset: only the last request is known,
+					// never interpret the cumulative total as one burst.
+					last := p.Info.LastTokenUsage
+					input, output, cached = last.InputTokens, last.OutputTokens, last.CachedInputTokens
+				}
+				if !r.hasUsage || input != 0 || output != 0 || cached != 0 {
+					r.tokens.Add(recAt, input, output, cached)
+				}
+				r.hasUsage = true
+				if !recAt.IsZero() {
+					r.lastUsageAt = recAt
+				}
 				r.Usage = domain.Usage{
 					Input:         u.InputTokens,
 					Output:        u.OutputTokens,

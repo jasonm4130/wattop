@@ -18,6 +18,7 @@ const (
 	actionToggleShowAll
 	actionTogglePause
 	actionToggleHelp
+	actionToggleGraphs
 )
 
 // keyAction maps a bubbletea KeyPressMsg's String() to the action it drives.
@@ -48,6 +49,8 @@ func keyAction(key string) action {
 		return actionTogglePause
 	case "?":
 		return actionToggleHelp
+	case "g":
+		return actionToggleGraphs
 	default:
 		return actionNone
 	}

@@ -335,7 +335,7 @@ func TestBackgroundSessionStyledDifferently(t *testing.T) {
 }
 
 // TestSelectedRowHighlightSpansWholeLine asserts the selected row's
-// reverse-video styling wraps the entire assembled line exactly once --
+// selection styling wraps the entire assembled line exactly once --
 // opening before the gutter and closing only at the very end -- rather
 // than collapsing at the first embedded reset from an inner styled cell
 // (the STATUS column renders in its own color even on a selected row, via
@@ -343,7 +343,7 @@ func TestBackgroundSessionStyledDifferently(t *testing.T) {
 // lipgloss style applied over already-colored cells, both hit that
 // collapse; forcing the row's own cells plain before the outer wrap (see
 // plainIfSelected) is what avoids it -- so a selected row must carry
-// exactly one reverse-video SGR and no other escape sequence at all.
+// exactly one selection SGR and no other escape sequence at all.
 func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5", CWD: "/home/u/project"}
@@ -356,13 +356,13 @@ func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	row := lines[1]
 
 	if got := strings.Count(row, "\x1b["); got != 2 {
-		t.Fatalf("expected exactly one open+close ANSI pair (the whole-line reverse wrap) on the selected row, got %d escape sequences:\n%q", got, row)
+		t.Fatalf("expected exactly one open+close ANSI pair (the whole-line selection style) on the selected row, got %d escape sequences:\n%q", got, row)
 	}
-	if !strings.HasPrefix(row, "\x1b[7m"+selectionGutter) {
-		t.Errorf("expected the reverse-video SGR to open immediately before the gutter, got:\n%q", row)
+	if !strings.HasPrefix(row, "\x1b[") || !strings.Contains(row, "48;2;") || !strings.Contains(row, "m"+selectionGutter) {
+		t.Errorf("expected the selection SGR to open immediately before the gutter, got:\n%q", row)
 	}
 	if !strings.HasSuffix(row, "\x1b[m") && !strings.HasSuffix(row, "\x1b[0m") {
-		t.Errorf("expected the reverse-video wrap to close only at the very end of the row, got:\n%q", row)
+		t.Errorf("expected the selection wrap to close only at the very end of the row, got:\n%q", row)
 	}
 }
 
@@ -502,8 +502,8 @@ func TestSessionsScrollKeepsSelectionOnScreen(t *testing.T) {
 	if selectedLine == "" {
 		t.Fatalf("selected row 25 scrolled out of a 17-row window entirely, got:\n%s", out)
 	}
-	if !strings.HasPrefix(selectedLine, "\x1b[7m") {
-		t.Errorf("selected row 25 rendered but lost its reverse-video highlight, got line:\n%q", selectedLine)
+	if !strings.HasPrefix(selectedLine, "\x1b[") || !strings.Contains(selectedLine, "48;2;") {
+		t.Errorf("selected row 25 rendered but lost its selection highlight, got line:\n%q", selectedLine)
 	}
 }
 
@@ -607,7 +607,7 @@ func TestComputeSessionColsNeverOverflowsWidth(t *testing.T) {
 	// columns' floor, which a narrower width than that can undercut.
 	for _, w := range []int{80, 100, 120, 140, 160, 200, 300} {
 		c := computeSessionCols(w)
-		fields := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Tok, c.Cost, c.Burn, c.CPU, c.RSS}
+		fields := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Rate, c.Cost, c.Burn, c.CPU, c.RSS}
 		n := len(fields)
 		if c.ShowTL {
 			fields = append(fields, 3)

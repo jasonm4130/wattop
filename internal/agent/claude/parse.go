@@ -1,7 +1,9 @@
 package claude
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
@@ -13,6 +15,7 @@ import (
 // any tool_result in it resolves, and a rate-limit record if this line is
 // one.
 type Event struct {
+	MessageID     string
 	Type          string // the record's own "type": user | assistant | system | ...
 	Timestamp     time.Time
 	Model         string
@@ -31,6 +34,7 @@ type rawRecord struct {
 }
 
 type rawMessage struct {
+	ID      string       `json:"id"`
 	Model   string       `json:"model"`
 	Role    string       `json:"role"`
 	Content []rawContent `json:"content"`
@@ -93,6 +97,10 @@ func ParseRecord(line []byte) (Event, error) {
 	}
 
 	if raw.Message != nil {
+		ev.MessageID = raw.Message.ID
+		if ev.MessageID == "" {
+			ev.MessageID = fmt.Sprintf("%x", sha256.Sum256(line))
+		}
 		ev.Model = raw.Message.Model
 		for _, c := range raw.Message.Content {
 			switch c.Type {

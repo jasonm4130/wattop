@@ -45,9 +45,9 @@ const maxRetainedTools = 64
 // lines read so far, and the running high-water mark that drives the
 // context-fill estimate.
 type sessionAgg struct {
+	usageAccounting
 	tail               TailState
 	model              string
-	usage              domain.Usage
 	tools              []domain.ToolCall
 	toolCounts         map[string]int
 	resultedToolUseIDs map[string]bool
@@ -97,7 +97,7 @@ const transcriptRescanInterval = time.Minute
 // is treated as growing — so a compaction would relight every hung
 // subagent, which is the same bug from the other side.
 func (a *sessionAgg) resetAccumulators() {
-	a.usage = domain.Usage{}
+	a.usageAccounting = usageAccounting{}
 	a.tools = nil
 	a.toolCounts = make(map[string]int)
 	a.highWaterMark = 0
@@ -237,12 +237,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 			agg.model = ev.Model
 		}
 		if ev.HasUsage {
-			agg.usage.Input += ev.Usage.Input
-			agg.usage.Output += ev.Usage.Output
-			agg.usage.CacheRead += ev.Usage.CacheRead
-			agg.usage.CacheCreate5m += ev.Usage.CacheCreate5m
-			agg.usage.CacheCreate1h += ev.Usage.CacheCreate1h
-			agg.usage.Thinking += ev.Usage.Thinking
+			agg.usageAccounting.add(ev)
 
 			prompt := ev.Usage.Input + ev.Usage.CacheRead + ev.Usage.CacheCreate5m + ev.Usage.CacheCreate1h
 			agg.lastPromptTokens = prompt
@@ -308,6 +303,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		prev, seen := agg.subagentSizes[rec.Key]
 		agg.subagentSizes[rec.Key] = rec.Size
 		sub := rec.Sub
+		sub.TokenRate = rec.window.Rate(now)
 		sub.Live = sub.Live && (!seen || rec.Size > prev)
 		subagents = append(subagents, sub)
 	}
@@ -325,6 +321,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	}
 
 	sess := domain.Session{
+		TokenRate:    agg.window.Rate(now),
 		Agent:        "claude",
 		ID:           f.SessionID,
 		PID:          &pid,

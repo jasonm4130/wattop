@@ -67,6 +67,10 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 		tok += fmt.Sprintf("  cached-input(Codex) %s", humanCount(s.Usage.CachedInput))
 	}
 	lines = append(lines, tok)
+	if s.TokenRate != nil {
+		lines = append(lines, fmt.Sprintf("Recorded tok/s (60s): in %.1f  out %.1f  cache-read %.1f",
+			s.TokenRate.InputPerSec, s.TokenRate.OutputPerSec, s.TokenRate.CacheReadPerSec))
+	}
 	lines = append(lines, "")
 
 	lines = append(lines, sectionHeader("Tool-call histogram"))

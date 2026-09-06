@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -41,6 +42,7 @@ type Model struct {
 	// default: a machine that ran Codex earlier in the day carries a dozen
 	// dead rollouts that would otherwise bury every live session.
 	showAll    bool
+	metersOnly bool
 	paused     bool
 	showDetail bool
 	showHelp   bool
@@ -157,6 +159,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
 		m.paused = !m.paused
 	case actionToggleHelp:
 		m.showHelp = !m.showHelp
+	case actionToggleGraphs:
+		m.metersOnly = !m.metersOnly
 	}
 	return m, nil
 }
@@ -335,24 +339,36 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	// footerH, socH and tableH must always sum to exactly m.height: each
-	// panel is framed independently to its own declared height, so if the
-	// three didn't add up the frame would either fall short of the
-	// terminal or overflow it. socHeight's fixed count (10 + len(Clusters))
-	// is a want, not a guarantee -- on a terminal shorter than the footer
-	// plus the SoC panel it is capped, and the footer itself shrinks
-	// before anything is asked to render at a negative height.
-	// 4, not 3: the footer now always carries a sort/theme/paused status
-	// line on top of the machine-totals line, and the standing estimate
-	// caveat must still fit alongside it whenever there is no unpriced or
-	// Degraded line competing for the same budget (footer.go's own doc
-	// comment: the caveat is permanent UI, never truncated away silently).
+	// Give each section an explicit height, including the table's title.
+	// Short terminals shrink the hardware region before the footer.
 	footerH := min(4, max(0, m.height))
-	socH := min(socHeight(m.snap.Sys), max(0, m.height-footerH))
-	tableH := max(0, m.height-socH-footerH)
+	socH := min(panel.HardwareHeight(m.snap.Sys, m.width), max(0, m.height-footerH))
+	graphH := 0
+	if !m.metersOnly && m.height >= 24 && m.width >= 80 {
+		graphH = 9
+		if m.height >= 38 {
+			graphH = 13
+		} else {
+			socH = 3
+		}
+	}
+	tableH := max(0, m.height-socH-graphH-footerH)
 
-	soc := panel.Render(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
-	table := panel.SessionsRender(m.visibleSessions(), m.roles, m.width, tableH, m.selected, m.snap.At, m.renderOpts())
+	soc := panel.HardwareRender(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
+	if graphH > 0 && m.height < 38 {
+		soc = panel.HardwareSummary(m.snap.Sys, m.roles, m.width, socH, m.renderOpts())
+	}
+	graphs := panel.HistoryRender(m.snap, m.st.History, m.roles, m.width, graphH, m.renderOpts())
+	visible := m.visibleSessions()
+	table := panel.SessionsRender(visible, m.roles, m.width, max(0, tableH-1), m.selected, m.snap.At, m.renderOpts())
+	if tableH > 0 {
+		title := panel.Rule(fmt.Sprintf("SESSIONS / %d", len(visible)), m.roles, m.width, m.renderOpts())
+		if tableH > 1 {
+			table = title + "\n" + table
+		} else {
+			table = title
+		}
+	}
 	footer := panel.FooterRender(m.snap, m.roles, m.width, footerH, sortKeys[m.sortIdx], m.themeName(), m.paused, m.hiddenSessions(), m.renderOpts())
 
 	// A section given 0 height still contributes an empty string, and
@@ -361,7 +377,13 @@ func (m Model) View() tea.View {
 	// sections keeps socH+tableH+footerH == the exact line count of the
 	// joined frame.
 	parts := make([]string, 0, 3)
-	if socH > 0 {
+	if graphH > 0 {
+		hardware := strings.SplitN(soc, "\n", 2)
+		parts = append(parts, hardware[0], graphs)
+		if len(hardware) > 1 {
+			parts = append(parts, hardware[1])
+		}
+	} else if socH > 0 {
 		parts = append(parts, soc)
 	}
 	if tableH > 0 {
@@ -371,14 +393,4 @@ func (m Model) View() tea.View {
 		parts = append(parts, footer)
 	}
 	return tea.NewView(strings.Join(parts, "\n"))
-}
-
-// socHeight is the number of lines panel.Render emits for sample: a border
-// line, the SoC name, one line per cluster, then GPU, power, bandwidth,
-// temps, fans, thermal, memory, and net/disk -- 10 fixed lines plus one per
-// cluster. Computing it from the cluster count (rather than hardcoding,
-// e.g. the 12 lines an M5 Max's two clusters produce) keeps a chip with a
-// different cluster count from getting clipped or padded.
-func socHeight(sample domain.SysSample) int {
-	return 10 + len(sample.Clusters)
 }

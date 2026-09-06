@@ -157,7 +157,9 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 			continue
 		}
 		status := inferStatus(r.Status, r.ModTime, now, s.idleThreshold)
-		sessions = append(sessions, sessionFromRollout(r, b, status, procs))
+		sess := sessionFromRollout(r, b, status, procs)
+		sess.TokenRate = r.tokens.Rate(now)
+		sessions = append(sessions, sess)
 	}
 	return sessions, nil
 }

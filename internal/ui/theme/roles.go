@@ -34,9 +34,10 @@ type Palette struct {
 // four rendering bugs, and lets a light palette swap its two chart ramps
 // rather than rendering pale-on-pale.
 type Roles struct {
-	Accent string
-	Muted  string
-	Border string
+	Foreground string
+	Accent     string
+	Muted      string
+	Border     string
 
 	Idle    string
 	Busy    string
@@ -63,9 +64,10 @@ type Roles struct {
 // ToRoles maps a loaded Palette into its semantic Roles.
 func (p Palette) ToRoles() Roles {
 	return Roles{
-		Accent: p.Accent,
-		Muted:  p.Muted,
-		Border: p.Border,
+		Foreground: p.Foreground,
+		Accent:     p.Accent,
+		Muted:      p.Muted,
+		Border:     p.Border,
 
 		Idle:    p.Idle,
 		Busy:    p.Busy,
@@ -94,9 +96,10 @@ func (p Palette) ToRoles() Roles {
 // be a non-empty hex string) without reflection at call sites.
 func (r Roles) Fields() map[string]string {
 	return map[string]string{
-		"Accent": r.Accent,
-		"Muted":  r.Muted,
-		"Border": r.Border,
+		"Foreground": r.Foreground,
+		"Accent":     r.Accent,
+		"Muted":      r.Muted,
+		"Border":     r.Border,
 
 		"Idle":    r.Idle,
 		"Busy":    r.Busy,

@@ -307,7 +307,7 @@ func TestNoColorSuppressesEscapes(t *testing.T) {
 // above the session table -- panel.Render existing and being covered by
 // its own golden tests is not evidence Model.View calls it. It checks the
 // cluster line and the last SoC row (net/disk) specifically: a bare
-// substring check for "SoC" would pass even if socHeight clipped the
+// substring check for "SoC" would pass even if the layout clipped the
 // bottom of the panel, since only the border/name lines are guaranteed
 // present at any height.
 func TestViewRendersSoCPanel(t *testing.T) {
@@ -325,11 +325,11 @@ func TestViewRendersSoCPanel(t *testing.T) {
 	m = mi.(Model)
 
 	view := m.View().Content
-	clusterLine := regexp.MustCompile(`(?m)^P \(\d+\)`)
+	clusterLine := regexp.MustCompile(`P \(\d+\)`)
 	if !clusterLine.MatchString(view) {
 		t.Errorf("expected View() to render a cluster line matching %s, got:\n%q", clusterLine, view)
 	}
-	if !strings.Contains(view, "Power  CPU") {
+	if !strings.Contains(view, "CPU —   GPU —   ANE —") {
 		t.Errorf("expected View() to render the power row, got:\n%q", view)
 	}
 	if !strings.Contains(view, "Net    ") {
@@ -337,10 +337,34 @@ func TestViewRendersSoCPanel(t *testing.T) {
 	}
 }
 
+func TestGraphToggleAndPause(t *testing.T) {
+	m := newTestModel(t)
+	stamp := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	mi, _ := m.Update(cycleMsg(stamp, nil))
+	m = mi.(Model)
+	if !strings.Contains(m.View().Content, "TOKEN THROUGHPUT") {
+		t.Fatal("graphs must be shown by default")
+	}
+	mi, _ = m.Update(keyMsg("g"))
+	m = mi.(Model)
+	if strings.Contains(m.View().Content, "TOKEN THROUGHPUT") {
+		t.Fatal("g did not switch to meters")
+	}
+	mi, _ = m.Update(keyMsg("g"))
+	m = mi.(Model)
+	mi, _ = m.Update(keyMsg("p"))
+	m = mi.(Model)
+	mi, _ = m.Update(cycleMsg(stamp.Add(time.Second), nil))
+	m = mi.(Model)
+	if !m.snap.At.Equal(stamp) || len(m.st.History("time")) != 1 {
+		t.Fatal("paused graph advanced")
+	}
+}
+
 // TestSoCPanelHeightInvariant asserts the SoC strip, session table and
 // footer heights always sum to exactly m.height, across a range from a
-// generous terminal down to a single row. socHeight is fixed per sample
-// (10 + len(Clusters)), so on a short terminal it must itself be capped --
+// generous terminal down to a single row. The desired hardware height
+// depends on topology and width, and on a short terminal must be capped --
 // otherwise the three regions' declared heights would exceed the frame
 // Model.View was asked to fill.
 func TestSoCPanelHeightInvariant(t *testing.T) {

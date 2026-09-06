@@ -33,7 +33,7 @@ const (
 	wModel  = 14
 	wCWD    = 16
 	wCTX    = 18
-	wTok    = 18
+	wRate   = 7
 	wCost   = 8
 	wBurn   = 8
 	wCPU    = 5
@@ -42,12 +42,12 @@ const (
 
 // colFloor is the narrowest any flexible column is shrunk to before it
 // switches to a degraded-but-legible form (a bare pid number instead of
-// "pid 1234", a percentage instead of a context bar, a single token total
-// instead of the in/out/cache triple) rather than losing more characters.
+// "pid 1234", a percentage instead of a context bar, a compact rate)
+// rather than losing more characters.
 const colFloor = 5
 
 // sessionCols is the per-render column-width plan computed from the
-// available frame width. STATUS/PID/MODEL/CWD/CTX/TOK are flexible: they
+// available frame width. STATUS/PID/MODEL/CWD/CTX/OUT/s are flexible: they
 // shrink toward colFloor, in priority order, only as far as the frame
 // forces, and grow past their base width to spend any leftover space
 // (CWD first, then MODEL) rather than leaving it as blank trailing
@@ -55,17 +55,17 @@ const colFloor = 5
 // exactly the figures a narrow terminal must still show in full, and
 // AGENT/RSS are already at their minimum useful width.
 type sessionCols struct {
-	Status, PID, Model, CWD, Ctx, Tok int
-	Agent, Cost, Burn, CPU, RSS       int
-	ShowTL, ShowSA, ShowGPU           bool
+	Status, PID, Model, CWD, Ctx, Rate int
+	Agent, Cost, Burn, CPU, RSS        int
+	ShowTL, ShowSA, ShowGPU            bool
 }
 
 // computeSessionCols fits the table into width display columns, minus the
 // 2-column selection gutter every row carries (see styleSelected). A full
-// table (all 14 columns at base width) needs 154 columns; short of that,
+// table (all 14 columns at base width) needs 143 columns; short of that,
 // TL, SA and GPU/s -- the three lowest-value columns -- drop first, in
 // that order. If the table still does not fit, the flexible columns
-// shrink toward colFloor in priority order -- TOK and CTX first, since
+// shrink toward colFloor in priority order -- OUT/s and CTX first, since
 // both degrade to a shorter but still meaningful form, then MODEL, CWD,
 // PID and STATUS last, since truncating an identity column costs more
 // than a percentage losing its bar. This is what keeps $, $/HR and CPU%
@@ -73,14 +73,14 @@ type sessionCols struct {
 // (up to +40) and then MODEL instead of leaving it as dead space.
 func computeSessionCols(width int) sessionCols {
 	c := sessionCols{
-		Status: wStatus, PID: wPID, Model: wModel, CWD: wCWD, Ctx: wCTX, Tok: wTok,
+		Status: wStatus, PID: wPID, Model: wModel, CWD: wCWD, Ctx: wCTX, Rate: wRate,
 		Agent: wAgent, Cost: wCost, Burn: wBurn, CPU: wCPU, RSS: wRSS,
 		ShowTL: true, ShowSA: true, ShowGPU: true,
 	}
 	budget := width - 2
 
 	total := func() int {
-		cols := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Tok, c.Cost, c.Burn, c.CPU, c.RSS}
+		cols := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Rate, c.Cost, c.Burn, c.CPU, c.RSS}
 		if c.ShowTL {
 			cols = append(cols, 3)
 		}
@@ -118,7 +118,7 @@ func computeSessionCols(width int) sessionCols {
 		}
 		*field -= cut
 	}
-	shrink(&c.Tok)
+	shrink(&c.Rate)
 	shrink(&c.Ctx)
 	shrink(&c.Model)
 	shrink(&c.CWD)
@@ -162,7 +162,10 @@ func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, sel
 	rows := sessionRows(sessions, r, at, opts, selected, cols)
 	rows = windowRows(rows, height-1, selected)
 
-	lines := append([]string{sessionsHeader(cols)}, rows...)
+	if len(sessions) == 0 && height > 2 {
+		rows = []string{"", styled(opts, r.Muted, "  No visible sessions · a shows dormant sessions")}
+	}
+	lines := append([]string{styled(opts, r.Muted, sessionsHeader(cols))}, rows...)
 	return frame(lines, width, height)
 }
 
@@ -173,11 +176,11 @@ func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Op
 	row := 0
 	for _, s := range sessions {
 		isSel := row == selected
-		lines = append(lines, styleSelected(sessionRow(r, s, at, plainIfSelected(opts, isSel), cols), isSel, opts))
+		lines = append(lines, styleSelected(sessionRow(r, s, at, plainIfSelected(opts, isSel), cols), isSel, r, opts))
 		row++
 		for i := range s.Subagents {
 			isSel = row == selected
-			lines = append(lines, styleSelected(subagentRow(r, &s.Subagents[i], plainIfSelected(opts, isSel), cols), isSel, opts))
+			lines = append(lines, styleSelected(subagentRow(r, &s.Subagents[i], plainIfSelected(opts, isSel), cols), isSel, r, opts))
 			row++
 		}
 	}
@@ -185,7 +188,7 @@ func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Op
 }
 
 // plainIfSelected forces NoColor for a selected row's own cell rendering,
-// so styleSelected's whole-line reverse-video wrap has plain, escape-free
+// so styleSelected's whole-line selection wrap has plain, escape-free
 // text to enclose. Wrapping already-ANSI-styled cells (each ending in its
 // own reset) in a second style collapses that outer style at the first
 // inner reset instead of surviving to the end of the line.
@@ -234,10 +237,10 @@ func windowRows(rows []string, visible, selected int) []string {
 // selectionGutter marks the selected row with "▸ " (and every other row
 // with "  " in its place) so the current selection stays visible even under
 // NO_COLOR or when piped to a colorless terminal -- not just via the
-// reverse-video styling layered on top of it in color mode.
+// selection styling layered on top of it in color mode.
 const selectionGutter = "▸ "
 
-func styleSelected(line string, isSelected bool, opts Options) string {
+func styleSelected(line string, isSelected bool, r theme.Roles, opts Options) string {
 	gutter := "  "
 	if isSelected {
 		gutter = selectionGutter
@@ -252,8 +255,8 @@ func styleSelected(line string, isSelected bool, opts Options) string {
 	// cell all the way to the end of the line. Wrapping an already-styled
 	// line (the old \x1b[7m...\x1b[0m hand-rolled wrapper, and an
 	// equally-broken lipgloss Render() over pre-styled cells) collapses the
-	// reverse attribute at the first embedded reset instead.
-	return lipgloss.NewStyle().Reverse(true).Render(line)
+	// selection background at the first embedded reset instead.
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(r.Foreground)).Background(lipgloss.Color(r.Border)).Bold(true).Render(line)
 }
 
 func sessionsHeader(cols sessionCols) string {
@@ -264,7 +267,7 @@ func sessionsHeader(cols sessionCols) string {
 		padLine(truncate("MODEL", cols.Model), cols.Model),
 		padLine(truncate("CWD", cols.CWD), cols.CWD),
 		padLine(truncate("CTX", cols.Ctx), cols.Ctx),
-		padLine(truncate("TOK", cols.Tok), cols.Tok),
+		padLine(truncate("OUT/s", cols.Rate), cols.Rate),
 		padLine(truncate("$", cols.Cost), cols.Cost),
 		padLine(truncate("$/HR", cols.Burn), cols.Burn),
 	}
@@ -309,7 +312,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 
 	cwd := padLine(shortenLeft(s.CWD, cols.CWD), cols.CWD)
 	ctx := ctxGauge(r, s, opts, cols.Ctx)
-	tok := tokCell(s, cols.Tok)
+	rate := tokenRateCell(s.TokenRate, cols.Rate)
 
 	cost := "$—"
 	if s.Priced && s.CostUSD != nil {
@@ -333,7 +336,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
 	}
 
-	parts := []string{status, pid, agent, model, cwd, ctx, tok, cost, burn}
+	parts := []string{status, pid, agent, model, cwd, ctx, rate, cost, burn}
 	if cols.ShowTL {
 		parts = append(parts, fmt.Sprintf("%3d", len(s.Tools)))
 	}
@@ -385,18 +388,16 @@ func pidCell(s domain.Session, width int) string {
 	return truncate(compact, width)
 }
 
-// tokCell renders the token cell. At full width it is the in/out/cache
-// triple; when width is too narrow to hold that (a compact terminal, see
-// computeSessionCols), it falls back to a single combined total rather
-// than silently overflowing its column.
-func tokCell(s domain.Session, width int) string {
-	triple := fmt.Sprintf("%s/%s/%s", formatTokens(s.Usage.Input), formatTokens(s.Usage.Output),
-		formatTokens(s.Usage.CacheRead+s.Usage.CacheCreate5m+s.Usage.CacheCreate1h))
-	if len([]rune(triple)) <= width {
-		return padLine(triple, width)
+// tokenRateCell reports output tokens/sec; total usage remains in detail.
+func tokenRateCell(rate *domain.TokenRate, width int) string {
+	text := "—"
+	if rate != nil {
+		text = fmt.Sprintf("%.1f", rate.OutputPerSec)
+		if len(text) > width {
+			text = humanCount(int64(rate.OutputPerSec))
+		}
 	}
-	total := s.Usage.Input + s.Usage.Output + s.Usage.CacheRead + s.Usage.CacheCreate5m + s.Usage.CacheCreate1h
-	return padLine(truncate(formatTokens(total), width), width)
+	return padLine(truncate(text, width), width)
 }
 
 // subagentRow renders one child row, indented under its parent.
@@ -424,7 +425,7 @@ func subagentRow(r theme.Roles, sa *domain.Subagent, opts Options, cols sessionC
 	parts := []string{
 		label, padLine("", cols.PID), padLine(truncate(sa.AgentType, cols.Agent), cols.Agent),
 		padLine(truncate(sa.Model, cols.Model), cols.Model), padLine(truncate(sa.Description, cols.CWD), cols.CWD),
-		padLine("", cols.Ctx), padLine("", cols.Tok), padLine(truncate(cost, cols.Cost), cols.Cost), padLine("", cols.Burn),
+		padLine("", cols.Ctx), tokenRateCell(sa.TokenRate, cols.Rate), padLine(truncate(cost, cols.Cost), cols.Cost), padLine("", cols.Burn),
 	}
 	if cols.ShowTL {
 		parts = append(parts, padLine("", 3))

@@ -14,6 +14,7 @@ var helpEntries = []struct{ key, desc string }{
 	{"f", "filter headless children"},
 	{"a", "show all sessions (stale, unbound rows are hidden by default)"},
 	{"p", "pause"},
+	{"g", "toggle history graphs / full hardware meters"},
 	{"?", "toggle this help"},
 }
 

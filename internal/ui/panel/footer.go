@@ -33,15 +33,15 @@ func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortK
 	var lines []string
 
 	watts := fdash(snap.Sys.Power.SystemWatts, "%.1fW")
-	burnColor := ""
+	burnColor := r.ChartCost
 	if snap.TotalBurnUSDPerHr >= 5 {
 		burnColor = r.CostHot
 	}
 	burn := styled(opts, burnColor, fmt.Sprintf("$%.2f/hr", snap.TotalBurnUSDPerHr))
 	lines = append(lines, machineLine(width, []string{
-		watts + " total",
+		styled(opts, r.ChartWatts, watts+" total"),
 		burn + " total",
-		fmt.Sprintf("$%.2f session total", snap.TotalCostUSD),
+		styled(opts, r.ChartCost, fmt.Sprintf("$%.2f session total", snap.TotalCostUSD)),
 		fmt.Sprintf("wattop self %.1f%% CPU", snap.SelfCPUPct),
 	}))
 
@@ -101,7 +101,7 @@ func statusLine(r theme.Roles, sortKey, themeName string, paused bool, hidden, w
 	if hidden > 0 {
 		segs = append(segs, fmt.Sprintf("%d hidden (a)", hidden))
 	}
-	segs = append(segs, "? help")
+	segs = append(segs, "g graphs", styled(opts, r.Accent, "? help"))
 
 	line := strings.Join(segs, "   ")
 	for len(segs) > 1 && lipgloss.Width(line) > width {

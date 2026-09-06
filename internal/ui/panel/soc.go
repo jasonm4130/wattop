@@ -67,8 +67,8 @@ func thermalColor(r theme.Roles, state int, baseColor string) string {
 func Render(sample domain.SysSample, r theme.Roles, width, height int, opts Options) string {
 	var lines []string
 
-	lines = append(lines, borderLine(r, sample.ThermalState, width, opts))
-	lines = append(lines, "SoC    "+valueOrDash(sample.SoCName))
+	lines = append(lines, Rule("wattop / "+valueOrDash(sample.SoCName), r, width, opts))
+	lines = append(lines, styled(opts, r.Muted, "COMPUTE / MEMORY / POWER"))
 
 	for _, c := range sample.Clusters {
 		lines = append(lines, clusterLine(r, c, opts))
@@ -95,6 +95,10 @@ func borderLine(r theme.Roles, state, width int, opts Options) string {
 }
 
 func clusterLine(r theme.Roles, c domain.Cluster, opts Options) string {
+	return clusterMeter(r, c, gaugeWidth, opts)
+}
+
+func clusterMeter(r theme.Roles, c domain.Cluster, barWidth int, opts Options) string {
 	pct := 0.0
 	pctStr := "  —"
 	if c.ActivePct != nil {
@@ -106,12 +110,16 @@ func clusterLine(r theme.Roles, c domain.Cluster, opts Options) string {
 		freqStr = fmt.Sprintf("%.0f MHz", *c.FreqMHz)
 	}
 	color := r.Severity(pct, 70, 90)
-	bar := Bar(r, pct, gaugeWidth, color, opts.NoColor)
+	bar := Bar(r, pct, barWidth, color, opts.NoColor)
 	label := fmt.Sprintf("%s (%d)", c.Label, c.CoreCount)
 	return fmt.Sprintf("%-8s [%s] %s  %s", label, bar, pctStr, freqStr)
 }
 
 func gpuLine(r theme.Roles, s domain.SysSample, opts Options) string {
+	return gpuMeter(r, s, gaugeWidth, opts)
+}
+
+func gpuMeter(r theme.Roles, s domain.SysSample, barWidth int, opts Options) string {
 	pct := 0.0
 	pctStr := "  —"
 	if s.GPU.ActivePct != nil {
@@ -126,7 +134,7 @@ func gpuLine(r theme.Roles, s domain.SysSample, opts Options) string {
 	if s.GPU.CoreCount > 0 {
 		label = fmt.Sprintf("GPU (%d)", s.GPU.CoreCount)
 	}
-	bar := Bar(r, pct, gaugeWidth, r.ChartGPU, opts.NoColor)
+	bar := Bar(r, pct, barWidth, r.ChartGPU, opts.NoColor)
 	return fmt.Sprintf("%-8s [%s] %s  %s", label, bar, pctStr, freqStr)
 }
 

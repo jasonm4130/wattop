@@ -114,6 +114,14 @@ type Usage struct {
 	CachedInput   int64 `json:"cached_input"`
 }
 
+// TokenRate is recorded transcript usage per second over the last 60 seconds.
+// Input includes cache reads/writes; output includes reported reasoning.
+type TokenRate struct {
+	InputPerSec     float64 `json:"input_per_sec"`
+	OutputPerSec    float64 `json:"output_per_sec"`
+	CacheReadPerSec float64 `json:"cache_read_per_sec"`
+}
+
 // ToolCall is one tool invocation observed in a transcript.
 type ToolCall struct {
 	Name string    `json:"name"`
@@ -123,20 +131,22 @@ type ToolCall struct {
 
 // Subagent is one child (Task) invocation within a Claude session.
 type Subagent struct {
-	Hash        string   `json:"hash"`
-	AgentType   string   `json:"agent_type"`
-	Description string   `json:"description"`
-	Model       string   `json:"model"`
-	ToolUseID   string   `json:"tool_use_id"`
-	SpawnDepth  int      `json:"spawn_depth"`
-	Usage       Usage    `json:"usage"`
-	Live        bool     `json:"live"`
-	CostUSD     *float64 `json:"cost_usd"`
+	TokenRate   *TokenRate `json:"token_rate,omitempty"`
+	Hash        string     `json:"hash"`
+	AgentType   string     `json:"agent_type"`
+	Description string     `json:"description"`
+	Model       string     `json:"model"`
+	ToolUseID   string     `json:"tool_use_id"`
+	SpawnDepth  int        `json:"spawn_depth"`
+	Usage       Usage      `json:"usage"`
+	Live        bool       `json:"live"`
+	CostUSD     *float64   `json:"cost_usd"`
 }
 
 // Session is one agent session (Claude or Codex), joined to a process where
 // binding succeeded.
 type Session struct {
+	TokenRate    *TokenRate     `json:"token_rate,omitempty"`
 	Agent        string         `json:"agent"`
 	ID           string         `json:"id"`
 	PID          *int           `json:"pid"`

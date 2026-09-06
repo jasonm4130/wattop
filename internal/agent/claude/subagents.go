@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jasonm4130/wattop/internal/agent/tokenrate"
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
@@ -31,9 +32,10 @@ type rawSubagentMeta struct {
 // corpus), and size is the jsonl's length at this walk, which is what a
 // caller compares across polls to decide the transcript is still growing.
 type subagentRecord struct {
-	Sub  domain.Subagent
-	Key  string
-	Size int64
+	window tokenrate.Window
+	Sub    domain.Subagent
+	Key    string
+	Size   int64
 }
 
 // Walk reads every agent-<hash>.meta.json / agent-<hash>.jsonl pair under
@@ -97,12 +99,13 @@ func walkRecords(dir string, resultedToolUseIDs map[string]bool) ([]subagentReco
 		}
 
 		key := strings.TrimSuffix(name, ".meta.json")
-		usage, model, size, err := sumTranscript(filepath.Join(dir, key+".jsonl"))
+		accounting, model, size, err := sumTranscript(filepath.Join(dir, key+".jsonl"))
 		if err != nil {
 			return nil, err
 		}
 
 		out = append(out, subagentRecord{
+			window: accounting.window,
 			Sub: domain.Subagent{
 				Hash:        meta.Hash,
 				AgentType:   meta.AgentType,
@@ -110,7 +113,7 @@ func walkRecords(dir string, resultedToolUseIDs map[string]bool) ([]subagentReco
 				Model:       model,
 				ToolUseID:   meta.ToolUseID,
 				SpawnDepth:  meta.SpawnDepth,
-				Usage:       usage,
+				Usage:       accounting.usage,
 				Live:        !resultedToolUseIDs[meta.ToolUseID],
 			},
 			Key:  key,
@@ -130,18 +133,18 @@ func walkRecords(dir string, resultedToolUseIDs map[string]bool) ([]subagentReco
 // taken from the bytes actually read rather than a second stat, so the
 // size a caller compares across polls is the size of the content it was
 // given. A transcript that does not exist yet is zero bytes, not an error.
-func sumTranscript(path string) (domain.Usage, string, int64, error) {
+func sumTranscript(path string) (usageAccounting, string, int64, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return domain.Usage{}, "", 0, nil
+		return usageAccounting{}, "", 0, nil
 	}
 	if err != nil {
-		return domain.Usage{}, "", 0, err
+		return usageAccounting{}, "", 0, err
 	}
 
 	lines, _ := splitCompleteLines(append(raw, '\n'))
 
-	var usage domain.Usage
+	var accounting usageAccounting
 	var model string
 	for _, line := range lines {
 		if len(strings.TrimSpace(string(line))) == 0 {
@@ -157,14 +160,8 @@ func sumTranscript(path string) (domain.Usage, string, int64, error) {
 			model = ev.Model
 		}
 		if ev.HasUsage {
-			usage.Input += ev.Usage.Input
-			usage.Output += ev.Usage.Output
-			usage.CacheRead += ev.Usage.CacheRead
-			usage.CacheCreate5m += ev.Usage.CacheCreate5m
-			usage.CacheCreate1h += ev.Usage.CacheCreate1h
-			usage.Thinking += ev.Usage.Thinking
-			usage.CachedInput += ev.Usage.CachedInput
+			accounting.add(ev)
 		}
 	}
-	return usage, model, int64(len(raw)), nil
+	return accounting, model, int64(len(raw)), nil
 }

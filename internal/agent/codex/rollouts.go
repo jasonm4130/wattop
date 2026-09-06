@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jasonm4130/wattop/internal/agent/tokenrate"
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
@@ -33,8 +34,11 @@ func inodeOf(fi os.FileInfo) uint64 {
 
 // Rollout is one shortlisted rollout file plus everything parsed out of it.
 type Rollout struct {
-	Path    string
-	ModTime time.Time // file mtime; drives the stale inference (idle threshold) and the mtime shortlist
+	tokens      tokenrate.Window
+	hasUsage    bool
+	lastUsageAt time.Time
+	Path        string
+	ModTime     time.Time // file mtime; drives the stale inference (idle threshold) and the mtime shortlist
 
 	SessionID string    // from session_meta.payload.session_id; "" if session_meta never arrived (e.g. rate-limits.jsonl)
 	MetaAt    time.Time // session_meta's own record timestamp, parsed as UTC; zero if session_meta never arrived.

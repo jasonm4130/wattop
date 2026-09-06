@@ -113,7 +113,9 @@ func New(book *pricing.Book, burn *pricing.BurnTracker) *State {
 }
 
 // History returns the current contents of one history ring, oldest sample
-// first. key is "cpu" | "gpu" | "watts" | "cost" for the machine-wide
+// first. "time" stores Unix seconds; "tokens_in" and "tokens_out" store
+// recorded rates. Missing machine readings use NaN to leave graph gaps.
+// key is "cpu" | "gpu" | "watts" | "cost" for the other machine-wide
 // rings, populated from Sys.Clusters/GPU/Power.SystemWatts/the total burn
 // rate, or "<agent>:<sessionID>:cpu" | "<agent>:<sessionID>:gpu" |
 // "<agent>:<sessionID>:cost" for a per-session ring, populated from that

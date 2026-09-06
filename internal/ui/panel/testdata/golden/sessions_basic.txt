@@ -1,13 +1,13 @@
-  STATUS           PID           AGENT  MODEL          CWD              CTX         TOK   $        $/HR     CPU%  RSS   
-  [38;2;86;211;100m⠋ Busy          [m pid 1234      claude claude-opus-5  /home/u/project  ~┊[38;2;86;211;100m█[m[38;2;48;54;61m░░[m┊ 30%  64.0k $0.30    $0.00    12.5% 512M  
-  [38;2;210;153;34mWaiting         [m pid 5678      [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra [m /home/u/repo     [[38;2;86;211;100m[m[38;2;48;54;61m░░░[m]  4%   10.4k $0.02    $0.00    4.1%  210M  
-  [38;2;110;118;129mUnknown         [m (pid unknown) [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra…[m …me/u/other-repo [[38;2;86;211;100m[m[38;2;48;54;61m░░░[m]  2%   5.3k  $0.01    $0.00    —     —     
-  [38;2;210;153;34mWaiting         [m (pid unknown) claude claude-nightl… …/u/side-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░[m┊  1%  1.3k  $—       —        —     —     
-  [38;2;86;211;100m⠋ Busy          [m (pid unknown) claude claude-opus-5  /home/u/monorepo ~┊[38;2;86;211;100m██[m[38;2;48;54;61m░[m┊ 68%  135.… $0.90    $0.00    —     —     
-  [38;2;110;118;129m  finished      [m               Explo… claude-fable-… search the code…                   $0.17                         
-  [38;2;110;118;129m  finished      [m               worker claude-sonnet… implement task 4                   $0.08                         
-  [38;2;86;211;100m  live          [m               worker claude-sonnet… implement task 5                   $0.02                         
-  [38;2;210;153;34mWaiting         [m (pid unknown) claude claude-sonnet… …e/u/old-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░[m┊  0%  540   $0.00    $0.00    —     —     
+[38;2;110;118;129m  STATUS           PID           AGENT  MODEL          CWD              CTX         OUT/s $        $/HR     CPU%  RSS   [m
+  [38;2;86;211;100m⠋ Busy          [m pid 1234      claude claude-opus-5  /home/u/project  ~┊[38;2;86;211;100m█[m[38;2;48;54;61m░░[m┊ 30%  —     $0.30    $0.00    12.5% 512M  
+  [38;2;210;153;34mWaiting         [m pid 5678      [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra [m /home/u/repo     [[38;2;86;211;100m[m[38;2;48;54;61m░░░[m]  4%   —     $0.02    $0.00    4.1%  210M  
+  [38;2;110;118;129mUnknown         [m (pid unknown) [38;2;110;118;129mcodex*[m [38;2;110;118;129mgpt-5.6-terra…[m …me/u/other-repo [[38;2;86;211;100m[m[38;2;48;54;61m░░░[m]  2%   —     $0.01    $0.00    —     —     
+  [38;2;210;153;34mWaiting         [m (pid unknown) claude claude-nightl… …/u/side-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░[m┊  1%  —     $—       —        —     —     
+  [38;2;86;211;100m⠋ Busy          [m (pid unknown) claude claude-opus-5  /home/u/monorepo ~┊[38;2;86;211;100m██[m[38;2;48;54;61m░[m┊ 68%  —     $0.90    $0.00    —     —     
+  [38;2;110;118;129m  finished      [m               Explo… claude-fable-… search the code…             —     $0.17                         
+  [38;2;110;118;129m  finished      [m               worker claude-sonnet… implement task 4             —     $0.08                         
+  [38;2;86;211;100m  live          [m               worker claude-sonnet… implement task 5             —     $0.02                         
+  [38;2;210;153;34mWaiting         [m (pid unknown) claude claude-sonnet… …e/u/old-project ~┊[38;2;86;211;100m[m[38;2;48;54;61m░░░[m┊  0%  —     $0.00    $0.00    —     —     
                                                                                                                         
                                                                                                                         
                                                                                                                         

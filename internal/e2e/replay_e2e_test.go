@@ -399,6 +399,7 @@ var frameCases = []struct {
 	frame string
 }{
 	{80, 24, "table"}, {80, 24, "detail"}, {80, 24, "help"},
+	{110, 24, "table"}, {120, 30, "table"},
 	{160, 40, "table"}, {160, 40, "detail"}, {160, 40, "help"},
 	{200, 60, "table"}, {200, 60, "detail"}, {200, 60, "help"},
 }
