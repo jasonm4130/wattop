@@ -488,14 +488,12 @@ func TestDetailViewOverflowsAt80Columns(t *testing.T) {
 	}
 }
 
-// TestEveryFrameCaseIsCovered asserts the split between the two tests above
-// is total and exclusive: every pair in frameCases is asserted by exactly
-// one of them, never by both and never by neither.
-//
-// The check that earns its keep is against sizedFrames, not against a
-// restatement of the expected answer: every frame the model can render must
-// be enumerated at every size, so adding a panel cannot leave it unmeasured
-// while the suite still reports "the frame fits".
+// TestEveryFrameCaseIsCovered checks frameCases against sizedFrames rather
+// than against a restatement of the expected answer: every frame the model
+// can render must be enumerated at every size, so adding a panel cannot
+// leave it unmeasured while the suite still reports "the frame fits". It
+// also pins overflowAt80's keys to frames frameCases actually enumerates,
+// so a stale entry there cannot silently exempt a frame from measurement.
 func TestEveryFrameCaseIsCovered(t *testing.T) {
 	enumerated := map[string]map[int]bool{}
 	for _, c := range frameCases {

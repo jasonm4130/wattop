@@ -19,9 +19,10 @@ self-CPU figure in step 11 reflects the real binary.
 | `[!]` | Run, and the stated pass condition was observed to **fail**. The failure is recorded in `docs/limitations.md`. |
 | `[ ]` | Not run: needs an interactive terminal plus a live agent this session could not create without disrupting other work. |
 
-Status after the 2026-09-06 hardening re-run: 6 pass, 4 partial, 0 fail,
-2 not run. Item 12 moved from `[!]` to `[~]` — the session table now fits
-80 columns and the detail view still does not. Items 1 and 6 gained
+Status after the 2026-09-06 hardening re-run: 6 pass, 3 partial, 1 fail,
+2 not run. Item 12 stays `[!]`: the session table now fits 80 columns, but
+the detail view still does not, and that is a code defect a user hits at an
+80-column terminal, not a residual awaiting a human. Items 1 and 6 gained
 observations from the re-run; the raw captures are in
 `docs/qa/2026-09-06-v0.1.md`, section "Re-QA after hardening".
 
@@ -125,7 +126,9 @@ before v0.1 ships.
       figure carrying the same number. After the load stopped, eight
       consecutive samples read `comb=0.000 est=True` with DRAM power back to
       0.35-0.48 W — a resolved zero, rendered `~0.0 GB/s` rather than
-      dashed. `dram_read_gbs` and `dram_write_gbs` stayed `null` on every
+      dashed (the JSON was measured live; the rendered string is pinned by
+      `internal/ui/panel.TestBandwidthEstimatedZeroStaysAnEstimate`, not
+      taken from a capture of that window). `dram_read_gbs` and `dram_write_gbs` stayed `null` on every
       one of the 24 samples and are named in `sys.missing` throughout.
 
 - [x] **7. Cluster labels match real topology.** Confirm the cluster
@@ -202,7 +205,7 @@ before v0.1 ships.
       (`internal/proc` is Task 6's file, out of scope here) — flagged for
       follow-up.
 
-- [~] **12. Terminal resize.** Resize the terminal to 80×24 and to
+- [!] **12. Terminal resize.** Resize the terminal to 80×24 and to
       200×60. Confirm no wrapping corruption in either direction.
       Observed: **the table half passes, the detail view still fails.**
       `internal/e2e` drives the real model over the real corpus and measures

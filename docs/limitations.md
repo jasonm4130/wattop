@@ -41,6 +41,14 @@ What the M5 Max under macOS 27 actually does:
   starting a full-machine memory load at the same instant as wattop yielded
   0 of 24 resolved samples; a lighter load that left power headroom yielded
   24 of 28. Not fixed.
+- **The first figure after calibration overshoots.** When the constant is
+  accepted, the sample that publishes it reads far higher than the steady
+  state that follows under identical load: `66.804 GB/s` on the first
+  resolved sample against a 9-16 GB/s plateau over the next 20, on
+  2026-09-06. The estimator divides an interval's DRAM energy by that
+  constant, and the interval spanning calibration carries the ramp-up, so
+  the number a user sees first is the least trustworthy one on screen.
+  Cosmetic, not corrected, and only the first sample is affected.
 
 `dram_read_gbs`, `dram_write_gbs` and `dram_combined_gbs` are `null` only
 when no source produced a figure. A source that resolved and counted zero

@@ -114,6 +114,22 @@ func TestBandwidthCombinedRendersAsEstimate(t *testing.T) {
 	}
 }
 
+// TestBandwidthEstimatedZeroStaysAnEstimate is the edge the honesty rule is
+// easiest to lose: an estimate that happens to land on exactly zero. A
+// resolved zero is a measurement and must print as one -- marked ~, not
+// dashed, because dashing it would claim the channel was never read. QA
+// 2026-09-06 saw 8 consecutive samples in this state after the machine went
+// idle, and docs/manual-qa.md quotes this string.
+func TestBandwidthEstimatedZeroStaysAnEstimate(t *testing.T) {
+	zero := 0.0
+	line := bandwidthLine(domain.Bandwidth{DRAMCombinedGBs: &zero, DRAMEstimated: true})
+
+	want := "BW     DRAM R —  W —  Total ~0.0 GB/s  ANE —"
+	if line != want {
+		t.Errorf("bandwidthLine = %q, want %q", line, want)
+	}
+}
+
 // TestBandwidthDirectionalRendersBothDirections is the counterpart: a source
 // that measured both directions prints both, unmarked, plus their total.
 func TestBandwidthDirectionalRendersBothDirections(t *testing.T) {
