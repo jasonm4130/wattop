@@ -17,7 +17,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, actions]
+        include:
+          - language: go
+            build-mode: manual
+          - language: actions
+            build-mode: none
     env:
       CGO_ENABLED: "0"
     steps:
@@ -28,5 +32,8 @@ jobs:
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
+      - name: Build Go for analysis
+        if: matrix.language == 'go'
+        run: go build ./...
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4

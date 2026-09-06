@@ -159,11 +159,13 @@ func TestInodeSwapResetDoesNotDoubleCount(t *testing.T) {
 		t.Fatalf("first poll Usage.Input = %d, want 100", got.input)
 	}
 
-	if err := os.Remove(transcript); err != nil {
-		t.Fatalf("remove transcript: %v", err)
+	// Keep the old file alive until the replacement exists so Linux cannot
+	// reuse its inode. Both records have the same byte length.
+	replacement := transcript + ".replacement"
+	writeFile(t, replacement, assistantRecord(100, "Grep", ""))
+	if err := os.Rename(replacement, transcript); err != nil {
+		t.Fatalf("replace transcript: %v", err)
 	}
-	// Same byte length as before, new inode.
-	writeFile(t, transcript, assistantRecord(100, "Grep", ""))
 
 	second := pollOnly(t, s, now.Add(time.Second))
 	if second.input != 100 {

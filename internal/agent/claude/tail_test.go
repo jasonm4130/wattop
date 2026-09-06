@@ -161,12 +161,13 @@ func TestTailerResetsOnInodeSwap(t *testing.T) {
 		t.Fatalf("Tail: %v", err)
 	}
 
-	// Recreate the file at the same path (new inode), same size as before
-	// so a size-only check would not catch it.
-	if err := os.Remove(path); err != nil {
-		t.Fatalf("remove: %v", err)
+	// Create the replacement before renaming it over the old file. Removing
+	// first lets Linux reuse the inode, which would not test an inode swap.
+	replacement := filepath.Join(dir, "replacement.jsonl")
+	writeFile(t, replacement, "new content\n")
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatalf("replace: %v", err)
 	}
-	writeFile(t, path, "new content\n")
 
 	res2, err := Tail(res.State)
 	if err != nil {
