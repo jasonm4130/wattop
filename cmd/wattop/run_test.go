@@ -15,6 +15,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/fixture"
 	"github.com/jasonm4130/wattop/internal/pricing"
+	"github.com/jasonm4130/wattop/internal/soc"
 	"github.com/jasonm4130/wattop/internal/state"
 )
 
@@ -482,5 +483,79 @@ func TestDoctorScansTwiceAndReports(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor output is missing %q\n---\n%s", want, out)
 		}
+	}
+}
+
+// TestDoctorIOReportGroupsSection covers the three shapes the
+// --ioreport-groups section can take, on a platform with no IOReport: a
+// real listing renders one "<group>: <n> channels" line per group plus the
+// route that produced it, an empty listing says so, and an enumeration
+// error prints the error rather than an empty heading that reads like a
+// clean bill of health.
+func TestDoctorIOReportGroupsSection(t *testing.T) {
+	tests := []struct {
+		name      string
+		enumerate func() ([]soc.Group, bool, error)
+		want      []string
+		notWant   []string
+	}{
+		{
+			name: "groups with counts",
+			enumerate: func() ([]soc.Group, bool, error) {
+				return []soc.Group{
+					{Name: "AMC Stats", Channels: 223},
+					{Name: "Energy Model", Channels: 364},
+				}, false, nil
+			},
+			want: []string{
+				"ioreport-groups:",
+				"AMC Stats: 223 channels",
+				"Energy Model: 364 channels",
+				"total: 2 groups, 587 channels",
+				"listing: named-group probe",
+			},
+		},
+		{
+			name: "wildcard listing is labelled complete",
+			enumerate: func() ([]soc.Group, bool, error) {
+				return []soc.Group{{Name: "CPU Stats", Channels: 130}}, true, nil
+			},
+			want:    []string{"CPU Stats: 130 channels", "listing: wildcard channel copy"},
+			notWant: []string{"named-group probe"},
+		},
+		{
+			name: "no groups",
+			enumerate: func() ([]soc.Group, bool, error) {
+				return nil, true, nil
+			},
+			want:    []string{"(none reported)"},
+			notWant: []string{"channels\n"},
+		},
+		{
+			name: "enumeration failed",
+			enumerate: func() ([]soc.Group, bool, error) {
+				return nil, false, errors.New("boom")
+			},
+			want:    []string{"unavailable: boom"},
+			notWant: []string{"total:"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printIOReportGroups(&buf, tc.enumerate)
+			out := buf.String()
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("output is missing %q\n---\n%s", want, out)
+				}
+			}
+			for _, notWant := range tc.notWant {
+				if strings.Contains(out, notWant) {
+					t.Errorf("output unexpectedly contains %q\n---\n%s", notWant, out)
+				}
+			}
+		})
 	}
 }

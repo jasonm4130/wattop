@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/pricing"
+	"github.com/jasonm4130/wattop/internal/soc"
 )
 
 // runDoctor samples one cycle's worth of data directly from src (no Loop,
@@ -55,21 +56,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 
 	if groups {
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "ioreport-groups:")
-		fmt.Fprintln(w, "  BLOCKED: enumerating real IOReport groups needs a group-level API")
-		fmt.Fprintln(w, "  in internal/soc (Task 5's shim.go) -- something like")
-		fmt.Fprintln(w, "  soc.IOReportGroups() []Group{Name string; Channels int}, reading the")
-		fmt.Fprintln(w, "  subscription's channel list from the vendored ObjC. domain.Sampler")
-		fmt.Fprintln(w, "  exposes only Channels() map[string]bool, which is wattop's own field")
-		fmt.Fprintln(w, "  resolution, not Apple's grouping, so no honest group name or channel")
-		fmt.Fprintln(w, "  count can be derived here. What follows is that channel set with its")
-		fmt.Fprintln(w, "  counts, labelled for what it is rather than dressed up as groups.")
-		fmt.Fprintln(w, "  Until the soc API lands, a renamed DRAM channel shows up in this")
-		fmt.Fprintln(w, "  listing as a new unresolved entry.")
-		fmt.Fprintln(w)
-		resolved, unresolved := countChannels(src.Sys.Channels())
-		fmt.Fprintf(w, "  wattop channels: %d resolved, %d unresolved\n", resolved, unresolved)
-		printChannels(w, src.Sys.Channels())
+		printIOReportGroups(w, soc.IOReportGroups)
 	}
 
 	fmt.Fprintln(w)
@@ -131,10 +118,48 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 	fmt.Fprintf(w, "theme: %s\n", themeName)
 }
 
+// printIOReportGroups renders the `--ioreport-groups` section: every
+// IOReport channel group this machine publishes, with the number of
+// channels in it. This is Apple's own grouping read straight off the
+// machine, not wattop's field-resolution map above, which is what makes a
+// renamed DRAM channel findable later -- it lands here as a changed count
+// on "AMC Stats" (or as a group name nobody has seen before).
+//
+// enumerate is a parameter so the test can drive both the empty and the
+// failed path without an Apple Silicon machine; production passes
+// soc.IOReportGroups.
+func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error)) {
+	fmt.Fprintln(w, "ioreport-groups:")
+	groups, complete, err := enumerate()
+	if err != nil {
+		fmt.Fprintf(w, "  unavailable: %v\n", err)
+		return
+	}
+	if len(groups) == 0 {
+		fmt.Fprintln(w, "  (none reported)")
+		return
+	}
+	total := 0
+	for _, g := range groups {
+		fmt.Fprintf(w, "  %s: %d channels\n", g.Name, g.Channels)
+		total += g.Channels
+	}
+	fmt.Fprintf(w, "  total: %d groups, %d channels\n", len(groups), total)
+	// Which of IOReport's two listing routes produced the above. It is not
+	// decoration: on the fallback the set of group *names* is fixed, so a
+	// group Apple renames wholesale would vanish from this listing rather
+	// than appear as a new one, and a reader hunting a moved counter needs
+	// to know that before concluding it is gone.
+	if complete {
+		fmt.Fprintln(w, "  listing: wildcard channel copy (every group this machine publishes)")
+	} else {
+		fmt.Fprintln(w, "  listing: named-group probe (IOReport's wildcard channel copy returned nothing)")
+	}
+}
+
 // countChannels reports how many of wattop's own SoC fields resolved on
 // this hardware. It is a count of wattop channels, never of IOReport group
-// members -- see the ioreport-groups section for why that number cannot be
-// produced from the current soc seam.
+// members -- the ioreport-groups section reports those.
 func countChannels(channels map[string]bool) (resolved, unresolved int) {
 	for _, ok := range channels {
 		if ok {
