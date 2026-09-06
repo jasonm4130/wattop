@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/fixture"
 	"github.com/jasonm4130/wattop/internal/pricing"
@@ -590,5 +592,90 @@ func TestCtxGaugeOverBudgetRendersLiteralOverflow(t *testing.T) {
 	}
 	if strings.Contains(got, "473") {
 		t.Errorf("over-budget gauge = %q, must not render the raw unclamped percentage", got)
+	}
+}
+
+// TestComputeSessionColsNeverOverflowsWidth is the invariant the whole
+// responsive layout rests on: whatever computeSessionCols decides to show
+// or shrink, the columns it hands back (plus the fixed 2-column selection
+// gutter every row carries) must never sum past the width it was given --
+// a computed layout that overflows its own budget is exactly the "wraps in
+// a real terminal" bug this fix exists to remove.
+func TestComputeSessionColsNeverOverflowsWidth(t *testing.T) {
+	// 80 is the documented floor (manual-QA item 12 tests exactly 80x24);
+	// computeSessionCols does not promise anything below its flexible
+	// columns' floor, which a narrower width than that can undercut.
+	for _, w := range []int{80, 100, 120, 140, 160, 200, 300} {
+		c := computeSessionCols(w)
+		fields := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Tok, c.Cost, c.Burn, c.CPU, c.RSS}
+		n := len(fields)
+		if c.ShowTL {
+			fields = append(fields, 3)
+			n++
+		}
+		if c.ShowSA {
+			fields = append(fields, 3)
+			n++
+		}
+		if c.ShowGPU {
+			fields = append(fields, 6)
+			n++
+		}
+		sum := 2 // selection gutter
+		for _, f := range fields {
+			sum += f
+		}
+		sum += n - 1 // separators
+		if sum > w {
+			t.Errorf("computeSessionCols(%d) = %+v sums to %d columns, want at most %d", w, c, sum, w)
+		}
+	}
+}
+
+// TestSessionsNarrow80ColsShowsCostAndCPU pins the finding's headline
+// symptom: at 80x24 -- the terminal size manual-QA item 12 exercises -- $
+// and CPU%, the figures this tool exists to show, must still be on
+// screen, and no rendered line may be wider than the terminal (the
+// "wraps/corrupts" failure mode, since frame() pads short lines but never
+// truncates long ones).
+func TestSessionsNarrow80ColsShowsCostAndCPU(t *testing.T) {
+	snap := loadSnapshotFixture(t)
+	r := loadDarkRoles(t)
+
+	out := SessionsRender(snap.Sessions, r, 80, len(snap.Sessions)+2, -1, snap.At, Options{})
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line %d is %d cells wide, want at most 80: %q", i, w, line)
+		}
+	}
+	if !strings.Contains(out, "$0.30") {
+		t.Errorf("expected the fixture's busy session cost ($0.30) to survive at 80 cols, got:\n%s", out)
+	}
+	if !strings.Contains(out, "12.5%") {
+		t.Errorf("expected the fixture's busy session CPU%% (12.5%%) to survive at 80 cols, got:\n%s", out)
+	}
+}
+
+// TestSessionsWide200ColsWidensCWDAndModel pins the finding's other
+// symptom: at 200x60 the extra room over the base layout must go to CWD
+// then MODEL rather than sitting as dead trailing space, and every line
+// should use the full width it was given.
+func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
+	cols200 := computeSessionCols(200)
+	cols120 := computeSessionCols(120)
+	if cols200.CWD <= cols120.CWD {
+		t.Errorf("CWD did not widen at 200 cols: got %d at 200, %d at 120", cols200.CWD, cols120.CWD)
+	}
+	if cols200.Model <= cols120.Model {
+		t.Errorf("MODEL did not widen at 200 cols: got %d at 200, %d at 120", cols200.Model, cols120.Model)
+	}
+
+	snap := loadSnapshotFixture(t)
+	r := loadDarkRoles(t)
+	out := SessionsRender(snap.Sessions, r, 200, len(snap.Sessions)+2, -1, snap.At, Options{})
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w != 200 {
+			t.Errorf("line %d is %d cells wide, want exactly 200 (frame() pads short lines, so anything else is a computeSessionCols bug): %q", i, w, line)
+		}
 	}
 }

@@ -34,7 +34,7 @@ const (
 	wCWD    = 16
 	wCTX    = 18
 	wTok    = 18
-	wCost   = 7
+	wCost   = 8
 	wBurn   = 8
 	wCPU    = 5
 	wRSS    = 6
@@ -44,7 +44,7 @@ const (
 // switches to a degraded-but-legible form (a bare pid number instead of
 // "pid 1234", a percentage instead of a context bar, a single token total
 // instead of the in/out/cache triple) rather than losing more characters.
-const colFloor = 6
+const colFloor = 5
 
 // sessionCols is the per-render column-width plan computed from the
 // available frame width. STATUS/PID/MODEL/CWD/CTX/TOK are flexible: they
@@ -318,7 +318,11 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	cost = padLine(truncate(cost, cols.Cost), cols.Cost)
 	burn := "—"
 	if s.BurnUSDPerHr != nil {
-		burn = fmt.Sprintf("$%.2f/hr", *s.BurnUSDPerHr)
+		// No "/hr" suffix here -- the header's own "$/HR" label already
+		// carries the unit, and the suffix was the reason a burn rate
+		// past $99.99/hr (e.g. "$179.20/hr", 10 chars) overran wBurn
+		// and got truncated: the one figure this tool exists to show.
+		burn = fmt.Sprintf("$%.2f", *s.BurnUSDPerHr)
 	}
 	burn = padLine(truncate(burn, cols.Burn), cols.Burn)
 
