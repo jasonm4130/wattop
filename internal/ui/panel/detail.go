@@ -2,8 +2,11 @@ package panel
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
@@ -35,7 +38,7 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 
 	cost := "—"
 	if s.Priced && s.CostUSD != nil {
-		cost = fmt.Sprintf("$%.4f", *s.CostUSD)
+		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
 	}
 	burn := "—"
 	if s.BurnUSDPerHr != nil {
@@ -43,16 +46,17 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	}
 	lines = append(lines, fmt.Sprintf("Cost & burn: total %s   rate %s", cost, burn))
 
-	tok := fmt.Sprintf("Tokens: input %d  output %d  cache-read %d  cache-write-5m %d  cache-write-1h %d  thinking %d",
-		s.Usage.Input, s.Usage.Output, s.Usage.CacheRead, s.Usage.CacheCreate5m, s.Usage.CacheCreate1h, s.Usage.Thinking)
+	tok := fmt.Sprintf("Tokens: input %s  output %s  cache-read %s  cache-write-5m %s  cache-write-1h %s  thinking %s",
+		humanCount(s.Usage.Input), humanCount(s.Usage.Output), humanCount(s.Usage.CacheRead),
+		humanCount(s.Usage.CacheCreate5m), humanCount(s.Usage.CacheCreate1h), humanCount(s.Usage.Thinking))
 	if s.Usage.CachedInput > 0 {
-		tok += fmt.Sprintf("  cached-input(Codex) %d", s.Usage.CachedInput)
+		tok += fmt.Sprintf("  cached-input(Codex) %s", humanCount(s.Usage.CachedInput))
 	}
 	lines = append(lines, tok)
 	lines = append(lines, "")
 
 	lines = append(lines, "Tool-call histogram")
-	lines = append(lines, toolHistogramLines(s.ToolCounts)...)
+	lines = append(lines, toolHistogramLines(s.ToolCounts, width)...)
 	lines = append(lines, "")
 
 	lines = append(lines, "Recent tool log")
@@ -75,15 +79,35 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	return frame(lines, width, height)
 }
 
+// toolHistogramLabelW is the fixed column width the tool name is padded or
+// elided to, so a long MCP tool name (e.g. "mcp__tavily__tavily_extract",
+// 27 chars) can't push the bar and count out of alignment.
+const toolHistogramLabelW = 20
+
+// toolHistogramCountW is the fixed column width reserved for the trailing
+// count, right-aligned so a three-digit session (521 calls) still lines up
+// with single-digit ones instead of stretching the row.
+const toolHistogramCountW = 6
+
 // toolHistogramLines renders one bar per tool name, sorted by descending
-// count then name, so a 12-entry histogram is stable across renders.
-func toolHistogramLines(counts map[string]int) []string {
+// count then name, so a 12-entry histogram is stable across renders. The
+// bar is scaled to the panel width and the largest count rather than drawn
+// one block per call: unscaled, a busy session (hundreds of Bash calls)
+// fills the whole line with blocks, pushes its own count off-screen, and
+// conveys nothing -- padLine only pads a short line, it never truncates a
+// long one, so an unscaled bar would also break DetailRender's
+// exactly-width-columns contract for every line below it.
+func toolHistogramLines(counts map[string]int, width int) []string {
 	if len(counts) == 0 {
 		return []string{"  (no tool calls)"}
 	}
 	names := make([]string, 0, len(counts))
-	for n := range counts {
+	maxCount := 0
+	for n, c := range counts {
 		names = append(names, n)
+		if c > maxCount {
+			maxCount = c
+		}
 	}
 	sort.Slice(names, func(i, j int) bool {
 		if counts[names[i]] != counts[names[j]] {
@@ -91,11 +115,52 @@ func toolHistogramLines(counts map[string]int) []string {
 		}
 		return names[i] < names[j]
 	})
+
+	// "  " indent + label + " " + bar + " " + count.
+	barW := width - 2 - toolHistogramLabelW - 1 - 1 - toolHistogramCountW
+	if barW < 1 {
+		barW = 1
+	}
+
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		out = append(out, fmt.Sprintf("  %-20s %s %d", n, strings.Repeat("█", counts[n]), counts[n]))
+		c := counts[n]
+		label := elideName(n, toolHistogramLabelW)
+		barLen := 0
+		if maxCount > 0 {
+			barLen = int(math.Round(float64(c) / float64(maxCount) * float64(barW)))
+		}
+		if barLen < 1 && c > 0 {
+			barLen = 1
+		}
+		if barLen > barW {
+			barLen = barW
+		}
+		out = append(out, fmt.Sprintf("  %-*s %s %*d", toolHistogramLabelW, label, strings.Repeat("█", barLen), toolHistogramCountW, c))
 	}
 	return out
+}
+
+// elideName truncates a tool name to w columns (measured with
+// lipgloss.Width so multi-byte glyphs count correctly), replacing the last
+// character with "…" when it doesn't fit, so a long name like
+// "mcp__tavily__tavily_extract" can't break the fixed label column the bar
+// and count are aligned against.
+func elideName(name string, w int) string {
+	if lipgloss.Width(name) <= w {
+		return name
+	}
+	if w <= 1 {
+		return "…"
+	}
+	r := []rune(name)
+	for i := len(r) - 1; i > 0; i-- {
+		cand := string(r[:i]) + "…"
+		if lipgloss.Width(cand) <= w {
+			return cand
+		}
+	}
+	return "…"
 }
 
 func recentToolLogLines(tools []domain.ToolCall) []string {

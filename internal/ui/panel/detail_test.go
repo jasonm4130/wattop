@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
@@ -82,6 +84,33 @@ func TestDetailHistogramCovers12Entries(t *testing.T) {
 	}
 }
 
+// TestDetailHistogramBarFitsWidthWithBusySession asserts a session with a
+// large call count (521 Bash calls) still renders every line within the
+// panel width -- unscaled, a 521-block bar filled the entire 120-column
+// line and pushed the count off-screen. It also covers a long MCP-style
+// tool name ("mcp__tavily__tavily_extract", 27 chars), which must not
+// break the fixed label column the bar and count are aligned against.
+func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
+	r := loadDarkRoles(t)
+	s := domain.Session{
+		Agent: "claude", ID: "sess-busy", BindConf: "exact",
+		ToolCounts: map[string]int{
+			"Bash": 521,
+			"mcp__tavily__tavily_extract": 3,
+		},
+	}
+	out := DetailRender(s, r, 120, 40, Options{})
+
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 120 {
+			t.Errorf("expected every line <= 120 columns, got %d: %q", w, line)
+		}
+	}
+	if !strings.Contains(out, "521") {
+		t.Errorf("expected the count 521 to remain visible, got:\n%s", out)
+	}
+}
+
 // TestDetailShowsSubagentTreeAndRateLimits asserts the subagent tree names
 // both live and finished children with their resolved models, and that
 // Codex rate limits render including a rejection-learned window.
@@ -113,8 +142,8 @@ func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 	if !strings.Contains(out, "bind=exact") {
 		t.Errorf("expected bind confidence in the render, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1048576") || !strings.Contains(out, "262144") {
-		t.Errorf("expected DiskReadB/DiskWriteB in the render, got:\n%s", out)
+	if !strings.Contains(out, "1.0MB") || !strings.Contains(out, "262.1KB") {
+		t.Errorf("expected humanized DiskReadB/DiskWriteB in the render, got:\n%s", out)
 	}
 }
 
@@ -140,8 +169,8 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(bound, "r 1048576 B") || !strings.Contains(bound, "w 262144 B") {
-		t.Errorf("expected raw cumulative byte counts with a plain B unit, got:\n%s", bound)
+	if !strings.Contains(bound, "r 1.0MB") || !strings.Contains(bound, "w 262.1KB") {
+		t.Errorf("expected humanized cumulative byte counts, got:\n%s", bound)
 	}
 }
 
@@ -173,7 +202,7 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 		SelfCPUPct:        1.2,
 	}
 
-	out := FooterRender(snap, r, 120, 4, Options{})
+	out := FooterRender(snap, r, 120, 5, "cost", "nord", false, Options{})
 
 	if !strings.Contains(out, "estimates") || !strings.Contains(out, "ignore subscription plans") {
 		t.Errorf("expected the estimate caveat in every footer render, got:\n%s", out)
@@ -201,11 +230,68 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
-	out := FooterRender(snap, r, 120, 4, Options{})
+	out := FooterRender(snap, r, 120, 4, "status", "dark", false, Options{})
 	if strings.Contains(out, "unpriced") {
 		t.Errorf("expected no unpriced line when UnpricedModels is empty, got:\n%s", out)
 	}
 	if strings.Contains(out, "Degraded") {
 		t.Errorf("expected no Degraded badge when Degraded is empty, got:\n%s", out)
+	}
+}
+
+// TestFooterStatusLineAdvertisesKeymap asserts the footer names the active
+// sort key and theme and points at the `?` help overlay -- otherwise s and
+// t leave no trace on screen at all.
+func TestFooterStatusLineAdvertisesKeymap(t *testing.T) {
+	r := loadDarkRoles(t)
+	snap := &domain.Snapshot{}
+	out := FooterRender(snap, r, 120, 4, "cost", "nord", false, Options{})
+
+	if !strings.Contains(out, "sort:cost") {
+		t.Errorf("expected the active sort key in the footer, got:\n%s", out)
+	}
+	if !strings.Contains(out, "theme:nord") {
+		t.Errorf("expected the active theme name in the footer, got:\n%s", out)
+	}
+	if !strings.Contains(out, "? help") {
+		t.Errorf("expected a hint pointing at the ? help overlay, got:\n%s", out)
+	}
+	if strings.Contains(out, "PAUSED") {
+		t.Errorf("expected no PAUSED marker when not paused, got:\n%s", out)
+	}
+}
+
+// TestFooterShowsPaused asserts pausing renders a [PAUSED] marker -- the
+// one state a monitoring tool must never leave silent.
+func TestFooterShowsPaused(t *testing.T) {
+	r := loadDarkRoles(t)
+	snap := &domain.Snapshot{}
+	out := FooterRender(snap, r, 120, 4, "status", "dark", true, Options{})
+
+	if !strings.Contains(out, "[PAUSED]") {
+		t.Errorf("expected a [PAUSED] marker while paused, got:\n%s", out)
+	}
+}
+
+// TestFooterStatusLineSurvivesTruncation asserts the sort/theme/paused
+// status line is placed early enough in the footer that it still renders
+// even when height is too short for every line the footer can produce --
+// e.g. wattop's own on-screen footer height of 3, with both an unpriced
+// count and a Degraded badge present, which alone already fill 3 lines
+// before the caveat. The status line must not be the one line to lose that
+// race.
+func TestFooterStatusLineSurvivesTruncation(t *testing.T) {
+	r := loadDarkRoles(t)
+	snap := &domain.Snapshot{
+		UnpricedModels: []string{"claude-nightly-experimental"},
+		Degraded:       []string{"soc: ioreport"},
+	}
+	out := FooterRender(snap, r, 120, 3, "burn", "nord", true, Options{})
+
+	if !strings.Contains(out, "sort:burn") || !strings.Contains(out, "theme:nord") {
+		t.Errorf("expected sort/theme to survive truncation at height 3, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[PAUSED]") {
+		t.Errorf("expected [PAUSED] to survive truncation at height 3, got:\n%s", out)
 	}
 }
