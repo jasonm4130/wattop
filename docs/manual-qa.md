@@ -182,10 +182,13 @@ v0.1 ships.
 
 - [!] **12. Terminal resize.** Resize the terminal to 80×24 and to
       200×60. Confirm no wrapping corruption in either direction.
-      Observed: **fails at 80×24.** `internal/e2e`'s
-      `TestFrameFitsTerminal` drives the real model over the real corpus
-      and measures the widest rendered line at each size. At 200×60 and at
-      160×40 every frame fits its terminal exactly. At 80×24 the session
+      Observed: **fails at 80×24.** `internal/e2e` drives the real model
+      over the real corpus and measures the widest rendered line at each
+      size, split across two tests so a passing suite cannot be misread as
+      a fitting frame: `TestFrameFitsTerminal` asserts the item's actual
+      pass condition (the frame fits its terminal) for the cases that meet
+      it, and `TestSessionTableOverflowsAt80Columns` pins the cases that do
+      not. At 200×60 and at 160×40 every frame fits its terminal exactly. At 80×24 the session
       table renders **153 cells wide** and the detail view 103 — 73 and 23
       cells of overflow, which a real terminal folds into wrapped rows.
       The table never narrows: at 60, 80, 100, 120 and 140 columns it comes

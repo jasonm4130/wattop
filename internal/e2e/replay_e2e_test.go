@@ -324,83 +324,160 @@ func keyMsg(s string) tea.KeyPressMsg {
 	}
 }
 
-// frameMinWidth is the width each frame needs to render the Task 3 corpus
-// without overflowing: measured, not chosen. The session table and the
-// detail view do not narrow below these figures -- at 60, 80, 100, 120 and
-// 140 columns the table still renders exactly 153 cells wide -- so every
-// terminal narrower than that wraps them. Only the help overlay adapts all
-// the way down, hence its floor of 0.
-//
-// These are floors for *this corpus*, not constants of the layout:
-// SessionsRender's format string reserves 150 cells for its fourteen
-// columns, and any field whose text overruns its slot (a burn rate past
-// "$276.68/hr" in %-8s, a cache figure past "10840.8k" in %-18s) pushes
-// the row wider still, because fmt pads a short field but never truncates
-// a long one. So the real statement is "at least 150, 153 with this
-// corpus, more with wider numbers".
-//
-// That is a defect in the session-table layout (internal/ui/panel, Task
-// 12's file, out of this task's scope to fix); it is recorded in
-// docs/limitations.md and as the observed result of manual-QA item 12, and
-// bounded here so it cannot silently grow.
-var frameMinWidth = map[string]int{"table": 153, "detail": 103, "help": 0}
+// sizedFrames drives m to a w x h terminal and returns the three frames the
+// model can draw from that one size: the session table, the detail view
+// (enter) and the help overlay (?).
+func sizedFrames(m ui.Model, w, h int) map[string]ui.Model {
+	mi, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	sized := mi.(ui.Model)
+	detail, _ := sized.Update(keyMsg("enter"))
+	help, _ := sized.Update(keyMsg("?"))
+	return map[string]ui.Model{
+		"table":  sized,
+		"detail": detail.(ui.Model),
+		"help":   help.(ui.Model),
+	}
+}
 
-// TestFrameFitsTerminal is manual-QA item 12 made runnable in CI, over all
-// three frames the model can draw (the session table, the detail view and
-// the help overlay) rather than only the default one. "Wrapping corruption"
-// is what an over-wide line becomes once a real terminal folds it, so the
-// width of the widest rendered line is the assertion behind the eyeball
-// check.
+// measureFrame returns the width in cells of the widest line the frame
+// renders, the index of that line, and the frame's own line count.
+// "Wrapping corruption" is what an over-wide line becomes once a real
+// terminal folds it, so the widest line is the measurement behind
+// manual-QA item 12's eyeball check.
+func measureFrame(m ui.Model) (widest, at int, lines []string) {
+	lines = strings.Split(m.View().Content, "\n")
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w > widest {
+			widest, at = w, i
+		}
+	}
+	return widest, at, lines
+}
+
+// frameCases enumerates every (size, frame) pair TestFrameFitsTerminal and
+// TestSessionTableOverflowsAt80Columns divide between them, so that no pair
+// is silently covered by neither test. Membership is the whole point: a
+// pair that passes belongs in the first test, a pair that fails belongs in
+// the second, and TestEveryFrameCaseIsCovered asserts the split is total.
+var frameCases = []struct {
+	w, h  int
+	frame string
+}{
+	{80, 24, "table"}, {80, 24, "detail"}, {80, 24, "help"},
+	{160, 40, "table"}, {160, 40, "detail"}, {160, 40, "help"},
+	{200, 60, "table"}, {200, 60, "detail"}, {200, 60, "help"},
+}
+
+// TestFrameFitsTerminal is manual-QA item 12 made runnable in CI, asserting
+// the item's actual pass condition with no exception table: the frame fits
+// the terminal it was given, in both axes, so nothing wraps.
 //
-// At or above a frame's own floor it must fit its terminal exactly. Below
-// its floor -- see frameMinWidth -- what is asserted is that the overflow
-// stays pinned to that known floor, per frame, so a help-overlay
-// regression cannot hide behind the session table's much larger one, and
-// that every frame still fits the terminal's *height*, which they do.
+// It covers only the (size, frame) pairs that genuinely satisfy that
+// condition. The three pairs that do NOT -- the session table and the
+// detail view at 80x24 -- are a real, open layout defect, not an exemption
+// this test grants itself, so they are asserted separately and by name in
+// TestSessionTableOverflowsAt80Columns. Read the two test names together:
+// wattop fits its terminal everywhere except the session table and detail
+// view below ~150 columns, where it does not.
 func TestFrameFitsTerminal(t *testing.T) {
 	ctx := context.Background()
 	clock := replay.NewVirtualClock(replayStart)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
-	for _, sz := range []struct{ w, h int }{{80, 24}, {160, 40}, {200, 60}} {
-		mi, _ := m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-		sized := mi.(ui.Model)
-
-		detail, _ := sized.Update(keyMsg("enter"))
-		help, _ := sized.Update(keyMsg("?"))
-		frames := map[string]ui.Model{
-			"table":  sized,
-			"detail": detail.(ui.Model),
-			"help":   help.(ui.Model),
+	for _, c := range frameCases {
+		if _, known := overflowAt80[c.frame]; known && c.w == 80 {
+			continue // asserted by TestSessionTableOverflowsAt80Columns
 		}
+		widest, at, lines := measureFrame(sizedFrames(m, c.w, c.h)[c.frame])
+		t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", c.frame, c.w, c.h, widest, at, len(lines))
+		if widest > c.w {
+			t.Errorf("%s frame at %dx%d: widest line is %d cells, want at most %d (wraps in a real terminal):\n%q",
+				c.frame, c.w, c.h, widest, c.w, stripANSI(lines[at]))
+		}
+		if len(lines) > c.h {
+			t.Errorf("%s frame at %dx%d: %d lines, want at most %d", c.frame, c.w, c.h, len(lines), c.h)
+		}
+	}
+}
 
-		for _, name := range []string{"table", "detail", "help"} {
-			// Above the frame's floor the terminal's own width is the
-			// bound; below it, the floor is. The observed width is logged
-			// either way so a reader of the test output sees the real
-			// number rather than only a pass.
-			want := sz.w
-			if f := frameMinWidth[name]; want < f {
-				want = f
-			}
+// overflowAt80 records the frames that FAIL manual-QA item 12 at 80x24 and
+// the exact width each one overflows to. This is a defect list, not a set
+// of floors: the pass condition for both entries is 80, and neither meets
+// it.
+//
+// SessionsRender's format string reserves 150 cells across its fourteen
+// columns and never narrows -- measured at 60, 80, 100, 120 and 140 columns
+// it comes back 153 cells wide every time on the v0.1 corpus. 153 is what
+// this corpus produces, not a constant of the layout: fmt pads a short
+// field but never truncates a long one, so a burn rate past "$276.68/hr" in
+// %-8s or a cache figure past "10840.8k" in %-18s pushes the row wider
+// still.
+//
+// The fix is a responsive column set in internal/ui/panel/sessions.go
+// (Task 12's file, out of Task 14's scope): drop or shrink columns as the
+// terminal narrows, and truncate every field rather than the three that
+// are truncated today. When that lands, this test and this map are deleted
+// and the three 80x24 pairs fall back into TestFrameFitsTerminal, which
+// already enumerates them.
+var overflowAt80 = map[string]int{"table": 153, "detail": 103}
 
-			content := frames[name].View().Content
-			lines := strings.Split(content, "\n")
-			if len(lines) > sz.h {
-				t.Errorf("%s frame at %dx%d: %d lines, want at most %d", name, sz.w, sz.h, len(lines), sz.h)
+// TestSessionTableOverflowsAt80Columns pins the known failure of manual-QA
+// item 12 so that "the tests pass" cannot be read as "the frame fits at
+// 80x24" -- it does not, and this test says so in its name.
+//
+// The widths are pinned with == rather than <=, deliberately. An
+// inequality would let the defect outlive its own fix; equality fails both
+// when the overflow grows and when Task 12's responsive column set removes
+// it, which is exactly when this test should be deleted.
+func TestSessionTableOverflowsAt80Columns(t *testing.T) {
+	ctx := context.Background()
+	clock := replay.NewVirtualClock(replayStart)
+	sys, proc, agent := newReplaySources(t)
+	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
+
+	frames := sizedFrames(m, 80, 24)
+	for _, name := range []string{"table", "detail"} {
+		want := overflowAt80[name]
+		widest, at, lines := measureFrame(frames[name])
+		t.Logf("KNOWN DEFECT (manual-QA item 12): %s frame at 80x24 renders %d cells wide, %d cells past the terminal", name, widest, widest-80)
+		if widest != want {
+			t.Errorf("%s frame at 80x24: widest line is %d cells, pinned at %d.\n"+
+				"If it is now <= 80 the layout defect is fixed: delete TestSessionTableOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the session-table section from docs/limitations.md.\n"+
+				"If it grew, the layout regressed further:\n%q",
+				name, widest, want, stripANSI(lines[at]))
+		}
+		// Height is fine at 80x24 and must stay fine: the defect is
+		// horizontal only.
+		if len(lines) > 24 {
+			t.Errorf("%s frame at 80x24: %d lines, want at most 24", name, len(lines))
+		}
+	}
+}
+
+// TestEveryFrameCaseIsCovered asserts the split between the two tests above
+// is total: every pair in frameCases is either asserted to fit or listed as
+// a known overflow, never dropped by both.
+func TestEveryFrameCaseIsCovered(t *testing.T) {
+	for _, c := range frameCases {
+		_, known := overflowAt80[c.frame]
+		if c.w != 80 && known {
+			// overflowAt80 is scoped to 80x24; wider sizes are asserted to fit.
+			continue
+		}
+		if c.w == 80 && !known && c.frame != "help" {
+			t.Errorf("frame %q at 80x24 is neither asserted to fit nor listed in overflowAt80", c.frame)
+		}
+	}
+	for name := range overflowAt80 {
+		found := false
+		for _, c := range frameCases {
+			if c.w == 80 && c.frame == name {
+				found = true
 			}
-			widest, at := 0, 0
-			for i, line := range lines {
-				if w := lipgloss.Width(line); w > widest {
-					widest, at = w, i
-				}
-			}
-			t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", name, sz.w, sz.h, widest, at, len(lines))
-			if widest > want {
-				t.Errorf("%s frame at %dx%d: widest line is %d cells, want at most %d:\n%q",
-					name, sz.w, sz.h, widest, want, stripANSI(lines[at]))
-			}
+		}
+		if !found {
+			t.Errorf("overflowAt80 lists %q, which frameCases does not enumerate at 80x24", name)
 		}
 	}
 }

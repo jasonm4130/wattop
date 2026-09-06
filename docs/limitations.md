@@ -75,12 +75,21 @@ still. 153 is what this corpus produces, not a constant of the layout.
 
 This is a session-table layout defect in `internal/ui/panel`, not a
 terminal problem, and it is the observed result of `docs/manual-qa.md`
-item 12 rather than a theoretical one — `internal/e2e`'s
-`TestFrameFitsTerminal` measures it per frame on every run and bounds it
-so it cannot grow unnoticed. Not fixed in v0.1: the fix is a responsive
-column set (drop or shrink columns as width shrinks, and truncate every
-field rather than three of them), which is an `internal/ui/panel` change
-rather than a release-task one.
+item 12 rather than a theoretical one. Two `internal/e2e` tests split it
+so the suite cannot report "pass" for a frame that does not fit:
+`TestFrameFitsTerminal` asserts the real pass condition — the frame fits
+its terminal in both axes — for every size and frame that meets it, and
+`TestSessionTableOverflowsAt80Columns` pins the two that do not (table
+153 cells, detail 103, against a terminal of 80) with `==`, so the
+exception fails both if the overflow grows and once the layout is fixed.
+
+Not fixed in v0.1: the fix is a responsive column set in
+`internal/ui/panel/sessions.go` (drop or shrink columns as width shrinks,
+and truncate every field rather than three of them), which is a Task 12
+change rather than a release-task one. When it lands, delete
+`TestSessionTableOverflowsAt80Columns` — the 80x24 cases are already
+enumerated in `frameCases` and fall back into `TestFrameFitsTerminal` —
+tick manual-QA item 12, and delete this section.
 
 ## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
 
