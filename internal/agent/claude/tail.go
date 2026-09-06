@@ -34,15 +34,32 @@ type TailResult struct {
 	Reset bool
 }
 
+// maxReadPerCall bounds how many bytes a single Tail call will pull off
+// disk. Without it, the first poll on a path (Offset == 0) or any poll
+// that follows an in-place compaction (which resets Offset to 0, see
+// TailResult.Reset) reads the entire transcript in one shot — Claude Code
+// transcripts routinely run to tens of MB, and the returned Lines keep
+// that whole allocation reachable for as long as any line is held. A
+// transcript larger than this cap is caught up over several calls instead
+// of one: each call advances Offset by what it consumed, and the next
+// call picks up where it left off, exactly as it would for a plain
+// append. That is correct behaviour for a dashboard polling on an
+// interval, not a regression — it trades a multi-hundred-MB synchronous
+// spike for a few extra poll cycles.
+const maxReadPerCall = 8 * 1024 * 1024
+
 // Tail reads the bytes appended to state.Path since state.Offset and
 // returns the complete lines found (each without its trailing newline),
-// plus the advanced state. It never re-reads a whole multi-MB file: only
-// the delta past Offset is read.
+// plus the advanced state. It never re-reads a whole multi-MB file in one
+// call: only the delta past Offset is read, capped at maxReadPerCall per
+// call (see its doc comment) so a large first read or post-reset read is
+// spread across several polls instead of spiking memory.
 //
 // A trailing partial line (no terminating newline yet) is left unconsumed
 // — the returned state's Offset stops before it — so it is buffered on
 // disk rather than in memory and is retried whole on the next call once
-// the writer finishes it.
+// the writer finishes it. The same holds for a line split by the
+// maxReadPerCall boundary: it is simply retried in full next call.
 //
 // State resets to offset 0 on any of three signals that the bytes under
 // the offset are not the bytes that produced it — the file shrank below
@@ -104,7 +121,7 @@ func Tail(state TailState) (TailResult, error) {
 		}
 	}
 
-	data, err := io.ReadAll(f)
+	data, err := io.ReadAll(io.LimitReader(f, maxReadPerCall))
 	if err != nil {
 		return TailResult{State: state}, err
 	}

@@ -180,6 +180,57 @@ func TestTailerResetsOnInodeSwap(t *testing.T) {
 	}
 }
 
+// TestTailerCapsReadPerCall builds a transcript larger than maxReadPerCall
+// and asserts a single Tail call never returns more than that many bytes
+// worth of lines — the large-first-poll / post-compaction spike the fix
+// targets — and that a second call picks up the remainder from the
+// advanced offset, exactly as it would for a plain append.
+func TestTailerCapsReadPerCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+
+	line := make([]byte, 1024)
+	for i := range line {
+		line[i] = 'x'
+	}
+	lineWithNL := append(line, '\n')
+
+	linesPerCall := maxReadPerCall/len(lineWithNL) + 10 // spill past one cap
+	var content []byte
+	for i := 0; i < linesPerCall; i++ {
+		content = append(content, lineWithNL...)
+	}
+	writeFile(t, path, string(content))
+
+	res, err := Tail(TailState{Path: path})
+	if err != nil {
+		t.Fatalf("Tail: %v", err)
+	}
+	if res.State.Offset > maxReadPerCall {
+		t.Fatalf("first call consumed %d bytes, want <= maxReadPerCall (%d)", res.State.Offset, maxReadPerCall)
+	}
+	if len(res.Lines) == 0 || len(res.Lines) >= linesPerCall {
+		t.Fatalf("first call returned %d of %d lines, want a partial batch bounded by the cap", len(res.Lines), linesPerCall)
+	}
+	if res.Reset {
+		t.Fatalf("a capped read on a fresh path reported Reset = true")
+	}
+
+	total := len(res.Lines)
+	for res.State.Offset < int64(len(content)) {
+		res, err = Tail(res.State)
+		if err != nil {
+			t.Fatalf("Tail (continuation): %v", err)
+		}
+		if res.Reset {
+			t.Fatalf("continuation call reported Reset = true")
+		}
+		total += len(res.Lines)
+	}
+	if total != linesPerCall {
+		t.Fatalf("got %d lines across all calls, want %d", total, linesPerCall)
+	}
+}
+
 func appendTo(t *testing.T, path, content string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
