@@ -25,6 +25,17 @@ type rawSubagentMeta struct {
 	SpawnDepth  int    `json:"spawnDepth"`
 }
 
+// subagentRecord pairs one walked subagent with the identity and observed
+// byte length of its own transcript: key is the agent-<hash> filename stem
+// (the meta.json's "hash" field is not it — the two disagree in the
+// corpus), and size is the jsonl's length at this walk, which is what a
+// caller compares across polls to decide the transcript is still growing.
+type subagentRecord struct {
+	Sub  domain.Subagent
+	Key  string
+	Size int64
+}
+
 // Walk reads every agent-<hash>.meta.json / agent-<hash>.jsonl pair under
 // dir (<sessionId>/subagents/ in production) and returns one
 // domain.Subagent per pair, sorted by hash for a deterministic order.
@@ -35,24 +46,29 @@ type rawSubagentMeta struct {
 // ("claude-opus-5").
 //
 // resultedToolUseIDs is the set of tool_use ids that already have a
-// matching tool_result in the parent transcript — the back-link a subagent
-// finished. A subagent is Live when its own toolUseId is not in this set.
+// matching tool_result in the parent transcript — the back-link that says a
+// subagent has finished, and the same link that assembles the tree.
 //
-// KNOWN GAP, deliberately left to the reducer. The spec's liveness rule is
-// a conjunction: a subagent is live when its jsonl is growing AND the
-// parent has recorded no matching tool_result yet. Only the second half is
-// evaluated here, because the first needs the previous cycle's size and
-// mtime and this package holds no cross-cycle state by design — the
-// reducer in internal/state does, and it already owns every other
-// "has this stopped moving" judgement (session retention, Codex's
-// mtime-derived stale). Two consequences for whoever adds the growth half
-// there: a child that died or hung before the parent wrote its tool_result
-// reads Live until that record lands. (The other half of that exposure —
-// a compaction rewriting the parent transcript without the tool_result
-// lines that retired a subagent — is closed in source.go, which keeps the
-// resulted-id set across a transcript reset because an answered tool_use
-// stays answered.)
+// Live as returned here is that back-link alone. The full rule is a
+// conjunction — a subagent is live when its jsonl is growing AND its
+// tool_use is still unanswered — and "growing" is a comparison against the
+// previous poll's byte count, which no single walk of a directory can make.
+// Source.pollOne holds that count across polls and ANDs the growth half in,
+// reading each child's current size from walkRecords below.
 func Walk(dir string, resultedToolUseIDs map[string]bool) ([]domain.Subagent, error) {
+	recs, err := walkRecords(dir, resultedToolUseIDs)
+	if err != nil || recs == nil {
+		return nil, err
+	}
+	out := make([]domain.Subagent, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, rec.Sub)
+	}
+	return out, nil
+}
+
+// walkRecords is Walk plus each subagent's on-disk identity and size.
+func walkRecords(dir string, resultedToolUseIDs map[string]bool) ([]subagentRecord, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -61,7 +77,7 @@ func Walk(dir string, resultedToolUseIDs map[string]bool) ([]domain.Subagent, er
 		return nil, err
 	}
 
-	var out []domain.Subagent
+	var out []subagentRecord
 	for _, ent := range entries {
 		if ent.IsDir() {
 			continue
@@ -80,40 +96,47 @@ func Walk(dir string, resultedToolUseIDs map[string]bool) ([]domain.Subagent, er
 			return nil, err
 		}
 
-		jsonlName := strings.TrimSuffix(name, ".meta.json") + ".jsonl"
-		usage, model, err := sumTranscript(filepath.Join(dir, jsonlName))
+		key := strings.TrimSuffix(name, ".meta.json")
+		usage, model, size, err := sumTranscript(filepath.Join(dir, key+".jsonl"))
 		if err != nil {
 			return nil, err
 		}
 
-		out = append(out, domain.Subagent{
-			Hash:        meta.Hash,
-			AgentType:   meta.AgentType,
-			Description: meta.Description,
-			Model:       model,
-			ToolUseID:   meta.ToolUseID,
-			SpawnDepth:  meta.SpawnDepth,
-			Usage:       usage,
-			Live:        !resultedToolUseIDs[meta.ToolUseID],
+		out = append(out, subagentRecord{
+			Sub: domain.Subagent{
+				Hash:        meta.Hash,
+				AgentType:   meta.AgentType,
+				Description: meta.Description,
+				Model:       model,
+				ToolUseID:   meta.ToolUseID,
+				SpawnDepth:  meta.SpawnDepth,
+				Usage:       usage,
+				Live:        !resultedToolUseIDs[meta.ToolUseID],
+			},
+			Key:  key,
+			Size: size,
 		})
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].Hash < out[j].Hash })
+	sort.Slice(out, func(i, j int) bool { return out[i].Sub.Hash < out[j].Sub.Hash })
 	return out, nil
 }
 
 // sumTranscript reads a whole subagent transcript (these are small — a few
 // turns — unlike the multi-MB main session transcript, so a full read
 // rather than an offset tail is appropriate here) and returns the summed
-// Usage across every assistant record plus the last non-empty model seen,
-// which is the API-resolved model id.
-func sumTranscript(path string) (domain.Usage, string, error) {
+// Usage across every assistant record, the last non-empty model seen —
+// which is the API-resolved model id — and the transcript's byte length,
+// taken from the bytes actually read rather than a second stat, so the
+// size a caller compares across polls is the size of the content it was
+// given. A transcript that does not exist yet is zero bytes, not an error.
+func sumTranscript(path string) (domain.Usage, string, int64, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return domain.Usage{}, "", nil
+		return domain.Usage{}, "", 0, nil
 	}
 	if err != nil {
-		return domain.Usage{}, "", err
+		return domain.Usage{}, "", 0, err
 	}
 
 	lines, _ := splitCompleteLines(append(raw, '\n'))
@@ -143,5 +166,5 @@ func sumTranscript(path string) (domain.Usage, string, error) {
 			usage.CachedInput += ev.Usage.CachedInput
 		}
 	}
-	return usage, model, nil
+	return usage, model, int64(len(raw)), nil
 }

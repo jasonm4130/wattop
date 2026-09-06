@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jasonm4130/wattop/internal/domain"
 )
 
 // sourceFixture plants one ~/.claude/sessions/<pid>.json and returns a
@@ -244,5 +246,117 @@ func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 	}
 	if sessions[0].Usage.Input != 30 {
 		t.Fatalf("Usage.Input = %d after compaction, want 30", sessions[0].Usage.Input)
+	}
+}
+
+// childRecord is one line of a subagent's own transcript, with padding the
+// decoder ignores so a test can grow the file without changing its totals.
+func childRecord(padding string) string {
+	return `{"type":"assistant","message":{"model":"claude-opus-5","role":"assistant","content":[],` +
+		`"usage":{"input_tokens":1,"output_tokens":1}},"pad":"` + padding + `"}` + "\n"
+}
+
+// pollSubagent polls once and returns the session's single subagent.
+func pollSubagent(t *testing.T, s *Source, now time.Time) domain.Subagent {
+	t.Helper()
+	sessions, err := s.Poll(context.Background(), now, nil)
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if len(sessions) != 1 || len(sessions[0].Subagents) != 1 {
+		t.Fatalf("want 1 session with 1 subagent, got %+v", sessions)
+	}
+	return sessions[0].Subagents[0]
+}
+
+// TestHungSubagentStopsBeingLive is the growth half of the liveness rule.
+// Liveness is a conjunction — the child's jsonl is growing AND the parent
+// has recorded no tool_result for its tool_use — so a child that died or
+// hung before its result was written must stop reading Live once its
+// transcript stops moving, rather than standing as Live forever waiting on
+// a record that is never coming.
+func TestHungSubagentStopsBeingLive(t *testing.T) {
+	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.meta.json"),
+		`{"toolUseId":"tu-1","hash":"h1","agentType":"general-purpose","description":"d","model":"opus","spawnDepth":1}`)
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord(""))
+
+	// The parent spawns the child and never records its result.
+	writeFile(t, transcript,
+		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
+			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
+
+	if sub := pollSubagent(t, s, now); !sub.Live {
+		t.Fatalf("first sighting should be Live: a transcript that has just appeared has grown; got %+v", sub)
+	}
+
+	// Nothing writes to the child transcript before the next poll: the
+	// process behind it is gone or wedged.
+	if sub := pollSubagent(t, s, now.Add(time.Second)); sub.Live {
+		t.Fatalf("Live = true for a child whose transcript stopped growing and whose tool_use has no result: %+v", sub)
+	}
+
+	// It was not dead after all — the transcript grows again.
+	appendTo(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord("more"))
+	if sub := pollSubagent(t, s, now.Add(2*time.Second)); !sub.Live {
+		t.Fatalf("Live = false for a child whose transcript grew again: %+v", sub)
+	}
+}
+
+// TestGrowingSubagentWithToolResultIsNotLive pins the other half of the
+// conjunction: growth alone is not liveness. A child still flushing its
+// last records after the parent has recorded its tool_result is finished.
+func TestGrowingSubagentWithToolResultIsNotLive(t *testing.T) {
+	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.meta.json"),
+		`{"toolUseId":"tu-1","hash":"h1","agentType":"general-purpose","description":"d","model":"opus","spawnDepth":1}`)
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord(""))
+
+	writeFile(t, transcript,
+		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
+			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n"+
+			`{"type":"user","timestamp":"2026-09-06T01:00:01.000Z","message":{"role":"user",`+
+			`"content":[{"type":"tool_result","tool_use_id":"tu-1"}]}}`+"\n")
+
+	if sub := pollSubagent(t, s, now); sub.Live {
+		t.Fatalf("Live = true for a child whose tool_use already has a result: %+v", sub)
+	}
+	appendTo(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord("more"))
+	if sub := pollSubagent(t, s, now.Add(time.Second)); sub.Live {
+		t.Fatalf("a growing transcript relit a subagent the parent had already answered: %+v", sub)
+	}
+}
+
+// TestCompactionDoesNotRelightHungSubagent is the mirror of
+// TestCompactionDoesNotResurrectFinishedSubagents, on the growth half.
+// Compaction rewrites the PARENT transcript; a child's jsonl is a separate
+// file it does not touch. If the reset dropped the recorded child sizes,
+// every child would look unseen — and an unseen child counts as growing —
+// so a hung child with no tool_result would come back Live.
+func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
+	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
+	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
+
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.meta.json"),
+		`{"toolUseId":"tu-1","hash":"h1","agentType":"general-purpose","description":"d","model":"opus","spawnDepth":1}`)
+	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord(""))
+
+	writeFile(t, transcript,
+		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
+			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
+
+	pollSubagent(t, s, now)                                        // first sighting: Live
+	if sub := pollSubagent(t, s, now.Add(time.Second)); sub.Live { // stopped growing: not Live
+		t.Fatalf("precondition: child should have gone quiet, got %+v", sub)
+	}
+
+	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", 512)))
+
+	if sub := pollSubagent(t, s, now.Add(2*time.Second)); sub.Live {
+		t.Fatalf("compaction of the parent relit a hung child: %+v", sub)
 	}
 }

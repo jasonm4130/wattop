@@ -47,8 +47,12 @@ type sessionAgg struct {
 	resultedToolUseIDs map[string]bool
 	rateLimit          *domain.RateLimit
 	rateLimitAt        time.Time
-	highWaterMark      int64
-	lastPromptTokens   int64
+	// subagentSizes is the byte length each child transcript had at the
+	// previous poll, keyed by its agent-<hash> filename stem. Comparing
+	// against it is the growth half of the subagent liveness rule.
+	subagentSizes    map[string]int64
+	highWaterMark    int64
+	lastPromptTokens int64
 }
 
 // resetAccumulators drops everything derived by summing or maximising over
@@ -68,6 +72,13 @@ type sessionAgg struct {
 // only ever be right — while clearing it would resurrect every finished
 // subagent as Live, since a compacted transcript no longer carries the
 // tool_result lines that retired them and Walk has no other evidence.
+//
+// subagentSizes survives for the mirror-image reason. It records how long
+// each child transcript was at the previous poll, and a child transcript
+// is a separate file that a rewrite of the parent does not touch. Dropping
+// the sizes here would make every child unseen again, and an unseen child
+// is treated as growing — so a compaction would relight every hung
+// subagent, which is the same bug from the other side.
 func (a *sessionAgg) resetAccumulators() {
 	a.usage = domain.Usage{}
 	a.tools = nil
@@ -133,6 +144,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		agg = &sessionAgg{
 			toolCounts:         make(map[string]int),
 			resultedToolUseIDs: make(map[string]bool),
+			subagentSizes:      make(map[string]int64),
 		}
 		s.agg[f.SessionID] = agg
 	}
@@ -214,9 +226,32 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	}
 
 	subagentsDir := filepath.Join(s.projectsDir, sanitizeCWD(f.CWD), f.SessionID, "subagents")
-	subagents, err := Walk(subagentsDir, agg.resultedToolUseIDs)
+	recs, err := walkRecords(subagentsDir, agg.resultedToolUseIDs)
 	if err != nil {
 		return domain.Session{}, err
+	}
+
+	// Liveness is a conjunction, and this is where its two halves meet.
+	// walkRecords supplies the back-link half — the parent has recorded no
+	// tool_result for this child's tool_use — and the comparison below
+	// supplies the growth half from the size the same child's transcript
+	// had at the previous poll. A child that died or hung before the
+	// parent wrote its tool_result stops growing, and stops reading Live
+	// on the next poll, instead of standing as Live until a record that is
+	// never coming lands. A child whose transcript this Source has not
+	// seen before has no previous size to fall short of: it has just
+	// appeared, which is growth, so it reads Live until a poll watches it
+	// sit still.
+	var subagents []domain.Subagent
+	if len(recs) > 0 {
+		subagents = make([]domain.Subagent, 0, len(recs))
+	}
+	for _, rec := range recs {
+		prev, seen := agg.subagentSizes[rec.Key]
+		agg.subagentSizes[rec.Key] = rec.Size
+		sub := rec.Sub
+		sub.Live = sub.Live && (!seen || rec.Size > prev)
+		subagents = append(subagents, sub)
 	}
 
 	ctxMax := contextWindow(agg.highWaterMark)
