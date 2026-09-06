@@ -1,0 +1,60 @@
+version: 2
+
+project_name: wattop
+
+# No cross-compilation: wattop links -lIOReport via CGO and only builds on
+# an Apple Silicon host (see docs/limitations.md). One build target only.
+builds:
+  - id: wattop
+    main: ./cmd/wattop
+    binary: wattop
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -X github.com/jasonm4130/wattop/internal/version.Version={{.Version}}
+      - -X github.com/jasonm4130/wattop/internal/version.Commit={{.Commit}}
+      - -X github.com/jasonm4130/wattop/internal/version.BuildDate={{.Date}}
+
+archives:
+  - id: wattop
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - name: wattop
+    repository:
+      owner: jasonm4130
+      name: homebrew-wattop
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/jasonm4130/wattop"
+    description: "SoC watts and AI coding-agent dollars, read on one refresh clock and joined by pid."
+    license: "MIT"
+    dependencies: []
+    test: |
+      system "#{bin}/wattop", "--version"
+    caveats: |
+      wattop requires macOS on Apple Silicon (arm64). It is not
+      cross-compilable and has no Linux or Intel build.
+
+release:
+  github:
+    owner: jasonm4130
+    name: wattop
+  prerelease: auto

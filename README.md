@@ -1,26 +1,150 @@
 # wattop
 
-A terminal dashboard that puts Apple Silicon SoC telemetry and live AI
-coding-agent sessions on one refresh clock, joined by pid.
+SoC watts and AI coding-agent dollars, read on one refresh clock and joined
+by pid.
+
+A terminal dashboard for Apple Silicon: the same per-cluster power,
+thermal and GPU numbers `mactop` shows, next to a live table of your Claude
+Code and Codex CLI sessions — status, tokens, cost, burn rate — with each
+session's CPU/GPU/RSS sampled at the exact same instant as the SoC read, so
+"is this Claude session the thing spiking the GPU right now" has an actual
+answer instead of two panels you have to eyeball together.
 
 ## Scope
 
 macOS, Apple Silicon (arm64) only. Built with CGO against IOReport and SMC,
-so it does not build or run on Linux or Intel Macs.
+so it links `-lIOReport`, a private Apple framework — it is **not
+cross-compilable** and there is no Linux or Intel build. No external
+runtime: no Node, no Python, no subprocess, no Homebrew dependency at
+runtime — macOS system frameworks only, one static-enough binary.
 
-## Build
+## Install
+
+Via the Homebrew tap (once a release is published):
 
 ```
-make build
+brew install jasonm4130/wattop/wattop
 ```
 
-Produces `bin/wattop`. Requires Go 1.27 and Xcode command line tools (for
-CGO).
+## Build from source
+
+Requires Go 1.27 and Xcode command line tools (for CGO) on Apple Silicon.
+
+```
+CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 make build
+```
+
+produces `bin/wattop`. `CGO_ENABLED=1` is not optional — the SoC panel is
+IOReport/SMC data reached through vendored Objective-C (see
+`internal/soc/VENDOR.md`); `make build` sets it for you.
+
+## Usage
+
+```
+wattop                    # interactive TUI
+wattop --theme nord       # or WATTOP_THEME=nord
+wattop --interval 2s      # SoC sample interval, 500ms-5s
+wattop --json             # one Snapshot per interval as NDJSON, no alt screen
+wattop --json --once      # exactly one Snapshot, then exit
+wattop --no-color         # or NO_COLOR=1: no ANSI styling, gauges as blocks
+wattop doctor             # what actually resolved on this chip
+wattop doctor --ioreport-groups  # + every IOReport group and its channel count
+```
+
+`wattop doctor` is the first thing to run on a new machine or after a
+macOS upgrade: it prints which SoC channels resolved, how many processes
+the scanner enumerated and got a CPU baseline for, how many Claude/Codex
+sessions were discovered and pid-bound, and the pricing table's age and
+status — all without ever entering the TUI.
+
+### Keybindings
+
+| Key | Action |
+|---|---|
+| `↑`/`k`, `↓`/`j` | Move selection |
+| `enter` | Toggle the session detail view |
+| `t` / `T` | Cycle theme forward / back |
+| `s` | Cycle sort (status → cost → burn → cpu) |
+| `f` | Toggle subagent rows |
+| `p` | Pause the display (collection keeps running) |
+| `?` | Toggle the help overlay |
+| `q` / `ctrl+c` | Quit |
+
+### Themes
+
+Four named themes, selected by `--theme`/`WATTOP_THEME` or cycled in-app
+with `t`/`T`: `wattop-dark` (default), `wattop-light`, `nord`,
+`catppuccin-mocha`. Every widget reads a semantic role (`idle`/`busy`/
+`waiting`/`warn`/`hot`/…), never a raw palette color, so a theme swap
+re-colours the whole dashboard consistently. `--theme <hex>` (e.g.
+`--theme 58a6ff`) layers a bare accent color onto `wattop-dark` instead of
+naming a file.
+
+### Config file
+
+`$XDG_CONFIG_HOME/wattop/config.toml` (or `~/.config/wattop/config.toml`)
+sets defaults that flags and environment variables override: `theme`,
+`interval_ms`, `burn_hot_usd_per_hr`, `codex_stale_minutes`, and
+`context_window_overrides` (a Claude session id or cwd to a token count,
+overriding the context-fill estimate for that session). A missing file is
+not an error — every field just keeps its default.
+
+## Pricing table
+
+Costs are computed from an embedded, filtered snapshot of LiteLLM's pricing
+table (`internal/pricing/table.json.gz`), refreshed in the background at
+startup and cached, so pricing works instantly and offline on first run.
+Run `make pricing` to pull the latest upstream table and regenerate
+`docs/pricing-update.md` with the commit and checksum that produced it —
+see that file for how to verify the checksum and add a model upstream
+hasn't published yet.
+
+## Honest labelling
+
+- Claude context-fill is an estimate (dashed bar edge); Codex's is exact
+  from `rate_limits` (solid edge).
+- Costs are estimates from the pricing table above and **ignore
+  subscription plans** (Claude Pro/Max, ChatGPT/Codex) entirely.
+- An unpriced model renders `$—`, never `$0.00` — those mean different
+  things.
+- Per-session GPU is measured as ms/sec; the derived percent is a rescale
+  and never the default sort key.
+- DRAM and ANE bandwidth render `—` where the IOReport channel doesn't
+  resolve, never `0.0`.
+
+See [`docs/limitations.md`](docs/limitations.md) for the full list with
+evidence, and [`docs/manual-qa.md`](docs/manual-qa.md) for the checklist
+this release was verified against.
+
+## Self-CPU overhead
+
+Measured over a 60-second `--json` run on the M5 Max this was built on:
+`Snapshot.self_cpu_pct` settles to **4.2%-7.0% (mean 5.35%)** in steady
+state, corroborated independently by `ps -o %cpu` on the running process
+(5.4%). The first ~5 samples after startup spike to 190-300% while the
+process scanner's CPU-delta baseline for wattop's own pid is still being
+established — the same warmup this README already describes for a Codex
+row's first ~2 seconds, not a sustained cost. A monitor that distorts what
+it measures must be accountable for its own overhead; this is that
+accounting.
 
 ## Attribution
 
-_Filled in as part of release (Task 14)._
+wattop vendors and depends on the following MIT-licensed projects — full
+text and details in [`NOTICE`](NOTICE):
 
-## Limitations
+- **[mactop](https://github.com/metaspartan/mactop)** — Copyright ©
+  2024-2026 Carsen Klock. `internal/soc/mactop` is a vendored copy of its
+  IOReport/SMC collector layer, pinned to a specific upstream commit (see
+  `internal/soc/VENDOR.md`), because that code lives under mactop's own
+  `internal/app` and cannot be imported.
+- **[ntcharts](https://github.com/NimbleMarkets/ntcharts)** — Copyright ©
+  2024-2026 Neomantra Corp. Used as an ordinary dependency for the braille
+  sparkline helper.
 
-_Filled in as part of release (Task 14)._
+Also depends on the Charm libraries (Bubble Tea, Lip Gloss, Bubbles),
+`BurntSushi/toml`, and `golang.org/x/term`.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

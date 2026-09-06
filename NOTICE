@@ -1,0 +1,40 @@
+wattop
+Copyright (c) 2026 Jason Matthews
+
+This product is licensed under the MIT License (see LICENSE) and includes
+code from the following third-party projects.
+
+--------------------------------------------------------------------------
+
+mactop
+Copyright (c) 2024-2026 Carsen Klock
+https://github.com/metaspartan/mactop
+Licensed under the MIT License.
+
+`internal/soc/mactop` is a vendored copy of mactop's collector layer
+(IOReport power/thermal sampling, SMC readings, topology, GPU process
+stats), pinned to upstream commit
+220df7efeba860f50939b027afc03ee330f209bf. Every mactop collector lives
+under that module's own `internal/app` package, which Go's internal-package
+rule makes unreachable from outside `github.com/metaspartan/mactop` — this
+is why the code is copied rather than imported. See
+internal/soc/VENDOR.md for the exact file list, the edits made to each
+file, and `make vendor-diff` for re-checking the copy against upstream.
+
+--------------------------------------------------------------------------
+
+ntcharts
+Copyright (c) 2024-2026 Neomantra Corp
+https://github.com/NimbleMarkets/ntcharts
+Licensed under the MIT License.
+
+Used as a normal Go module dependency (github.com/NimbleMarkets/ntcharts/v2)
+for the braille sparkline helper in internal/ui/panel/spark.go.
+
+--------------------------------------------------------------------------
+
+wattop also depends on the Charm libraries (charm.land/bubbletea/v2,
+charm.land/lipgloss/v2, charm.land/bubbles/v2, github.com/charmbracelet/*),
+github.com/BurntSushi/toml, and golang.org/x/term, each under its own
+MIT-compatible license and used as an ordinary Go module dependency rather
+than vendored — see go.sum for the full dependency graph.
