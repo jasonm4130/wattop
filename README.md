@@ -26,7 +26,23 @@ cross-compilable** and there is no Linux or Intel build. No external
 runtime: no Node, no Python, no subprocess, no Homebrew dependency at
 runtime — macOS system frameworks only, one static-enough binary.
 
-## Install from source
+## Install
+
+On **Apple Silicon with macOS 14 or newer**:
+
+```sh
+brew install --cask jasonm4130/wattop/wattop
+wattop
+```
+
+Update with `brew update && brew upgrade --cask wattop`.
+The [official tap](https://github.com/jasonm4130/homebrew-wattop) tracks stable
+releases. You can also download the arm64 archive from
+[GitHub Releases](https://github.com/jasonm4130/wattop/releases/latest).
+Release archives include checksums and GitHub build provenance; they are not
+Apple-notarized. See [verification instructions](docs/releasing.md#verify-a-download).
+
+### Build from source
 
 Requires **Apple Silicon, macOS, Go 1.27, and Xcode command line tools**.
 
@@ -41,8 +57,8 @@ The build enables CGO for IOReport and SMC. Run `./bin/wattop doctor` to inspect
 hardware support on your Mac. The examples below assume `bin/wattop` is on your
 `PATH`; otherwise use `./bin/wattop`.
 
-Tagged releases are built by GitHub Actions. See [release maintenance](docs/releasing.md)
-for packaging and verification; Homebrew distribution is not configured yet.
+Tagged releases are built by GitHub Actions with a macOS 14 deployment target.
+Hardware support varies by chip and macOS version; see [limitations](docs/limitations.md).
 
 ## Usage
 
