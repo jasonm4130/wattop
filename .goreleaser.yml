@@ -10,6 +10,7 @@ builds:
     binary: wattop
     env:
       - CGO_ENABLED=1
+      - MACOSX_DEPLOYMENT_TARGET=14.0
     goos:
       - darwin
     goarch:
