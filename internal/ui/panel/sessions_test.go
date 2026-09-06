@@ -332,11 +332,16 @@ func TestBackgroundSessionStyledDifferently(t *testing.T) {
 	}
 }
 
-// TestSelectedRowHighlightSpansWholeLine asserts the reverse-video wrapper
-// applied to a selected row covers the entire assembled line, including the
-// text after its lipgloss-rendered status cell -- a hand-rolled
-// \x1b[7m...\x1b[0m wrapper collapses at the first embedded reset, leaving
-// only the STATUS column highlighted.
+// TestSelectedRowHighlightSpansWholeLine asserts the selected row's
+// reverse-video styling wraps the entire assembled line exactly once --
+// opening before the gutter and closing only at the very end -- rather
+// than collapsing at the first embedded reset from an inner styled cell
+// (the STATUS column renders in its own color even on a selected row, via
+// r.Busy/r.Waiting/etc). A hand-rolled \x1b[7m...\x1b[0m wrapper, or a
+// lipgloss style applied over already-colored cells, both hit that
+// collapse; forcing the row's own cells plain before the outer wrap (see
+// plainIfSelected) is what avoids it -- so a selected row must carry
+// exactly one reverse-video SGR and no other escape sequence at all.
 func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5", CWD: "/home/u/project"}
@@ -348,40 +353,14 @@ func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	}
 	row := lines[1]
 
-	// The reverse-video SGR (7) must still be in effect at the very end of
-	// the row -- i.e. no unmatched reset (0) after the last "7" and before
-	// the row ends -- rather than closing partway through at the status
-	// cell's own embedded reset.
-	lastReverse := strings.LastIndex(row, "\x1b[7m")
-	if lastReverse == -1 {
-		t.Fatalf("expected a reverse-video SGR on the selected row, got:\n%q", row)
+	if got := strings.Count(row, "\x1b["); got != 2 {
+		t.Fatalf("expected exactly one open+close ANSI pair (the whole-line reverse wrap) on the selected row, got %d escape sequences:\n%q", got, row)
 	}
-	if resetAfter := strings.Index(row[lastReverse:], "\x1b[0m"); resetAfter != -1 && resetAfter < len(row)-lastReverse-len("RSS") {
-		// A reset that lands well before the end of the row (rather than
-		// exactly closing out the final cell) means the highlight
-		// collapsed early.
-		tail := row[lastReverse+resetAfter+len("\x1b[0m"):]
-		if strings.TrimSpace(stripANSI(tail)) != "" && !strings.Contains(tail, "\x1b[7m") {
-			t.Errorf("reverse video reset before the end of the row, leaving unhighlighted trailing content: %q", tail)
-		}
+	if !strings.HasPrefix(row, "\x1b[7m"+selectionGutter) {
+		t.Errorf("expected the reverse-video SGR to open immediately before the gutter, got:\n%q", row)
 	}
-	if !strings.Contains(row, "512M") && !strings.Contains(row, "—") {
-		t.Fatalf("sanity: row missing expected trailing cell content:\n%q", row)
-	}
-}
-
-// stripANSI removes CSI SGR escape sequences for length/content checks.
-func stripANSI(s string) string {
-	for {
-		i := strings.Index(s, "\x1b[")
-		if i == -1 {
-			return s
-		}
-		j := strings.IndexByte(s[i:], 'm')
-		if j == -1 {
-			return s
-		}
-		s = s[:i] + s[i+j+1:]
+	if !strings.HasSuffix(row, "\x1b[m") && !strings.HasSuffix(row, "\x1b[0m") {
+		t.Errorf("expected the reverse-video wrap to close only at the very end of the row, got:\n%q", row)
 	}
 }
 
@@ -600,12 +579,12 @@ func TestCtxGaugeOverBudgetRendersLiteralOverflow(t *testing.T) {
 	r := loadDarkRoles(t)
 
 	within := domain.Session{ContextUsed: 61000, ContextMax: 200000, ContextExact: true}
-	if got := ctxGauge(r, within, Options{NoColor: true}); !strings.Contains(got, " 31%") {
-		t.Errorf("within-budget gauge = %q, want it to contain \" 31%%\"", got)
+	if got := ctxGauge(r, within, Options{NoColor: true}, wCTX); !strings.Contains(got, " 30%") {
+		t.Errorf("within-budget gauge = %q, want it to contain \" 30%%\"", got)
 	}
 
 	over := domain.Session{ContextUsed: 946000, ContextMax: 200000, ContextExact: true}
-	got := ctxGauge(r, over, Options{NoColor: true})
+	got := ctxGauge(r, over, Options{NoColor: true}, wCTX)
 	if !strings.Contains(got, ">100%") {
 		t.Errorf("over-budget gauge = %q, want it to contain the literal \">100%%\"", got)
 	}
