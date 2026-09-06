@@ -115,13 +115,13 @@ func New(book *pricing.Book, burn *pricing.BurnTracker) *State {
 // History returns the current contents of one history ring, oldest sample
 // first. key is "cpu" | "gpu" | "watts" | "cost" for the machine-wide
 // rings, populated from Sys.Clusters/GPU/Power.SystemWatts/the total burn
-// rate, or "<sessionID>:cpu" | "<sessionID>:gpu" | "<sessionID>:cost" for a
-// per-session ring, populated from that session's Proc and burn rate. A key
-// that has never been pushed to returns nil. Per-session keys use
-// Session.ID alone, as the spec's key grammar names it; a collision between
-// a Claude and a Codex session sharing an ID is possible in principle, but
-// nothing in v0.1 reads History, so it is left as a known sharp edge rather
-// than given the (Agent, ID) treatment the last-seen map needs.
+// rate, or "<agent>:<sessionID>:cpu" | "<agent>:<sessionID>:gpu" |
+// "<agent>:<sessionID>:cost" for a per-session ring, populated from that
+// session's Proc and burn rate. A key that has never been pushed to
+// returns nil. Per-session keys carry the same (Agent, ID) pair as
+// sessionKey so a Claude and a Codex session sharing an ID get distinct
+// rings, and so Reduce can delete exactly the right three rings when a
+// session's tracked entry is dropped (see Reduce's TTL-expiry branch).
 func (st *State) History(key string) []float64 {
 	r, ok := st.histories[key]
 	if !ok {

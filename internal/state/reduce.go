@@ -102,6 +102,9 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		if in.At.Sub(tr.ttlClock) > sessionTTL {
 			delete(st.tracked, key)
 			delete(st.burnLastCost, key.Agent+":"+key.ID)
+			delete(st.histories, key.Agent+":"+key.ID+":cpu")
+			delete(st.histories, key.Agent+":"+key.ID+":gpu")
+			delete(st.histories, key.Agent+":"+key.ID+":cost")
 			continue
 		}
 
@@ -164,9 +167,9 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		if s.BurnUSDPerHr != nil {
 			cost = *s.BurnUSDPerHr
 		}
-		st.recordHistory(s.ID+":cpu", cpu)
-		st.recordHistory(s.ID+":gpu", gpu)
-		st.recordHistory(s.ID+":cost", cost)
+		st.recordHistory(s.Agent+":"+s.ID+":cpu", cpu)
+		st.recordHistory(s.Agent+":"+s.ID+":gpu", gpu)
+		st.recordHistory(s.Agent+":"+s.ID+":cost", cost)
 	}
 
 	return snap
@@ -212,8 +215,24 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 // Session.Priced is false — the whole session renders "$—" rather than a
 // partial number built only from its children, and contributes 0 to
 // TotalCostUSD.
+//
+// Tier selection keys on s.ContextUsed, the last-request prompt size
+// (internal/agent/claude/source.go sets it from the most recent assistant
+// record's input+cache tokens; codex/parse.go from the last token_count's
+// total_tokens, which folds in output and so overstates prompt size by a
+// few percent — the right tier, not an exact one), never on s.Usage, which
+// is the cumulative session total and would push every long-lived session
+// into the long-context tier within a handful of turns regardless of how
+// large any single request actually was.
+//
+// domain.Subagent carries no equivalent last-request figure, so each
+// subagent prices at the base (untiered) rate — passing 0 falls through
+// tieredRate's threshold check unconditionally. That undercharges a
+// subagent whose own prompt genuinely crossed a tier threshold; revisit by
+// adding a last-prompt-tokens field to Subagent in the child parser if that
+// turns out to matter in practice.
 func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
-	mainCost, mainOK := st.book.Cost(s.Model, s.Usage, promptTokensOf(s.Usage))
+	mainCost, mainOK := st.book.Cost(s.Model, s.Usage, s.ContextUsed)
 	if !mainOK && s.Model != "" {
 		unpriced[s.Model] = struct{}{}
 	}
@@ -221,7 +240,7 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	total := mainCost
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		cost, ok := st.book.Cost(sa.Model, sa.Usage, promptTokensOf(sa.Usage))
+		cost, ok := st.book.Cost(sa.Model, sa.Usage, 0)
 		if ok {
 			c := cost
 			sa.CostUSD = &c
@@ -241,13 +260,6 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	} else {
 		s.CostUSD = nil
 	}
-}
-
-// promptTokensOf is the prompt-size figure pricing's tier selection keys
-// on, matching the convention already used when aggregating usage in
-// internal/agent/claude/source.go.
-func promptTokensOf(u domain.Usage) int64 {
-	return u.Input + u.CacheRead + u.CacheCreate5m + u.CacheCreate1h
 }
 
 // machineCPUPct is the machine-wide CPU history value: the cluster
