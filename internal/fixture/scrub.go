@@ -9,9 +9,19 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+// homeUserRe matches any macOS/Linux home-directory path for any account,
+// not just this machine's — "/Users/<name>" or "/home/<name>" — so a fixture
+// recorded on a different account, after a username change, or on a machine
+// with a different home path still gets its path redacted. It excludes '/'
+// and '"' from the captured name so it stops at the next path segment or a
+// JSON string boundary rather than swallowing the rest of the value.
+var homeUserRe = regexp.MustCompile(`/(?:Users|home)/[^/"]+`)
 
 // proseKeys are JSON object keys whose string value is human prose and must
 // be replaced with filler that preserves the value's UTF-8 byte length:
@@ -54,9 +64,11 @@ var uuidKeys = map[string]bool{
 // input.
 //
 // Every field is preserved exactly except:
-//   - any string containing "/Users/jasonmatthew" (rewritten to "/home/u"),
-//     "jasonm4130@gmail.com", or "jasonm4130" (rewritten to a placeholder),
-//     wherever it appears, in a value or in an object key;
+//   - any string containing a home-directory path for any account —
+//     "/Users/<name>" or "/home/<name>", this machine's included —
+//     (rewritten to "/home/u"), "jasonm4130@gmail.com", or "jasonm4130"
+//     (rewritten to a placeholder), wherever it appears, in a value or in an
+//     object key;
 //   - the keys in proseKeys, whose value is replaced with 'x' filler that
 //     preserves the original value's UTF-8 byte length exactly, so
 //     len(Scrub(line)) == len(line) on the raw line bytes whenever the only
@@ -245,12 +257,22 @@ func scrubString(key, content string) string {
 	}
 }
 
-// redactPlain replaces this machine's home path and username wherever they
-// appear in s. It is applied to every string and every object key that is
-// not otherwise classified, so a leaked path in an unexpected field (an
-// argv entry, a cwd, a stray log line) is still caught.
+// redactPlain replaces any account's home path, this machine's username, and
+// this machine's email address wherever they appear in s. It is applied to
+// every string and every object key that is not otherwise classified, so a
+// leaked path in an unexpected field (an argv entry, a cwd, a stray log
+// line) is still caught.
+//
+// The home-path rewrite is a generic "/Users/<name>" or "/home/<name>"
+// pattern (homeUserRe), not this machine's literal home directory: a
+// fixture recorded from a different account, after a username change, or on
+// a machine whose home path differs still gets redacted, and the guard in
+// scrub_test.go can ban a broader pattern than this rule itself produces.
 func redactPlain(s string) string {
-	s = strings.ReplaceAll(s, "/Users/jasonmatthew", "/home/u")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		s = strings.ReplaceAll(s, home, "/home/u")
+	}
+	s = homeUserRe.ReplaceAllString(s, "/home/u")
 	s = strings.ReplaceAll(s, "jasonm4130@gmail.com", "user@example.com")
 	s = strings.ReplaceAll(s, "jasonm4130", "user")
 	return s

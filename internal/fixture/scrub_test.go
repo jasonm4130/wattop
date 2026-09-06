@@ -6,32 +6,64 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
 
+// homeUserGuardRe bans any "/Users/<name>" home path other than the
+// redacted placeholder "/Users/u" would produce — but Scrub's placeholder is
+// "/home/u", so any surviving "/Users/<name>" at all is a leak. It is
+// intentionally broader than homeUserRe in scrub.go: the rule and the guard
+// must not be the same literal, or neither can catch the other's gap (a
+// fixture recorded under a different account, or after a username change,
+// would pass the old exact-string guard even though the redaction rule
+// missed it too).
+var homeUserGuardRe = regexp.MustCompile(`/Users/[^/"]+`)
+
 // TestNoRealPathsInCommittedFixtures is redaction as a test, not a promise:
-// it walks every committed file under testdata/agent/ and fails if any of
-// this machine's real identifiers leaked through.
+// it walks every committed testdata corpus in the repo — not just
+// testdata/agent/, which is only one of several places a real path could
+// leak (testdata/soc/ is recorded from mactop and can carry account-derived
+// strings; golden/snapshot frames under internal/*/testdata render cwd
+// strings) — and fails if any real identifier leaked through, using a
+// regex that is broader than scrub.go's own redaction pattern so the guard
+// does not share blind spots with the rule it is checking.
 func TestNoRealPathsInCommittedFixtures(t *testing.T) {
-	root := filepath.Join(CorpusDir(), "agent")
-	banned := []string{"/Users/jasonmatthew", "jasonm4130", "jasonm4130@gmail.com"}
+	root := filepath.Dir(CorpusDir()) // repo root
+	bannedLiterals := []string{"jasonm4130", "jasonm4130@gmail.com"}
+	skipDirs := map[string]bool{".git": true, "docs": true, "dist": true}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
+			if skipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.Contains(path, string(filepath.Separator)+"testdata"+string(filepath.Separator)) {
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(path), ".md") {
+			// Documentation describing the redaction pattern (e.g.
+			// testdata/README.md) legitimately mentions "/Users/<name>"
+			// as prose, not as a leaked real path.
 			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		for _, s := range banned {
+		for _, s := range bannedLiterals {
 			if bytes.Contains(data, []byte(s)) {
 				t.Errorf("%s: contains banned string %q", path, s)
 			}
+		}
+		if m := homeUserGuardRe.Find(data); m != nil {
+			t.Errorf("%s: contains unredacted home path %q", path, m)
 		}
 		return nil
 	})
