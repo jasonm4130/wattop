@@ -71,6 +71,15 @@ func (t *BurnTracker) Observe(sessionID string, cumulativeUSD float64, at time.T
 	sb.lastUSD = cumulativeUSD
 }
 
+// Forget removes a session's tracked state entirely. Callers should invoke
+// this when a session is dropped from the domain snapshot (e.g. its TTL
+// expires) so byID does not grow without bound for the life of the process.
+func (t *BurnTracker) Forget(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.byID, sessionID)
+}
+
 // RatePerHour reports the smoothed $/hr burn rate for a session as of at. A
 // session with no observation inside the window (it has gone quiet) reports
 // $0.00/hr, never the last nonzero value.
