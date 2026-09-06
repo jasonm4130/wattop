@@ -48,15 +48,17 @@ path or username" property — not a claim made here.
 ## `soc/`
 
 - **`mactop-ndjson.jsonl`** — `mactop --headless --format json --count 0 --interval 1000`,
-  captured live under a 45 s timeout (34 lines landed). One JSON object per
+  captured live under a 45 s timeout (36 lines landed). One JSON object per
   line. This is the framing `internal/soc` should expect from a long-running
   headless mactop process.
 - **`mactop-array.json`** — `mactop --headless --format json --count 1`.
   Emits a JSON **array** (`[{...}]`), not NDJSON — a decoder written only
-  against `mactop-ndjson.jsonl` will break on this file. mactop even splits
-  the array's `[`, the object, and the `]` across separate physical lines,
-  which is why `cmd/wattop-scrub` treats every `.json` file as one JSON
-  document read whole, never line-by-line.
+  against `mactop-ndjson.jsonl` will break on this file. mactop's raw output
+  here is two physical lines, `[{…}` then a bare `]`, so neither line is a
+  parseable record on its own; that is why `cmd/wattop-scrub` treats every
+  `.json` file as one JSON document read whole, never line-by-line. The
+  committed file is the scrubbed re-encoding, a single line, and the framing
+  test is still the first byte: `[` for an array, `{` for NDJSON.
 - **`mactop-degraded.jsonl`** — a copy of `mactop-ndjson.jsonl` with the
   following keys deleted from every record's `soc_metrics` object:
   `ane_active`, `dram_read_bw_gbs`, `dram_write_bw_gbs`,
@@ -81,6 +83,14 @@ path or username" property — not a claim made here.
   `status` field at all**. This must render "unknown", never default to
   idle. (`jq -e '.status == null'` passes because the key is absent, which
   decodes to a JSON `null` under `jq`'s `.status` lookup.)
+- **`sessions/headless-child.json`** — the same session-state shape for a
+  `claude -p` run: `"kind":"sdk-cli"` and `"entrypoint":"sdk-cli"`, unlike an
+  interactive session's `"kind":"interactive"`/`"entrypoint":"cli"`. It lives
+  under `sessions/` because it is a `~/.claude/sessions/<pid>.json` record,
+  not a transcript. Neither file here is named for a pid, so neither matches
+  the `^\d+\.json$` allowlist Task 8's walker enforces in production, so a
+  test that needs one of them to survive that allowlist must copy it into a
+  `t.TempDir()` under a pid name rather than point the walker here.
 - **`subagent-tree.jsonl`** plus **`subagents/agent-1.jsonl`**,
   **`subagents/agent-2.jsonl`**, **`subagents/agent-3.jsonl`** and their
   `.meta.json` siblings — a parent turn that fans out three concurrent
@@ -93,14 +103,24 @@ path or username" property — not a claim made here.
   scrubbed from the same original id, and `Scrub`'s id rewrite is a
   deterministic hash of the input, so independent redaction of the parent
   and each child still agrees).
-- **`headless-child.json`** — a session-state file for a `claude -p` run:
-  `"kind":"sdk-cli"` and `"entrypoint":"sdk-cli"`, unlike an interactive
-  session's `"kind":"interactive"`/`"entrypoint":"cli"`.
+
+  **Each `meta.json` `model` deliberately differs from its transcript's
+  `message.model`**, because that is the real shape: `meta.json` records the
+  alias the caller requested (`opus`, `fable`) while the child transcript
+  records the id the API resolved (`claude-opus-5`, `claude-fable-5-1`).
+  Cost accounting must read the transcript, and a corpus where the two
+  strings agreed would let an implementation that reads `meta.json` pass by
+  accident. `TestSubagentMetaModelIsAliasNotResolved`
+  (`internal/fixture/corpus_test.go`) keeps them apart.
 - **`rate-limited.jsonl`** — a `quotaLimits` record with
   `{"status":"rejected","rateLimitType":"five_hour","resetsAt":...,"overageDisabledReason":...}`.
-- **`truncated-final-line.jsonl`** — two well-formed lines followed by a
-  deliberately partial JSON object with no closing braces or trailing
-  newline: what a byte-offset tailer actually sees mid-write. `Scrub`
+- **`truncated-final-line.jsonl`** — two well-formed, newline-terminated
+  lines followed by a deliberately partial JSON object with no closing
+  braces and, crucially, **no terminating newline**: what a byte-offset
+  tailer actually sees mid-write. The missing newline is the whole point —
+  a tailer that reads complete lines only must buffer those bytes and retry,
+  and a fixture that terminated the partial record would test the
+  parse-failure path instead. (`wc -l` therefore reports 2, not 3.) `Scrub`
   itself rejects this line (`TestScrubRejectsTruncatedJSON`); the file is
   otherwise unscrubbed at that final line because there's nothing valid to
   parse.
@@ -128,6 +148,16 @@ path or username" property — not a claim made here.
   taken from `~/.codex/config.toml`'s default.
 
 ## Regenerating
+
+**Do not re-run `cmd/wattop-scrub` over the committed corpus.** The id
+rewrite is a deterministic hash of its *input*, not a fixed point: scrubbing
+an already-scrubbed file hashes the placeholder again and yields a third
+value, so a second pass over `agent/` would silently break the
+parent-`tool_use`-to-child-`meta.json` links that several tasks assert on.
+One pass, over the originals, is the contract. (`model`, `usage`, tool
+names, timestamps, `status`, `entrypoint` and `kind` are on the
+preserve-exactly list and do survive a second pass unchanged — the ids are
+the ones that move.)
 
 `scripts/fixtures.sh` re-captures the `soc/` files (it re-runs mactop and
 re-scrubs; it does not touch `agent/`, which is hand-maintained — see
