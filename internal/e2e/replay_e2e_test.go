@@ -310,6 +310,27 @@ var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 // stripANSI returns s with every escape sequence removed.
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
+// footerStatusLineRe matches the footer's right-aligned "sort:... theme:...
+// ? help" status line, added so Model.View() no longer leaves sort/theme/
+// pause cycling with zero on-screen feedback. That line is exactly what a
+// `t` (or `s`, or `p`) press is supposed to change, so
+// TestThemeCycleRecolours blanks it out before comparing layout -- the
+// same way stripANSI blanks out colour -- rather than treating its
+// changing theme name as a layout regression. It is replaced with filler
+// of the same length (the line is always padded/aligned to the panel
+// width) so a shift in leading-space padding from a longer or shorter
+// theme name never itself reads as a layout change either.
+var footerStatusLineRe = regexp.MustCompile(`(?m)^.*\? help$`)
+
+// normalizeFooterStatusLine blanks the sort/theme/pause status line out of
+// a rendered frame so a layout comparison sees only what those keys are
+// meant to leave alone.
+func normalizeFooterStatusLine(s string) string {
+	return footerStatusLineRe.ReplaceAllStringFunc(s, func(m string) string {
+		return strings.Repeat("#", len(m))
+	})
+}
+
 // keyMsg builds a tea.KeyPressMsg whose String() reproduces s, mirroring
 // internal/ui/model_test.go's helper of the same name (which is unexported
 // and so unreachable from this package). Only the keys this file presses
@@ -514,8 +535,8 @@ func TestThemeCycleRecolours(t *testing.T) {
 		m = mi.(ui.Model)
 		frame := m.View().Content
 
-		if stripANSI(frame) != stripANSI(first) {
-			t.Errorf("after %d `t` presses: the frame's text layout changed, want only colours to change", i)
+		if normalizeFooterStatusLine(stripANSI(frame)) != normalizeFooterStatusLine(stripANSI(first)) {
+			t.Errorf("after %d `t` presses: the frame's text layout changed, want only colours (and the footer's theme name) to change", i)
 		}
 		if i < len(names) {
 			if frame == prev {

@@ -243,6 +243,21 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 	}
 }
 
+// TestFooterCaveatSurvivesAtProductionHeight pins the shape Model.View()
+// actually renders (footerH == 4, no Degraded badge competing for space):
+// the status line added for sort/theme/paused must not evict the standing
+// estimate caveat when there is only an unpriced-model line alongside it.
+// The both-unpriced-and-Degraded shape still overflows footerH == 4 and is
+// a pre-existing gap this task does not attempt to close.
+func TestFooterCaveatSurvivesAtProductionHeight(t *testing.T) {
+	r := loadDarkRoles(t)
+	snap := &domain.Snapshot{UnpricedModels: []string{"claude-nightly-experimental"}}
+	out := FooterRender(snap, r, 120, 4, "status", "dark", false, Options{})
+	if !strings.Contains(out, "ignore subscription plans") {
+		t.Errorf("expected the estimate caveat to survive at footerH 4 alongside the status line, got:\n%s", out)
+	}
+}
+
 // TestFooterOmitsUnpricedAndDegradedWhenClean asserts the footer drops
 // both the unpriced-model line and the Degraded badge when there is
 // nothing to report -- the caveat itself is the only permanent line.

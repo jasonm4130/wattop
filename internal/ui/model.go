@@ -296,7 +296,12 @@ func (m Model) View() tea.View {
 	// is a want, not a guarantee -- on a terminal shorter than the footer
 	// plus the SoC panel it is capped, and the footer itself shrinks
 	// before anything is asked to render at a negative height.
-	footerH := min(3, max(0, m.height))
+	// 4, not 3: the footer now always carries a sort/theme/paused status
+	// line on top of the machine-totals line, and the standing estimate
+	// caveat must still fit alongside it whenever there is no unpriced or
+	// Degraded line competing for the same budget (footer.go's own doc
+	// comment: the caveat is permanent UI, never truncated away silently).
+	footerH := min(4, max(0, m.height))
 	socH := min(socHeight(m.snap.Sys), max(0, m.height-footerH))
 	tableH := max(0, m.height-socH-footerH)
 
