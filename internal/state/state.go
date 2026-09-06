@@ -51,16 +51,28 @@ type sessionKey struct {
 // reported this session (a real sighting) — it is never advanced by the
 // reducer's own stale bookkeeping.
 //
-// ttlClock is the working clock the sessionTTL expiry is measured against.
-// It equals lastSeenAt after every real sighting, but during a run of
-// cycles where the owning source's poll itself failed (Inputs.Health says
-// !OK for this session's agent) it is *also* advanced to the current At —
-// so an outage never counts against the TTL, and the countdown to dropping
-// the row only starts once a healthy poll actually omits it.
+// ttlClock is the working clock the sessionTTL expiry is measured against,
+// and it advances in exactly three places:
+//
+//  1. A real sighting sets it to lastSeenAt (the ordinary case).
+//  2. A cycle where the owning source's poll itself failed (Inputs.Health
+//     says !OK for this session's agent) pushes it to that cycle's At, so
+//     an outage never counts against the TTL. heldByOutage records that it
+//     is now sitting on an outage-extended value rather than on lastSeenAt.
+//  3. The *first* healthy cycle that omits a row held that way re-anchors
+//     it to that cycle's At and clears heldByOutage, so the countdown to
+//     dropping the row starts when a healthy poll actually omits it — not
+//     at the last unhealthy cycle, and not at the last real sighting.
+//
+// Only case 3 consults heldByOutage: an ordinary vanish with no outage
+// behind it keeps its anchor at lastSeenAt, so a session seen once and
+// never again drops sessionTTL after that sighting rather than after the
+// stale stamp.
 type trackedSession struct {
-	session    domain.Session
-	lastSeenAt time.Time
-	ttlClock   time.Time
+	session      domain.Session
+	lastSeenAt   time.Time
+	ttlClock     time.Time
+	heldByOutage bool
 }
 
 // State holds the single reducer's cross-cycle memory: the last-seen

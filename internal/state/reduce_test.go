@@ -354,10 +354,80 @@ func TestFailedPollPreservesRows(t *testing.T) {
 		t.Fatalf("StatusSince = %v, want %v (the first healthy cycle that omitted it)", s.StatusSince, at(50))
 	}
 
+	// The TTL countdown is anchored at cycle 6 (+50s), not at the last
+	// unhealthy cycle (+40s). +75s is inside the window those two anchors
+	// disagree about: 25s past cycle 6 (retained) but 35s past +40s
+	// (would already be dropped). Jumping straight from +50s to +81s
+	// cannot tell the two apart, which is how the wrong anchor survived a
+	// previous round of this test.
+	snap = st.Reduce(Inputs{
+		At:       at(75),
+		Sessions: []domain.Session{codexWaiting},
+		Health:   []SourceHealth{{Name: "claude", OK: true}},
+	})
+	s = findSession(t, snap, "claude", "c1")
+	if s.Status != "stale" || !s.StatusSince.Equal(at(50)) {
+		t.Fatalf("at +75s: Status=%q StatusSince=%v, want stale/%v — the countdown runs from the first healthy cycle that omitted the row, not from the outage", s.Status, s.StatusSince, at(50))
+	}
+
 	// sessionTTL after cycle 6's stamp, the row drops.
-	snap = st.Reduce(Inputs{At: at(50 + 31), Sessions: []domain.Session{codexWaiting}})
+	snap = st.Reduce(Inputs{
+		At:       at(50 + 31),
+		Sessions: []domain.Session{codexWaiting},
+		Health:   []SourceHealth{{Name: "claude", OK: true}},
+	})
 	if hasSession(snap, "claude", "c1") {
 		t.Fatalf("claude row still present past sessionTTL after recovery, want dropped")
+	}
+}
+
+// TestResightingAfterOutageReanchorsTTL: the outage-recovery re-anchor is
+// armed by an outage and disarmed by a real sighting. A session seen again
+// after its source recovers must go back to the ordinary lifecycle —
+// dropping sessionTTL after that sighting — rather than carrying the
+// outage's "start the countdown at the stale stamp" behaviour forward.
+func TestResightingAfterOutageReanchorsTTL(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+	busy := domain.Session{Agent: "claude", ID: "c1", Status: "busy", Model: "claude-opus-5"}
+
+	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{busy}})
+
+	// Outage: the row is held, and the TTL anchor moves off lastSeenAt.
+	st.Reduce(Inputs{
+		At:     at(10),
+		Health: []SourceHealth{{Name: "claude", OK: false, Err: "sessions dir unreadable"}},
+	})
+
+	// Recovery with the session actually reported again: this is a real
+	// sighting, so the anchor returns to lastSeenAt and stays there.
+	snap := st.Reduce(Inputs{
+		At:       at(20),
+		Sessions: []domain.Session{busy},
+		Health:   []SourceHealth{{Name: "claude", OK: true}},
+	})
+	s := findSession(t, snap, "claude", "c1")
+	if s.Status != "busy" {
+		t.Fatalf("at +20s: Status = %q, want the source-supplied busy on a real sighting", s.Status)
+	}
+
+	snap = st.Reduce(Inputs{At: at(21), Health: []SourceHealth{{Name: "claude", OK: true}}})
+	s = findSession(t, snap, "claude", "c1")
+	if s.Status != "stale" || !s.StatusSince.Equal(at(21)) {
+		t.Fatalf("at +21s: Status=%q StatusSince=%v, want stale/%v", s.Status, s.StatusSince, at(21))
+	}
+
+	// Anchored at the +20s sighting: retained at exactly sessionTTL...
+	snap = st.Reduce(Inputs{At: at(50), Health: []SourceHealth{{Name: "claude", OK: true}}})
+	if !hasSession(snap, "claude", "c1") {
+		t.Fatalf("at +50s: row dropped, want it retained until sessionTTL after the +20s sighting")
+	}
+
+	// ...and gone one second past it. This is the assertion that bites if
+	// the outage re-anchor leaks past a real sighting: anchored at the
+	// +21s stale stamp instead, the row would still be here.
+	snap = st.Reduce(Inputs{At: at(51), Health: []SourceHealth{{Name: "claude", OK: true}}})
+	if hasSession(snap, "claude", "c1") {
+		t.Fatalf("at +51s: row still present, want it dropped sessionTTL after the +20s sighting — the outage re-anchor must not survive a real sighting")
 	}
 }
 

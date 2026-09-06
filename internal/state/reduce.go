@@ -51,6 +51,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		tr.session = raw
 		tr.lastSeenAt = in.At
 		tr.ttlClock = in.At
+		tr.heldByOutage = false
 
 		enriched := raw
 		st.enrichSession(&enriched, procByPID, unpriced, in.At)
@@ -82,10 +83,20 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		// TTL clock forward so the outage never counts against it.
 		if healthFailed[key.Agent] {
 			tr.ttlClock = in.At
+			tr.heldByOutage = true
 			enriched := tr.session
 			st.enrichSession(&enriched, procByPID, unpriced, in.At)
 			sessions = append(sessions, enriched)
 			continue
+		}
+
+		// First healthy cycle after an outage held this row: the TTL
+		// countdown starts here, not at the last unhealthy cycle, so
+		// re-anchor before the drop check — this cycle must only flip the
+		// row to stale, never expire it, however long the outage ran.
+		if tr.heldByOutage {
+			tr.ttlClock = in.At
+			tr.heldByOutage = false
 		}
 
 		if in.At.Sub(tr.ttlClock) > sessionTTL {
