@@ -41,23 +41,38 @@ Domain (`internal/domain/types.go`): `Session.Subagents` stays flat with
 `Session.LastUsageAt` is the newest usage timestamp in the session or any child.
 
 Status is `running | idle | done | failed`. Done/failed only from a definitive
-signal: workflow journal `result`/`failed`; background task-notification
-`<status>`; otherwise the child's `toolUseId` answered by a `tool_result` in the
-session transcript or any child transcript. Unfinished children are `running`
-when their newest record or observed growth is within 2 minutes, else `idle`.
-An unfinished parent with a running descendant is `running`. `Live` is
+signal, always correlated to that child: workflow journal `result`/`failed`
+whose `agentId` is the child's stem; a background task-notification whose
+`<tool-use-id>` equals the child's meta `toolUseId` (`<status>completed` is
+done, anything else failed); otherwise the child's `toolUseId` answered by a
+`tool_result` in the session transcript or any child transcript (ignored for
+background children, whose immediate ack is not completion). An unfinished
+child is `running` while it has a `tool_use` awaiting its `tool_result`, or
+while its newest record or observed growth is within 2 minutes; otherwise
+`idle`. An unfinished parent with a running descendant is `running`. `Live` is
 `Status == running`.
 
+Claude `Subagent.ID` is the `agent-<id>` filename stem (never meta `hash`,
+which differs), so `ParentID` (meta `parentAgentId`) and journal `agentId`
+resolve against it.
+
 Claude source reads children incrementally (per-file tail state that survives
-a parent reset), skips re-stat of children with a definitive end, and decodes
+a parent reset), re-reads a child only when its size or inode changed (a
+definitive end never freezes accounting, so usage flushed after the journal
+`result` is still counted), and decodes
 the journal into a minimal struct that never retains `result` bodies.
 
 Codex source keys sessions by thread id, excludes children from pid binding,
 and folds each child into its root session's `Subagents`; a child whose root is
-not visible stays a top-level session.
+not visible stays a top-level session. No thread spans more than one rollout
+file in the local corpus (840 threads); if two files ever share a thread id in
+one poll, the later keeps a filename-suffixed id so they stay separate rows
+rather than being summed.
 
 Reducer: prices each subagent, gives each its own burn rate timed by
-`LastActivityAt`, sums workflow cost/burn/rate from its agents, and times
+`LastActivityAt`, sums workflow cost/burn/rate from its agents,
+sets `CostPartial` on a session or workflow whose total omits an unpriced child
+(rendered with a `~` prefix and listed in UnpricedModels), and times
 session burn by `max(ToolCall.At, LastUsageAt)`. Totals and history rings keep
 summing sessions only, since session cost already includes children.
 

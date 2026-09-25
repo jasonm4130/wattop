@@ -187,6 +187,7 @@ type Workflow struct {
 	LastActivityAt time.Time  `json:"last_activity_at"`
 	Usage          Usage      `json:"usage"`
 	CostUSD        *float64   `json:"cost_usd"`
+	CostPartial    bool       `json:"cost_partial"` // CostUSD omits an unpriced agent
 	BurnUSDPerHr   *float64   `json:"burn_usd_per_hr"`
 }
 
@@ -209,6 +210,7 @@ type Session struct {
 	CostUSD      *float64       `json:"cost_usd"`
 	BurnUSDPerHr *float64       `json:"burn_usd_per_hr"`
 	Priced       bool           `json:"priced"`
+	CostPartial  bool           `json:"cost_partial"` // CostUSD omits an unpriced subagent
 	ContextUsed  int64          `json:"context_used"`
 	ContextMax   int64          `json:"context_max"`
 	ContextExact bool           `json:"context_exact"`
