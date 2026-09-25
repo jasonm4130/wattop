@@ -1,9 +1,11 @@
 package claude
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
@@ -24,21 +26,55 @@ type Event struct {
 	Tools         []domain.ToolCall
 	ToolResultIDs []string
 	RateLimit     *domain.RateLimit
+	// Notification is set for a queue-operation enqueue record carrying a
+	// <task-notification>: the completion signal of a background task.
+	Notification *TaskNotification
+}
+
+// TaskNotification is the part of a background task-notification wattop
+// correlates on. ToolUseID is the tool_use that launched the task; Status is
+// the <status> text verbatim ("completed" for a clean finish).
+type TaskNotification struct {
+	TaskID    string
+	ToolUseID string
+	Status    string
 }
 
 type rawRecord struct {
-	Type        string      `json:"type"`
-	Timestamp   string      `json:"timestamp"`
-	Message     *rawMessage `json:"message"`
-	QuotaLimits *rawQuota   `json:"quotaLimits"`
+	Type        string          `json:"type"`
+	Operation   string          `json:"operation"`
+	Timestamp   string          `json:"timestamp"`
+	Content     json.RawMessage `json:"content"`
+	Message     *rawMessage     `json:"message"`
+	QuotaLimits *rawQuota       `json:"quotaLimits"`
 }
 
 type rawMessage struct {
-	ID      string       `json:"id"`
-	Model   string       `json:"model"`
-	Role    string       `json:"role"`
-	Content []rawContent `json:"content"`
-	Usage   *rawUsage    `json:"usage"`
+	ID      string      `json:"id"`
+	Model   string      `json:"model"`
+	Role    string      `json:"role"`
+	Content rawContents `json:"content"`
+	Usage   *rawUsage   `json:"usage"`
+}
+
+// rawContents is message.content, which is an array of blocks on most
+// records but a plain string on some user records. A string (or null)
+// decodes to no blocks rather than failing the whole record, so those
+// records still contribute their timestamp.
+type rawContents []rawContent
+
+func (c *rawContents) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || b[0] != '[' {
+		*c = nil
+		return nil
+	}
+	var blocks []rawContent
+	if err := json.Unmarshal(b, &blocks); err != nil {
+		return err
+	}
+	*c = blocks
+	return nil
 }
 
 type rawContent struct {
@@ -76,6 +112,33 @@ type rawQuota struct {
 // "five_hour" quotaLimits rateLimitType — the only value observed on this
 // machine. Claude's API does not name the window length itself.
 const fiveHourWindowMins = 5 * 60
+
+var (
+	notificationTaskIDPattern    = regexp.MustCompile(`<task-id>([^<]*)</task-id>`)
+	notificationToolUseIDPattern = regexp.MustCompile(`<tool-use-id>([^<]*)</tool-use-id>`)
+	notificationStatusPattern    = regexp.MustCompile(`<status>([^<]*)</status>`)
+)
+
+// parseTaskNotification pulls the correlating tags out of a queue-operation
+// enqueue record's content string. It returns nil when the content carries
+// no <task-notification> at all (an ordinary queued prompt).
+func parseTaskNotification(content string) *TaskNotification {
+	tag := func(re *regexp.Regexp) string {
+		if m := re.FindStringSubmatch(content); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	n := TaskNotification{
+		TaskID:    tag(notificationTaskIDPattern),
+		ToolUseID: tag(notificationToolUseIDPattern),
+		Status:    tag(notificationStatusPattern),
+	}
+	if n == (TaskNotification{}) {
+		return nil
+	}
+	return &n
+}
 
 // ParseRecord decodes one JSONL line from a Claude Code transcript
 // (main session or subagent) into an Event. It never returns an error for
@@ -119,6 +182,13 @@ func ParseRecord(line []byte) (Event, error) {
 		if raw.Message.Usage != nil {
 			ev.HasUsage = true
 			ev.Usage = usageFromRaw(raw.Message.Usage)
+		}
+	}
+
+	if raw.Type == "queue-operation" && raw.Operation == "enqueue" && len(raw.Content) > 0 {
+		var content string
+		if err := json.Unmarshal(raw.Content, &content); err == nil {
+			ev.Notification = parseTaskNotification(content)
 		}
 	}
 
