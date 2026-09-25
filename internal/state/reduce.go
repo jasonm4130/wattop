@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
@@ -111,6 +112,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			// baseline again like any first sighting.
 			st.burn.Forget(key.Agent + ":" + key.ID)
 			delete(st.burnLastCost, key.Agent+":"+key.ID)
+			st.forgetSubagentBurn(key.Agent + ":" + key.ID)
 			delete(st.histories, key.Agent+":"+key.ID+":cpu")
 			delete(st.histories, key.Agent+":"+key.ID+":gpu")
 			delete(st.histories, key.Agent+":"+key.ID+":cost")
@@ -158,6 +160,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		Sessions:          sessions,
 		TotalCostUSD:      totalCost,
 		TotalBurnUSDPerHr: totalBurn,
+		TotalCostPartial:  len(unpricedList) > 0,
 		UnpricedModels:    unpricedList,
 		Degraded:          degraded,
 		SelfCPUPct:        selfCPU,
@@ -241,6 +244,8 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 	st.priceSession(s, unpriced)
 
 	burnKey := s.Agent + ":" + s.ID
+	st.burnSubagents(s, burnKey, at)
+	summarizeWorkflows(s)
 	if s.CostUSD == nil {
 		s.BurnUSDPerHr = nil
 		return
@@ -253,6 +258,109 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 	s.BurnUSDPerHr = &rate
 }
 
+// childSeedWindow bounds which first-sighted subagents are seeded from zero
+// rather than baselined. A child that started within it was born while
+// wattop was watching (or moments before), so everything it has cost so far
+// is current spend; an older child's cost is history and only baselines,
+// exactly like a session's first sighting.
+const childSeedWindow = 2 * time.Minute
+
+// subagentBurnKey namespaces a child's burn-tracker key under its session's,
+// so dropping the session can forget every child by prefix.
+func subagentBurnKey(sessionKey, subID string) string {
+	return sessionKey + ":sub:" + subID
+}
+
+// burnSubagents gives each priced subagent its own $/hr, timed by its own
+// LastActivityAt. These rates are display-only: the session's cost already
+// includes its children, so totals and history rings never add them again.
+func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time.Time) {
+	for i := range s.Subagents {
+		sa := &s.Subagents[i]
+		if sa.CostUSD == nil {
+			sa.BurnUSDPerHr = nil
+			continue
+		}
+		key := subagentBurnKey(sessionBurnKey, sa.ID)
+		last, seen := st.burnLastCost[key]
+		if !seen && !sa.StartedAt.IsZero() && !sa.LastActivityAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
+			st.burn.Observe(key, 0, at, sa.StartedAt)
+			seen, last = true, 0
+		}
+		if !seen || last != *sa.CostUSD {
+			st.burn.Observe(key, *sa.CostUSD, at, sa.LastActivityAt)
+			st.burnLastCost[key] = *sa.CostUSD
+		}
+		rate := st.burn.RatePerHour(key, at)
+		sa.BurnUSDPerHr = &rate
+	}
+}
+
+// forgetSubagentBurn drops every child burn key under sessionBurnKey.
+func (st *State) forgetSubagentBurn(sessionBurnKey string) {
+	prefix := sessionBurnKey + ":sub:"
+	for key := range st.burnLastCost {
+		if strings.HasPrefix(key, prefix) {
+			st.burn.Forget(key)
+			delete(st.burnLastCost, key)
+		}
+	}
+}
+
+// summarizeWorkflows fills each workflow's cost, partial flag and burn from
+// the subagents that carry its ID. A workflow whose agents are all unpriced
+// has a nil cost; one with some unpriced agents is partial.
+func summarizeWorkflows(s *domain.Session) {
+	if len(s.Workflows) == 0 {
+		return
+	}
+	s.Workflows = append([]domain.Workflow(nil), s.Workflows...)
+	index := make(map[string]int, len(s.Workflows))
+	for i := range s.Workflows {
+		wf := &s.Workflows[i]
+		wf.CostUSD, wf.BurnUSDPerHr, wf.CostPartial = nil, nil, false
+		index[wf.ID] = i
+	}
+	for _, sa := range s.Subagents {
+		i, ok := index[sa.WorkflowID]
+		if !ok || sa.WorkflowID == "" {
+			continue
+		}
+		wf := &s.Workflows[i]
+		if sa.CostUSD == nil {
+			if childBilled(sa) {
+				wf.CostPartial = true
+			}
+			continue
+		}
+		wf.CostUSD = addPtr(wf.CostUSD, *sa.CostUSD)
+		if sa.BurnUSDPerHr != nil {
+			wf.BurnUSDPerHr = addPtr(wf.BurnUSDPerHr, *sa.BurnUSDPerHr)
+		}
+	}
+	for i := range s.Workflows {
+		if s.Workflows[i].CostUSD == nil {
+			s.Workflows[i].CostPartial = false
+		}
+	}
+}
+
+func addPtr(p *float64, v float64) *float64 {
+	sum := v
+	if p != nil {
+		sum += *p
+	}
+	return &sum
+}
+
+// childBilled reports whether an unpriced subagent actually spent tokens,
+// so its missing price makes a total partial. A child with no model and no
+// usage yet (its transcript has not appeared) omits nothing.
+func childBilled(sa domain.Subagent) bool {
+	u := sa.Usage
+	return sa.Model != "" || u.Input+u.Output+u.CacheRead+u.CacheCreate5m+u.CacheCreate1h > 0
+}
+
 // lastTranscriptAt returns the newest transcript-record timestamp behind s's
 // current cost, or the zero time when the source exposes none.
 //
@@ -260,14 +368,15 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 // the tailer got round to reading them: at launch it reads hours of history
 // in the first second or two, and a delta timed by the wall clock reads as
 // tens of dollars per second. domain.Session carries no usage timestamp, so
-// this uses the closest thing it does carry — ToolCall.At, stamped from the
-// same assistant records the usage totals are summed from
-// (internal/agent/claude/parse.go). Sessions whose sources emit no tool
-// calls (every Codex rollout; a Claude session that has only ever produced
-// text) report zero here and fall back to the tracker's wall-clock path,
-// where baselining the first sighting is their only protection.
+// this takes the newer of LastUsageAt — the newest usage record in the
+// session's own transcript or any child's — and ToolCall.At. Including the
+// children is what keeps a parent blocked on a subagent burning at the
+// child's rate instead of reading $0.00/hr once its own spawn call ages out
+// of the window. Sessions whose sources expose neither report zero here and
+// fall back to the tracker's wall-clock path, where baselining the first
+// sighting is their only protection.
 func lastTranscriptAt(s *domain.Session) time.Time {
-	var newest time.Time
+	newest := s.LastUsageAt
 	for _, tc := range s.Tools {
 		if tc.At.After(newest) {
 			newest = tc.At
@@ -295,12 +404,10 @@ func lastTranscriptAt(s *domain.Session) time.Time {
 // into the long-context tier within a handful of turns regardless of how
 // large any single request actually was.
 //
-// domain.Subagent carries no equivalent last-request figure, so each
-// subagent prices at the base (untiered) rate — passing 0 falls through
-// tieredRate's threshold check unconditionally. That undercharges a
-// subagent whose own prompt genuinely crossed a tier threshold; revisit by
-// adding a last-prompt-tokens field to Subagent in the child parser if that
-// turns out to matter in practice.
+// Each subagent tiers on its own ContextUsed, its last-request prompt size.
+// A subagent that spent tokens under a model the book cannot price is left
+// out of the total, and marks the session CostPartial so the total is never
+// shown as exact.
 func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	mainCost, mainOK := st.book.Cost(s.Model, s.Usage, s.ContextUsed)
 	if !mainOK && s.Model != "" {
@@ -308,9 +415,11 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	}
 
 	total := mainCost
+	partial := false
+	s.Subagents = append([]domain.Subagent(nil), s.Subagents...)
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		cost, ok := st.book.Cost(sa.Model, sa.Usage, 0)
+		cost, ok := st.book.Cost(sa.Model, sa.Usage, sa.ContextUsed)
 		if ok {
 			c := cost
 			sa.CostUSD = &c
@@ -320,6 +429,9 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 			if sa.Model != "" {
 				unpriced[sa.Model] = struct{}{}
 			}
+			if childBilled(*sa) {
+				partial = true
+			}
 		}
 	}
 
@@ -327,8 +439,10 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	if mainOK {
 		c := total
 		s.CostUSD = &c
+		s.CostPartial = partial
 	} else {
 		s.CostUSD = nil
+		s.CostPartial = false
 	}
 }
 
