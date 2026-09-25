@@ -203,6 +203,9 @@ func (r *Rollout) Apply(line []byte) error {
 			// busy iff the most recent of task_started/task_complete is
 			// task_started.
 			r.Status = "busy"
+			// A new turn reopens the thread: an earlier task_complete no
+			// longer says the latest turn finished.
+			r.TaskCompleted = false
 			if r.ContextMax == 0 && p.ModelContextWindow > 0 {
 				// Fallback only: a token_count event's info.model_context_window
 				// takes precedence where present (applied below), since it is

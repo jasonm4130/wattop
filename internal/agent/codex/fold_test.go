@@ -449,3 +449,25 @@ func TestSessionLastUsageAtIsMaxOfRootAndChildren(t *testing.T) {
 		t.Fatalf("LastUsageAt = %v, want the child's newer usage timestamp %v", sessions[0].LastUsageAt, childUsageAt)
 	}
 }
+
+// TestFollowUpTurnReopensChild: a child whose first turn completed and whose
+// second turn started but never finished is not done, however long it has
+// been quiet.
+func TestFollowUpTurnReopensChild(t *testing.T) {
+	r := &Rollout{}
+	for _, line := range []string{
+		`{"timestamp":"2026-09-25T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}`,
+		`{"timestamp":"2026-09-25T10:01:00Z","type":"event_msg","payload":{"type":"task_complete"}}`,
+		`{"timestamp":"2026-09-25T10:02:00Z","type":"event_msg","payload":{"type":"task_started"}}`,
+	} {
+		if err := r.Apply([]byte(line)); err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+	}
+	if r.TaskCompleted {
+		t.Fatalf("TaskCompleted = true after a follow-up task_started, want false")
+	}
+	if got := childSubagentStatus("stale", r.TaskCompleted); got == "done" {
+		t.Fatalf("quiet child mid-turn reads %q, want not done", got)
+	}
+}
