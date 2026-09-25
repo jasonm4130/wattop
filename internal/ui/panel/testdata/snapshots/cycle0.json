@@ -68,6 +68,7 @@
       "cost_usd": 0.30212500000000003,
       "burn_usd_per_hr": 0,
       "priced": true,
+      "cost_partial": false,
       "context_used": 61000,
       "context_max": 200000,
       "context_exact": false,
@@ -88,6 +89,8 @@
         "Read": 1
       },
       "subagents": [],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": {
         "pid": 1234,
         "comm": "2.1.261",
@@ -129,6 +132,7 @@
       "cost_usd": 0.02332,
       "burn_usd_per_hr": 0,
       "priced": true,
+      "cost_partial": false,
       "context_used": 10440,
       "context_max": 272000,
       "context_exact": true,
@@ -143,6 +147,8 @@
         "shell": 1
       },
       "subagents": [],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": {
         "pid": 5678,
         "comm": "codex",
@@ -196,12 +202,15 @@
       "cost_usd": 0.013600000000000001,
       "burn_usd_per_hr": 0,
       "priced": true,
+      "cost_partial": false,
       "context_used": 5300,
       "context_max": 272000,
       "context_exact": true,
       "tools": [],
       "tool_counts": {},
       "subagents": [],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
       "rate_limits": []
     },
@@ -229,12 +238,15 @@
       "cost_usd": null,
       "burn_usd_per_hr": null,
       "priced": false,
+      "cost_partial": false,
       "context_used": 1280,
       "context_max": 200000,
       "context_exact": false,
       "tools": [],
       "tool_counts": {},
       "subagents": [],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
       "rate_limits": []
     },
@@ -262,6 +274,7 @@
       "cost_usd": 0.8984750000000001,
       "burn_usd_per_hr": 0,
       "priced": true,
+      "cost_partial": false,
       "context_used": 135100,
       "context_max": 200000,
       "context_exact": false,
@@ -287,12 +300,19 @@
       },
       "subagents": [
         {
+          "id": "",
           "hash": "agent-1",
           "agent_type": "Explore",
           "description": "search the codebase",
           "model": "claude-fable-5-1",
           "tool_use_id": "tool-10",
           "spawn_depth": 1,
+          "background": false,
+          "status": "",
+          "started_at": "0001-01-01T00:00:00Z",
+          "last_activity_at": "0001-01-01T00:00:00Z",
+          "tool_calls": 0,
+          "context_used": 0,
           "usage": {
             "input": 12000,
             "output": 900,
@@ -303,15 +323,23 @@
             "cached_input": 0
           },
           "live": false,
-          "cost_usd": 0.1685
+          "cost_usd": 0.1685,
+          "burn_usd_per_hr": null
         },
         {
+          "id": "",
           "hash": "agent-2",
           "agent_type": "worker",
           "description": "implement task 4",
           "model": "claude-sonnet-5",
           "tool_use_id": "tool-11",
           "spawn_depth": 1,
+          "background": false,
+          "status": "",
+          "started_at": "0001-01-01T00:00:00Z",
+          "last_activity_at": "0001-01-01T00:00:00Z",
+          "tool_calls": 0,
+          "context_used": 0,
           "usage": {
             "input": 30000,
             "output": 2100,
@@ -322,15 +350,23 @@
             "cached_input": 0
           },
           "live": false,
-          "cost_usd": 0.08360000000000001
+          "cost_usd": 0.08360000000000001,
+          "burn_usd_per_hr": null
         },
         {
+          "id": "",
           "hash": "agent-3",
           "agent_type": "worker",
           "description": "implement task 5",
           "model": "claude-sonnet-5",
           "tool_use_id": "tool-12",
           "spawn_depth": 1,
+          "background": false,
+          "status": "",
+          "started_at": "0001-01-01T00:00:00Z",
+          "last_activity_at": "0001-01-01T00:00:00Z",
+          "tool_calls": 0,
+          "context_used": 0,
           "usage": {
             "input": 9000,
             "output": 400,
@@ -341,9 +377,12 @@
             "cached_input": 0
           },
           "live": true,
-          "cost_usd": 0.022
+          "cost_usd": 0.022,
+          "burn_usd_per_hr": null
         }
       ],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
       "rate_limits": []
     },
@@ -371,17 +410,21 @@
       "cost_usd": 0.0014,
       "burn_usd_per_hr": 0,
       "priced": true,
+      "cost_partial": false,
       "context_used": 540,
       "context_max": 200000,
       "context_exact": false,
       "tools": [],
       "tool_counts": {},
       "subagents": [],
+      "workflows": null,
+      "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
       "rate_limits": []
     }
   ],
   "total_cost_usd": 1.2389200000000002,
+  "total_cost_partial": false,
   "total_burn_usd_per_hr": 0,
   "unpriced_models": [
     "claude-nightly-experimental"

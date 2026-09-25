@@ -38,10 +38,15 @@ func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortK
 		burnColor = r.CostHot
 	}
 	burn := styled(opts, burnColor, fmt.Sprintf("$%.2f/hr", snap.TotalBurnUSDPerHr))
+	// "~" marks a total that omits an unpriced session or subagent.
+	partial := ""
+	if snap.TotalCostPartial {
+		partial = "~"
+	}
 	lines = append(lines, machineLine(width, []string{
 		styled(opts, r.ChartWatts, watts+" total"),
 		burn + " total",
-		styled(opts, r.ChartCost, fmt.Sprintf("$%.2f session total", snap.TotalCostUSD)),
+		styled(opts, r.ChartCost, fmt.Sprintf("%s$%.2f session total", partial, snap.TotalCostUSD)),
 		fmt.Sprintf("wattop self %.1f%% CPU", snap.SelfCPUPct),
 	}))
 
