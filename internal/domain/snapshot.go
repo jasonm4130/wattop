@@ -26,13 +26,16 @@ type SysSample struct {
 
 // Snapshot is the full state of one refresh tick — the headless JSON contract.
 type Snapshot struct {
-	TokenRate         *TokenRate `json:"token_rate,omitempty"`
-	At                time.Time  `json:"at"`
-	Sys               SysSample  `json:"sys"`
-	Sessions          []Session  `json:"sessions"`
-	TotalCostUSD      float64    `json:"total_cost_usd"`
-	TotalBurnUSDPerHr float64    `json:"total_burn_usd_per_hr"`
-	UnpricedModels    []string   `json:"unpriced_models"`
-	Degraded          []string   `json:"degraded"`
-	SelfCPUPct        float64    `json:"self_cpu_pct"`
+	TokenRate    *TokenRate `json:"token_rate,omitempty"`
+	At           time.Time  `json:"at"`
+	Sys          SysSample  `json:"sys"`
+	Sessions     []Session  `json:"sessions"`
+	TotalCostUSD float64    `json:"total_cost_usd"`
+	// TotalCostPartial marks TotalCostUSD as omitting an unpriced session or
+	// subagent; UnpricedModels names the models responsible.
+	TotalCostPartial  bool     `json:"total_cost_partial"`
+	TotalBurnUSDPerHr float64  `json:"total_burn_usd_per_hr"`
+	UnpricedModels    []string `json:"unpriced_models"`
+	Degraded          []string `json:"degraded"`
+	SelfCPUPct        float64  `json:"self_cpu_pct"`
 }

@@ -72,7 +72,9 @@ rather than being summed.
 Reducer: prices each subagent, gives each its own burn rate timed by
 `LastActivityAt`, sums workflow cost/burn/rate from its agents,
 sets `CostPartial` on a session or workflow whose total omits an unpriced child
-(rendered with a `~` prefix and listed in UnpricedModels), and times
+(rendered with a `~` prefix and listed in UnpricedModels) and
+`Snapshot.TotalCostPartial` when the total does, prices each child at its own
+`ContextUsed` (last-request prompt size) so long-context tiers apply, and times
 session burn by `max(ToolCall.At, LastUsageAt)`. Totals and history rings keep
 summing sessions only, since session cost already includes children.
 

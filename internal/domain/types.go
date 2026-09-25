@@ -162,8 +162,11 @@ type Subagent struct {
 	// the burn tracker's event time for this child's usage.
 	LastActivityAt time.Time `json:"last_activity_at"`
 	// CurrentTool is the newest tool_use still awaiting its tool_result.
-	CurrentTool  string   `json:"current_tool,omitempty"`
-	ToolCalls    int      `json:"tool_calls"`
+	CurrentTool string `json:"current_tool,omitempty"`
+	ToolCalls   int    `json:"tool_calls"`
+	// ContextUsed is this child's last-request prompt size (input plus cache
+	// reads and writes), which selects its long-context pricing tier.
+	ContextUsed  int64    `json:"context_used"`
 	Usage        Usage    `json:"usage"`
 	Live         bool     `json:"live"` // Status == SubagentRunning
 	CostUSD      *float64 `json:"cost_usd"`
@@ -223,5 +226,5 @@ type Session struct {
 	// a parent blocked on a subagent still burns at the child's rate.
 	LastUsageAt time.Time   `json:"last_usage_at"`
 	Proc        *ProcSample `json:"proc"`
-	RateLimits   []RateLimit    `json:"rate_limits"`
+	RateLimits  []RateLimit `json:"rate_limits"`
 }
