@@ -85,6 +85,10 @@ tree with status, phase, current tool, elapsed, cost and $/hr.
 
 ## Acceptance
 
+A reducer test with one unpriced workflow child asserts `cost_partial` on the
+session and workflow, `total_cost_partial` in the snapshot, and a `~` before the
+footer's session total and the affected row costs.
+
 `go vet`, `go test ./...` and `make build` pass. Against the live corpus,
 `wattop --json` for a session with a finished workflow lists its agents and a
 workflow total whose cost matches an independent sum over the agent jsonls;
