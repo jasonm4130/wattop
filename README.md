@@ -83,6 +83,14 @@ Rates work for Claude, its subagents, and Codex without telemetry setup. Unknown
 usage is `—`; observed inactivity is `0.0`. Press `g` for the full hardware
 meters and `enter` for cumulative token counts and the selected session's rates.
 
+Subagents are tracked as a tree under their session: Claude `Agent` spawns
+(including nested and background ones), Claude workflow runs, and Codex spawned
+and guardian threads. Each child shows its status (`● run`, `idle`, `done`,
+`fail`), the tool it is waiting on, output rate, cost and its own `$/hr`. A
+workflow collapses to one row with its phase and running/done counts; `enter`
+opens the full tree, and the `SA` column reads running/total. A `~` before a
+cost means it leaves out a child on a model the pricing table does not know.
+
 **Terminal width: the dashboard fits at 80 columns and above; the detail view needs
 103 columns.** The table narrows — columns shrink, the context gauge
 collapses to `~ 55%`, output rates use compact figures, surplus
