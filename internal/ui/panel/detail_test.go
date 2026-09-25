@@ -67,7 +67,7 @@ func floatPtr(v float64) *float64 { return &v }
 // 120x40 and golden-compares it. Run with -update to regenerate.
 func TestDetailGolden(t *testing.T) {
 	r := loadDarkRoles(t)
-	out := DetailRender(sessionWithHistogram(), r, 120, 40, Options{})
+	out := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
 	requireGoldenText(t, "detail_histogram", out)
 }
 
@@ -79,12 +79,12 @@ func TestDetailHonoursNoColor(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
 
-	colored := DetailRender(s, r, 120, 40, Options{})
+	colored := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(colored, "\x1b[") {
 		t.Errorf("expected an ANSI escape when NoColor is false, got:\n%s", colored)
 	}
 
-	plain := DetailRender(s, r, 120, 40, Options{NoColor: true})
+	plain := DetailRender(s, r, 120, 40, time.Time{}, Options{NoColor: true})
 	if strings.Contains(plain, "\x1b[") {
 		t.Errorf("expected no ANSI escape when NoColor is true, got:\n%s", plain)
 	}
@@ -95,7 +95,7 @@ func TestDetailHonoursNoColor(t *testing.T) {
 func TestDetailHistogramCovers12Entries(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
-	out := DetailRender(s, r, 120, 40, Options{})
+	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 	for name := range s.ToolCounts {
 		if !strings.Contains(out, name) {
 			t.Errorf("expected tool %q in the histogram, got:\n%s", name, out)
@@ -118,7 +118,7 @@ func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 			"mcp__tavily__tavily_extract": 3,
 		},
 	}
-	out := DetailRender(s, r, 120, 40, Options{})
+	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 
 	for _, line := range strings.Split(out, "\n") {
 		if w := lipgloss.Width(line); w > 120 {
@@ -135,9 +135,9 @@ func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 // Codex rate limits render including a rejection-learned window.
 func TestDetailShowsSubagentTreeAndRateLimits(t *testing.T) {
 	r := loadDarkRoles(t)
-	out := DetailRender(sessionWithHistogram(), r, 120, 40, Options{})
+	out := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
 
-	for _, want := range []string{"claude-fable-5-1", "claude-sonnet-5", "live", "finished"} {
+	for _, want := range []string{"claude-fable-5-1", "claude-sonnet-5", "● run", "done"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in subagent tree, got:\n%s", want, out)
 		}
@@ -156,7 +156,7 @@ func TestDetailShowsSubagentTreeAndRateLimits(t *testing.T) {
 func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
-	out := DetailRender(s, r, 120, 40, Options{})
+	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 
 	if !strings.Contains(out, "bind=exact") {
 		t.Errorf("expected bind confidence in the render, got:\n%s", out)
@@ -176,8 +176,8 @@ func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 	r := loadDarkRoles(t)
 
-	bound := DetailRender(sessionWithHistogram(), r, 120, 40, Options{})
-	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}, r, 120, 40, Options{})
+	bound := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
+	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}, r, 120, 40, time.Time{}, Options{})
 
 	for name, out := range map[string]string{"bound": bound, "unbound": unbound} {
 		if !strings.Contains(out, "disk (cumulative)") {
@@ -199,7 +199,7 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 func TestDetailUnboundShowsPidUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}
-	out := DetailRender(s, r, 120, 40, Options{})
+	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "(pid unknown)") {
 		t.Errorf("expected %q in the render, got:\n%s", "(pid unknown)", out)
 	}
@@ -404,7 +404,7 @@ func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
 // never a blank field that reads as a rendering bug.
 func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
-	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, Options{})
+	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "Model    —") {
 		t.Errorf("an unresolved model must render as a dash, got:\n%s", out)
 	}

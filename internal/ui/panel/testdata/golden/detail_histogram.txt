@@ -25,9 +25,9 @@ Tokens: input 42.0k  output 3.1k  cache-read 18.0k  cache-write-5m 900  cache-wr
   09:10:00  TodoWrite            TodoWrite-1                                                                            
   09:11:00  MultiEdit            MultiEdit-1                                                                            
                                                                                                                         
-[38;2;88;166;255mSubagents (2)[m                                                                                                           
-  └─ Explore    search the codebase      model=claude-fable-5-1     [38;2;110;118;129mfinished[m $0.18                                      
-  └─ worker     implement task 4         model=claude-sonnet-5      [38;2;86;211;100mlive    [m $—                                         
+[38;2;88;166;255mSubagents (2 · 1 running)[m                                                                                               
+  ├─ [38;2;110;118;129mdone [m Explore      search the codebase          claude-fable-5-1  —  0 tools  $0.18                                
+  └─ [38;2;86;211;100m● run[m worker       implement task 4             claude-sonnet-5  —  0 tools  $—                                    
                                                                                                                         
 [38;2;88;166;255mProcess:[m                                                                                                                
   pid 1234  cpu 12.5%  gpu — ms/s  rss 512M  disk (cumulative) r 1.0MB  w 262.1KB                                       

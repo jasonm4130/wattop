@@ -183,24 +183,21 @@ full read of hours of transcript at launch was counted as spend inside one
 of **$105,679/hr** decaying over minutes (§4). Re-measured after the fix, a
 $41.85 backfill arriving in 1.481 s across two polls reads `$0.00/hr`.
 
-The cost of that is systematic under-reporting, in two known shapes:
+The cost of that is systematic under-reporting at launch: **a fresh launch
+reads `$0.00/hr` until new spend lands**, because everything on disk when
+wattop starts is history, not rate.
 
-- **A fresh launch reads `$0.00/hr` until new spend lands.** Everything on
-  disk when wattop starts is history, not rate.
-- **A parent session blocked in a long `Task` call reads `$0.00/hr` while
-  its subagent spends.** The parent writes no transcript records while
-  blocked, so its newest `ToolCall.At` freezes at the spawn instant, while
-  the subagent's growing usage keeps folding into the parent's `CostUSD`.
-  Once the spawn is more than 60 s old, every such delta is discarded as
-  stale. This is the swarm case wattop was built to watch, and `$0.00`
-  rather than a dash sits awkwardly beside the honesty rule the rest of the
-  tool follows. Fixing it needs a real usage timestamp on `domain.Session`
-  and `domain.Subagent`, which the Claude and Codex sources do not carry
-  today.
-
-Codex rollouts surface no usage timestamp at all, so they fall back to the
-wall clock; baselining on first sighting is their only protection against a
-multi-poll backfill.
+A parent session blocked in a long `Agent` call used to read `$0.00/hr` while
+its subagent spent, because its newest `ToolCall.At` froze at the spawn
+instant. Since v0.2.0 each session carries `LastUsageAt`, the newest usage
+timestamp in its own transcript or any child's (Claude subagents, workflow
+agents and folded Codex threads), and the burn tracker times deltas by it. Each
+subagent also has its own display-only `$/hr`, timed by its own newest record;
+a child first seen within two minutes of its start is seeded from zero, with
+its first spend spread over at least 30 s, while an older child only
+baselines. A child with no record timestamps gets no rate at all. Codex
+rollouts now report their newest `token_count` time, so they no longer fall
+back to the wall clock once usage has been seen.
 
 A nonzero live burn has still not been observed end to end: across two
 30-second and one 3-minute `--json` capture, every watched transcript was
@@ -306,3 +303,16 @@ on M1 through M4, or on a non-Max/Ultra chip (a plain M-series with no S
 cluster, or a different core-count split). The cluster panel iterates
 whatever topology `sysctl` reports rather than hardcoding a core count, so
 it should degrade gracefully, but "should" is not "has been observed to."
+
+## Subagent status is inferred from transcripts
+
+Claude writes no explicit "agent finished" record for every child, so wattop
+marks a child `done` or `failed` only from a definitive signal: a workflow
+journal `result`/`failed`, a background agent's task-notification, or the
+`tool_result` answering its spawn. Anything else is `running` while a tool is
+outstanding or a record landed in the last two minutes, and `idle` otherwise;
+silence is never read as completion. A child that dies without any of those
+signals therefore reads `idle` until its session ends. Codex child threads are
+`done` once a turn has completed. Workflow agents are listed in full only in
+`--json`; the detail panel shows every unfinished or failed agent plus the
+three most recently active finished ones.

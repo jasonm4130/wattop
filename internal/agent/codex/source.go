@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -144,9 +145,22 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		}
 	}
 
-	binds := bindAll(rollouts, procs, s.codexPath)
+	// Children run inside their root's process, not their own — binding one
+	// to a pid would steal that pid from the root it actually belongs to, so
+	// only top-level rollouts are offered to bindAll.
+	var topLevel []Rollout
+	for _, r := range rollouts {
+		if r.ParentThreadID == "" {
+			topLevel = append(topLevel, r)
+		}
+	}
+	binds := bindAll(topLevel, procs, s.codexPath)
 
-	sessions := make([]domain.Session, 0, len(rollouts))
+	// filtered applies the same "old and bound to nothing" drop to every
+	// rollout, root or child alike: a child's binding is always nil (it is
+	// never in binds), so a stale child is dropped exactly when a stale,
+	// unbound top-level rollout would be.
+	var filtered []Rollout
 	for _, r := range rollouts {
 		b := binds[r.Path]
 		if !fresh[r.Path] && b.PID == nil {
@@ -156,23 +170,103 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 			// happens to be hidden, it is not a session.
 			continue
 		}
+		filtered = append(filtered, r)
+	}
+
+	byThreadID := make(map[string]Rollout, len(filtered))
+	for _, r := range filtered {
+		if r.ThreadID != "" {
+			byThreadID[r.ThreadID] = r
+		}
+	}
+
+	usedThreadIDs := make(map[string]bool, len(filtered))
+	sessionIdxByThreadID := make(map[string]int, len(filtered))
+	var sessions []domain.Session
+	var children []Rollout
+
+	for _, r := range filtered {
+		if r.ParentThreadID != "" {
+			children = append(children, r)
+			continue
+		}
+		b := binds[r.Path]
 		status := inferStatus(r.Status, r.ModTime, now, s.idleThreshold)
 		sess := sessionFromRollout(r, b, status, procs)
+		sess.ID = dedupSessionID(r, sess.ID, usedThreadIDs)
 		sess.TokenRate = r.tokens.Rate(now)
 		sessions = append(sessions, sess)
+		if r.ThreadID != "" {
+			sessionIdxByThreadID[r.ThreadID] = len(sessions) - 1
+		}
 	}
+
+	pending := make(map[int][]domain.Subagent, len(children))
+	for _, c := range children {
+		root, ok := walkToRoot(c, byThreadID)
+		if ok {
+			if idx, present := sessionIdxByThreadID[root.ThreadID]; present {
+				directParent := byThreadID[c.ParentThreadID]
+				parentID := ""
+				if directParent.ThreadID != root.ThreadID {
+					parentID = directParent.ThreadID
+				}
+				pending[idx] = append(pending[idx], buildSubagent(c, parentID, s.idleThreshold, now))
+				if !c.lastUsageAt.IsZero() && c.lastUsageAt.After(sessions[idx].LastUsageAt) {
+					sessions[idx].LastUsageAt = c.lastUsageAt
+				}
+				continue
+			}
+		}
+
+		// The root is not present in this poll (or the parent chain is
+		// broken): this child cannot be folded, so it renders as its own
+		// session instead of being silently dropped.
+		status := inferStatus(c.Status, c.ModTime, now, s.idleThreshold)
+		sess := sessionFromRollout(c, binding{Conf: "unknown"}, status, procs)
+		sess.Kind = "subagent"
+		sess.ID = dedupSessionID(c, sess.ID, usedThreadIDs)
+		sess.TokenRate = c.tokens.Rate(now)
+		sessions = append(sessions, sess)
+	}
+
+	for idx, subs := range pending {
+		sessions[idx].Subagents = append(sessions[idx].Subagents, sortSubagentsTree(subs)...)
+	}
+
 	return sessions, nil
+}
+
+// dedupSessionID keeps two rollouts that happen to share a ThreadID within
+// one poll from colliding into the same session row: the later one (by the
+// path-sorted order Poll processes rollouts in) gets its path folded into
+// the id instead. A rollout with no ThreadID never triggers this — its id
+// already came from SessionID or Path, which are unique per rollout.
+func dedupSessionID(r Rollout, id string, used map[string]bool) string {
+	if r.ThreadID == "" {
+		return id
+	}
+	if used[r.ThreadID] {
+		return r.ThreadID + "#" + filepath.Base(r.Path)
+	}
+	used[r.ThreadID] = true
+	return id
 }
 
 // sessionFromRollout maps one Rollout plus its bind result into the
 // domain.Session the reducer consumes. It is a pure function so bind_test.go
 // can exercise the "unbound rollout still renders" case directly.
 func sessionFromRollout(r Rollout, b binding, status string, procs []domain.ProcSample) domain.Session {
-	id := r.SessionID
+	// Session identity is the thread id where one is known (unique per
+	// thread, never shared with a parent or sibling); SessionID is the
+	// fallback (Codex reuses one session_id across a whole parent/child
+	// tree), and the file path is the last resort for a rollout whose
+	// session_meta never arrived (e.g. a file that opens on turn_context).
+	id := r.ThreadID
 	if id == "" {
-		// session_meta never arrived for this rollout (e.g. a file that
-		// opens on turn_context) — fall back to the filename, which is
-		// always unique.
+		id = r.SessionID
+	}
+	if id == "" {
 		id = r.Path
 	}
 
@@ -191,6 +285,7 @@ func sessionFromRollout(r Rollout, b binding, status string, procs []domain.Proc
 		ContextMax:   r.ContextMax,
 		ContextExact: r.ContextExact,
 		RateLimits:   r.RateLimits,
+		LastUsageAt:  r.lastUsageAt,
 	}
 
 	if b.PID != nil {

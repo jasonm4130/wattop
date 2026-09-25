@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/pricing"
 	"github.com/jasonm4130/wattop/internal/state"
+	"github.com/jasonm4130/wattop/internal/ui/panel"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
@@ -502,5 +504,80 @@ func TestFooterAdvertisesHiddenCount(t *testing.T) {
 	m = mi.(Model)
 	if out := m.View().Content; strings.Contains(out, "hidden (a)") {
 		t.Errorf("footer still claims hidden rows after `a`; got:\n%s", out)
+	}
+}
+
+// loadPanelSnapshot reads one of the panel package's committed snapshot
+// fixtures, so the model's row accounting is checked against the same
+// child shapes the table renders.
+func loadPanelSnapshot(t *testing.T, name string) *domain.Snapshot {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("panel", "testdata", "snapshots", name))
+	if err != nil {
+		t.Fatalf("reading %s: %v", name, err)
+	}
+	var snap domain.Snapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("unmarshal %s: %v", name, err)
+	}
+	return &snap
+}
+
+// TestFlatRowCountMatchesRenderedRows pins flatRowCount to the rows the
+// table actually draws, across both fixtures, with the dormant and
+// headless filters in every combination.
+func TestFlatRowCountMatchesRenderedRows(t *testing.T) {
+	for _, name := range []string{"cycle0.json", "children.json"} {
+		for _, showAll := range []bool{false, true} {
+			for _, headless := range []bool{false, true} {
+				m := newTestModel(t)
+				m.snap = loadPanelSnapshot(t, name)
+				m.showAll, m.filterHeadless = showAll, headless
+
+				visible := m.visibleSessions()
+				out := panel.SessionsRender(visible, m.roles, 200, 500, -1, m.snap.At, panel.Options{NoColor: true})
+				rendered := 0
+				for _, line := range strings.Split(out, "\n")[1:] { // skip the header
+					if strings.TrimSpace(line) != "" {
+						rendered++
+					}
+				}
+				if got := m.flatRowCount(); got != rendered {
+					t.Errorf("%s showAll=%v headless=%v: flatRowCount = %d, table rendered %d rows", name, showAll, headless, got, rendered)
+				}
+				if headless {
+					for _, s := range visible {
+						if len(panel.ChildRows(s)) != 0 {
+							t.Errorf("%s: headless filter left child rows on %s", name, s.ID)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestSelectedSessionOnWorkflowRow selects the collapsed workflow row
+// (after the six non-workflow subagents) and expects its parent session.
+func TestSelectedSessionOnWorkflowRow(t *testing.T) {
+	m := newTestModel(t)
+	m.snap = loadPanelSnapshot(t, "children.json")
+
+	if got := m.flatRowCount(); got != 9 {
+		t.Fatalf("flatRowCount = %d, want 9 (parent + 6 subagents + 1 workflow + plain session)", got)
+	}
+	m.selected = 7
+	s, ok := m.selectedSession()
+	if !ok || s.ID != "sess-children" {
+		t.Errorf("workflow row selected %q (ok=%v), want sess-children", s.ID, ok)
+	}
+	m.selected = 8
+	if s, _ := m.selectedSession(); s.ID != "sess-plain" {
+		t.Errorf("row after the workflow selected %q, want sess-plain", s.ID)
+	}
+
+	m.filterHeadless = true
+	if got := m.flatRowCount(); got != 2 {
+		t.Errorf("headless flatRowCount = %d, want 2", got)
 	}
 }

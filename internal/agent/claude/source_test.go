@@ -341,10 +341,11 @@ func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 	}
 }
 
-// childRecord is one line of a subagent's own transcript, with padding the
-// decoder ignores so a test can grow the file without changing its totals.
+// childRecord is one line of a subagent's own transcript, stamped at the
+// tests' base time (2026-09-06T01:00:00Z), with padding the decoder ignores
+// so a test can grow the file without changing its totals.
 func childRecord(padding string) string {
-	return `{"type":"assistant","message":{"model":"claude-opus-5","role":"assistant","content":[],` +
+	return `{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant","content":[],` +
 		`"usage":{"input_tokens":1,"output_tokens":1}},"pad":"` + padding + `"}` + "\n"
 }
 
@@ -361,12 +362,11 @@ func pollSubagent(t *testing.T, s *Source, now time.Time) domain.Subagent {
 	return sessions[0].Subagents[0]
 }
 
-// TestHungSubagentStopsBeingLive is the growth half of the liveness rule.
-// Liveness is a conjunction — the child's jsonl is growing AND the parent
-// has recorded no tool_result for its tool_use — so a child that died or
-// hung before its result was written must stop reading Live once its
-// transcript stops moving, rather than standing as Live forever waiting on
-// a record that is never coming.
+// TestHungSubagentStopsBeingLive: an unfinished child with no outstanding
+// tool_use reads running only while its newest record or observed growth is
+// within two minutes. A child that died or hung before its result was
+// written goes idle rather than standing as Live forever waiting on a record
+// that is never coming — and silence never makes it done.
 func TestHungSubagentStopsBeingLive(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -381,18 +381,19 @@ func TestHungSubagentStopsBeingLive(t *testing.T) {
 			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
 
 	if sub := pollSubagent(t, s, now); !sub.Live {
-		t.Fatalf("first sighting should be Live: a transcript that has just appeared has grown; got %+v", sub)
+		t.Fatalf("a child whose newest record is fresh should be Live; got %+v", sub)
 	}
 
-	// Nothing writes to the child transcript before the next poll: the
+	// Nothing writes to the child transcript for over two minutes: the
 	// process behind it is gone or wedged.
-	if sub := pollSubagent(t, s, now.Add(time.Second)); sub.Live {
-		t.Fatalf("Live = true for a child whose transcript stopped growing and whose tool_use has no result: %+v", sub)
+	if sub := pollSubagent(t, s, now.Add(3*time.Minute)); sub.Live || sub.Status != domain.SubagentIdle {
+		t.Fatalf("want idle for a quiet child whose tool_use has no result: %+v", sub)
 	}
 
-	// It was not dead after all — the transcript grows again.
+	// It was not dead after all — the transcript grows again. The appended
+	// record carries the old timestamp, so only observed growth relights it.
 	appendTo(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord("more"))
-	if sub := pollSubagent(t, s, now.Add(2*time.Second)); !sub.Live {
+	if sub := pollSubagent(t, s, now.Add(3*time.Minute+time.Second)); !sub.Live {
 		t.Fatalf("Live = false for a child whose transcript grew again: %+v", sub)
 	}
 }
@@ -426,9 +427,8 @@ func TestGrowingSubagentWithToolResultIsNotLive(t *testing.T) {
 // TestCompactionDoesNotRelightHungSubagent is the mirror of
 // TestCompactionDoesNotResurrectFinishedSubagents, on the growth half.
 // Compaction rewrites the PARENT transcript; a child's jsonl is a separate
-// file it does not touch. If the reset dropped the recorded child sizes,
-// every child would look unseen — and an unseen child counts as growing —
-// so a hung child with no tool_result would come back Live.
+// file it does not touch, so its state (including observed sizes) must
+// survive and a hung child with no tool_result must stay idle.
 func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -441,14 +441,14 @@ func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
 			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
 
-	pollSubagent(t, s, now)                                        // first sighting: Live
-	if sub := pollSubagent(t, s, now.Add(time.Second)); sub.Live { // stopped growing: not Live
+	pollSubagent(t, s, now)                                          // fresh record: Live
+	if sub := pollSubagent(t, s, now.Add(3*time.Minute)); sub.Live { // quiet for 3 minutes: idle
 		t.Fatalf("precondition: child should have gone quiet, got %+v", sub)
 	}
 
 	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", 512)))
 
-	if sub := pollSubagent(t, s, now.Add(2*time.Second)); sub.Live {
+	if sub := pollSubagent(t, s, now.Add(3*time.Minute+time.Second)); sub.Live {
 		t.Fatalf("compaction of the parent relit a hung child: %+v", sub)
 	}
 }

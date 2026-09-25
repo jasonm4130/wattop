@@ -5,8 +5,10 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
@@ -29,7 +31,11 @@ const recentToolLogLen = 5
 // separate header-then-data pair, so a 12-entry tool-call histogram (the
 // widest section) still leaves room for every other section inside a
 // fixed 40-line frame.
-func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Options) string {
+//
+// at is the snapshot's own At: a running subagent's elapsed time is
+// measured against it (never the wall clock), so Render stays
+// deterministic given its inputs.
+func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Time, opts Options) string {
 	var lines []string
 
 	sectionHeader := func(text string) string { return styled(opts, r.Accent, text) }
@@ -49,6 +55,9 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	cost := "—"
 	if s.Priced && s.CostUSD != nil {
 		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
+	}
+	if s.CostPartial {
+		cost = "~" + cost
 	}
 	burn := "—"
 	burnColor := ""
@@ -81,8 +90,14 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, opts Optio
 	lines = append(lines, recentToolLogLines(s.Tools)...)
 	lines = append(lines, "")
 
-	lines = append(lines, sectionHeader(fmt.Sprintf("Subagents (%d)", len(s.Subagents))))
-	lines = append(lines, subagentTreeLines(r, opts, s.Subagents)...)
+	running := 0
+	for i := range s.Subagents {
+		if childRunning(s.Subagents[i].Status, s.Subagents[i].Live) {
+			running++
+		}
+	}
+	lines = append(lines, sectionHeader(fmt.Sprintf("Subagents (%d · %d running)", len(s.Subagents), running)))
+	lines = append(lines, subagentTreeLines(r, opts, s, width, at)...)
 	lines = append(lines, "")
 
 	lines = append(lines, sectionHeader("Process:"))
@@ -203,27 +218,173 @@ func recentToolLogLines(tools []domain.ToolCall) []string {
 	return out
 }
 
-func subagentTreeLines(r theme.Roles, opts Options, subagents []domain.Subagent) []string {
-	if len(subagents) == 0 {
+// subagentTreeLines renders the session's children: the non-workflow
+// subagents as a box-drawn tree (children under their ParentID, in
+// s.Subagents order), then each workflow as a header line followed by its
+// agents one level in. Every line is cut to width rather than wrapped.
+func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int, at time.Time) []string {
+	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
 		return []string{"  (none)"}
 	}
-	out := make([]string, 0, len(subagents))
-	for _, sa := range subagents {
-		state := "finished"
-		color := r.Muted
-		if sa.Live {
-			state = "live"
-			color = r.Busy
+	fit := func(line string) string { return ansi.Truncate(line, max(0, width), "…") }
+
+	byID := make(map[string]int, len(s.Subagents))
+	for i := range s.Subagents {
+		if s.Subagents[i].WorkflowID == "" && s.Subagents[i].ID != "" {
+			byID[s.Subagents[i].ID] = i
 		}
-		cost := "$—"
-		if sa.CostUSD != nil {
-			cost = fmt.Sprintf("$%.2f", *sa.CostUSD)
+	}
+	kids := make(map[int][]int)
+	var roots []int
+	for i := range s.Subagents {
+		sa := &s.Subagents[i]
+		if sa.WorkflowID != "" {
+			continue
 		}
-		state = styled(opts, color, fmt.Sprintf("%-8s", state))
-		out = append(out, fmt.Sprintf("  └─ %-10s %-24s model=%-20s %s %s",
-			sa.AgentType, sa.Description, sa.Model, state, cost))
+		if p, ok := byID[sa.ParentID]; ok && sa.ParentID != "" && p != i {
+			kids[p] = append(kids[p], i)
+		} else {
+			roots = append(roots, i)
+		}
+	}
+
+	var out []string
+	seen := make(map[int]bool)
+	var walk func(i int, prefix string, last bool)
+	walk = func(i int, prefix string, last bool) {
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		branch, cont := "├─ ", "│  "
+		if last {
+			branch, cont = "└─ ", "   "
+		}
+		out = append(out, fit(subagentDetailLine(r, opts, "  "+prefix+branch, &s.Subagents[i], false, at)))
+		for k, c := range kids[i] {
+			walk(c, prefix+cont, k == len(kids[i])-1)
+		}
+	}
+	for k, i := range roots {
+		walk(i, "", k == len(roots)-1)
+	}
+	// A ParentID cycle has no root to reach its members from; list them
+	// flat rather than drop them.
+	for i := range s.Subagents {
+		if s.Subagents[i].WorkflowID == "" && !seen[i] {
+			walk(i, "", true)
+		}
+	}
+
+	for wi := range s.Workflows {
+		w := &s.Workflows[wi]
+		color, state := childStatus(r, w.Status, false)
+		head := "  Workflow " + w.ID + "  " + styled(opts, color, state)
+		if w.Phase != "" {
+			head += "  phase " + w.Phase
+		}
+		head += fmt.Sprintf("  %d run %d/%d done %d fail  %s", w.Running, w.Done, w.Agents, w.Failed, childCost(w.CostUSD, w.CostPartial))
+		if b := childBurn(w.BurnUSDPerHr); b != "" {
+			head += " " + b + "/h"
+		}
+		out = append(out, fit(head))
+
+		agents, hidden := workflowAgentsShown(s.Subagents, w)
+		for k, i := range agents {
+			branch := "├─ "
+			if k == len(agents)-1 && hidden == 0 {
+				branch = "└─ "
+			}
+			out = append(out, fit(subagentDetailLine(r, opts, "    "+branch, &s.Subagents[i], true, at)))
+		}
+		if hidden > 0 {
+			out = append(out, fit(styled(opts, r.Muted, fmt.Sprintf("    └─ … %d more done", hidden))))
+		}
 	}
 	return out
+}
+
+// workflowDoneShown is how many finished agents a workflow lists: its most
+// recently active ones. A single run can hold a hundred agents, and listing
+// every one would push the rest of the panel off screen.
+const workflowDoneShown = 3
+
+// workflowAgentsShown returns the indexes of w's agents to list, in
+// s.Subagents order, and how many finished agents it left out. Every
+// unfinished or failed agent is listed; of the done ones, only the
+// workflowDoneShown most recently active, and none once the whole workflow
+// is done.
+func workflowAgentsShown(subs []domain.Subagent, w *domain.Workflow) ([]int, int) {
+	var done []int
+	keep := make(map[int]bool)
+	for i := range subs {
+		if subs[i].WorkflowID != w.ID {
+			continue
+		}
+		if subs[i].Status == domain.SubagentDone {
+			done = append(done, i)
+		} else {
+			keep[i] = true
+		}
+	}
+	limit := workflowDoneShown
+	if w.Status == domain.SubagentDone {
+		limit = 0
+	}
+	recent := append([]int(nil), done...)
+	sort.SliceStable(recent, func(a, b int) bool {
+		return subs[recent[a]].LastActivityAt.After(subs[recent[b]].LastActivityAt)
+	})
+	if len(recent) > limit {
+		recent = recent[:limit]
+	}
+	for _, i := range recent {
+		keep[i] = true
+	}
+	var shown []int
+	for i := range subs {
+		if keep[i] {
+			shown = append(shown, i)
+		}
+	}
+	return shown, len(done) - len(recent)
+}
+
+// subagentDetailLine is one child's detail line after its tree prefix:
+// status, agent type (or phase, for a workflow agent), description, model,
+// elapsed, tool count, the tool a running child is waiting on, cost and
+// burn.
+func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.Subagent, inWorkflow bool, at time.Time) string {
+	color, state := childStatus(r, sa.Status, sa.Live)
+	running := childRunning(sa.Status, sa.Live)
+	// The kind column gives up whatever the tree prefix grew past a root's
+	// ("  ├─ ", 5 columns), so every column after it lines up at any depth.
+	kindW := max(4, 12-(lipgloss.Width(prefix)-5))
+	kind := truncate(sa.AgentType, kindW)
+	if sa.Background {
+		kind = truncate(sa.AgentType, kindW-1) + "⇢"
+	}
+	if inWorkflow {
+		kind = sa.Phase
+		if kind == "" {
+			kind = "—"
+		}
+		kind = truncate(kind, kindW)
+	}
+	line := prefix + styled(opts, color, padLine(state, 5)) + " " +
+		padLine(kind, kindW) + " " +
+		padLine(truncate(sa.Description, 28), 28) + " " +
+		modelLabel(sa.Model) + "  " +
+		childElapsed(sa.StartedAt, sa.LastActivityAt, at, running) + "  " +
+		fmt.Sprintf("%d tools", sa.ToolCalls)
+	if running && sa.CurrentTool != "" {
+		line += "  ▸ " + sa.CurrentTool
+	}
+	line += "  " + childCost(sa.CostUSD, false)
+	if b := childBurn(sa.BurnUSDPerHr); b != "" {
+		line += " " + b + "/h"
+	}
+	return line
 }
 
 // processLines renders the selected session's process detail. The disk

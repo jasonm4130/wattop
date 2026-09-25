@@ -15,8 +15,30 @@ type record struct {
 }
 
 type sessionMetaPayload struct {
-	SessionID string `json:"session_id"`
-	CWD       string `json:"cwd"`
+	SessionID      string          `json:"session_id"`
+	ID             string          `json:"id"`
+	ParentThreadID string          `json:"parent_thread_id"`
+	CWD            string          `json:"cwd"`
+	AgentNickname  string          `json:"agent_nickname"`
+	AgentPath      string          `json:"agent_path"`
+	Source         json.RawMessage `json:"source"`
+}
+
+// subagentSource is session_meta.payload.source when it names a child
+// thread. A top-level (non-child) rollout's source is a plain string
+// ("vscode", "exec", ...) and fails to unmarshal into this shape, which is
+// treated as "not a child" rather than an error.
+type subagentSource struct {
+	Subagent *struct {
+		ThreadSpawn *struct {
+			ParentThreadID string  `json:"parent_thread_id"`
+			Depth          int     `json:"depth"`
+			AgentPath      string  `json:"agent_path"`
+			AgentNickname  string  `json:"agent_nickname"`
+			AgentRole      *string `json:"agent_role"`
+		} `json:"thread_spawn"`
+		Other string `json:"other"`
+	} `json:"subagent"`
 }
 
 type turnContextPayload struct {
@@ -73,6 +95,22 @@ type eventMsgPayload struct {
 	RateLimits *rateLimitsPayload `json:"rate_limits"`
 }
 
+// responseItemPayload covers the response_item.payload shapes this package
+// reads: function_call and function_call_output. Every other response_item
+// type (message, reasoning, ...) unmarshals into the same struct with its
+// fields left zero and is ignored.
+type responseItemPayload struct {
+	Type   string `json:"type"`
+	Name   string `json:"name"`    // function_call only
+	CallID string `json:"call_id"` // both function_call and function_call_output
+}
+
+// pendingCall is one function_call awaiting its function_call_output.
+type pendingCall struct {
+	ID   string
+	Name string
+}
+
 // Apply parses one rollout line and folds it into r. Unknown record types
 // and fields are ignored rather than erroring, since a rollout schema this
 // under-verified will drift and an unrecognised event should not crash the
@@ -100,6 +138,45 @@ func (r *Rollout) Apply(line []byte) error {
 		if !recAt.IsZero() {
 			r.MetaAt = recAt
 		}
+		if p.ID != "" {
+			r.ThreadID = p.ID
+		}
+		if p.ParentThreadID != "" {
+			r.ParentThreadID = p.ParentThreadID
+		}
+		if p.AgentNickname != "" {
+			r.Nickname = p.AgentNickname
+		}
+		if p.AgentPath != "" {
+			r.AgentPath = p.AgentPath
+		}
+		if len(p.Source) > 0 {
+			var src subagentSource
+			if err := json.Unmarshal(p.Source, &src); err == nil && src.Subagent != nil {
+				switch {
+				case src.Subagent.Other == "guardian":
+					r.AgentType = "guardian"
+					r.SpawnDepth = 1
+				case src.Subagent.ThreadSpawn != nil:
+					ts := src.Subagent.ThreadSpawn
+					if r.ParentThreadID == "" && ts.ParentThreadID != "" {
+						r.ParentThreadID = ts.ParentThreadID
+					}
+					r.SpawnDepth = ts.Depth
+					if ts.AgentPath != "" {
+						r.AgentPath = ts.AgentPath
+					}
+					if ts.AgentNickname != "" {
+						r.Nickname = ts.AgentNickname
+					}
+					if ts.AgentRole != nil && *ts.AgentRole != "" {
+						r.AgentType = *ts.AgentRole
+					} else {
+						r.AgentType = "spawn"
+					}
+				}
+			}
+		}
 
 	case "turn_context":
 		var p turnContextPayload
@@ -126,6 +203,9 @@ func (r *Rollout) Apply(line []byte) error {
 			// busy iff the most recent of task_started/task_complete is
 			// task_started.
 			r.Status = "busy"
+			// A new turn reopens the thread: an earlier task_complete no
+			// longer says the latest turn finished.
+			r.TaskCompleted = false
 			if r.ContextMax == 0 && p.ModelContextWindow > 0 {
 				// Fallback only: a token_count event's info.model_context_window
 				// takes precedence where present (applied below), since it is
@@ -134,6 +214,7 @@ func (r *Rollout) Apply(line []byte) error {
 			}
 		case "task_complete":
 			r.Status = "waiting"
+			r.TaskCompleted = true
 		case "token_count":
 			if !recAt.IsZero() && recAt.Before(r.lastUsageAt) {
 				break // replayed prefix after file rotation, not new usage
@@ -179,6 +260,30 @@ func (r *Rollout) Apply(line []byte) error {
 			}
 			if p.RateLimits != nil {
 				r.RateLimits = rateLimitsToDomain(p.RateLimits)
+			}
+		}
+
+	case "response_item":
+		var p responseItemPayload
+		if err := json.Unmarshal(rec.Payload, &p); err != nil {
+			return err
+		}
+		switch p.Type {
+		case "function_call":
+			r.ToolCalls++
+			r.pendingCalls = append(r.pendingCalls, pendingCall{ID: p.CallID, Name: p.Name})
+			r.CurrentTool = p.Name
+		case "function_call_output":
+			for i, pc := range r.pendingCalls {
+				if pc.ID == p.CallID {
+					r.pendingCalls = append(r.pendingCalls[:i], r.pendingCalls[i+1:]...)
+					break
+				}
+			}
+			if n := len(r.pendingCalls); n > 0 {
+				r.CurrentTool = r.pendingCalls[n-1].Name
+			} else {
+				r.CurrentTool = ""
 			}
 		}
 	}

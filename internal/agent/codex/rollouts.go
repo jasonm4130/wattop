@@ -48,13 +48,38 @@ type Rollout struct {
 	CWD   string // most recently seen cwd, from session_meta or turn_context
 	Model string // most recently seen turn_context.payload.model — read per turn, never a config default
 
-	Status string // "busy" | "waiting" | "stale", inferred from the task_started/task_complete histogram; see parse.go
+	// ThreadID is session_meta.payload.id: the unique thread id. Unlike
+	// SessionID, it is never shared between a parent and its children.
+	ThreadID string
+	// ParentThreadID is session_meta.payload.parent_thread_id, falling back
+	// to source.subagent.thread_spawn.parent_thread_id; "" for a top-level
+	// (non-child) rollout.
+	ParentThreadID string
+	// SpawnDepth is source.subagent.thread_spawn.depth, or 1 for a guardian
+	// thread (which carries no depth field of its own).
+	SpawnDepth int
+	// AgentType is thread_spawn.agent_role if non-null, else "spawn" for a
+	// thread_spawn child, or "guardian" for a guardian thread. "" for a
+	// top-level rollout.
+	AgentType string
+	Nickname  string // source.subagent.thread_spawn.agent_nickname / payload.agent_nickname
+	AgentPath string // source.subagent.thread_spawn.agent_path / payload.agent_path
+
+	Status        string // "busy" | "waiting" | "stale", inferred from the task_started/task_complete histogram; see parse.go
+	TaskCompleted bool   // true once at least one task_complete has been seen
 
 	Usage        domain.Usage
 	ContextUsed  int64 // total_tokens from the most recent token_count event
 	ContextMax   int64 // info.model_context_window, falling back to task_started's top-level model_context_window
 	ContextExact bool  // true once both ContextUsed and ContextMax are known from the transcript
 	RateLimits   []domain.RateLimit
+
+	// ToolCalls and CurrentTool come from response_item function_call /
+	// function_call_output records: ToolCalls counts every function_call
+	// seen, CurrentTool is the newest one still awaiting its output.
+	ToolCalls    int
+	CurrentTool  string
+	pendingCalls []pendingCall
 }
 
 // tailState is the offset-tailer shape shared with Task 8's Claude tailer:

@@ -217,6 +217,7 @@ func (m Model) visibleSessions() []domain.Session {
 	if m.filterHeadless {
 		for i := range out {
 			out[i].Subagents = nil
+			out[i].Workflows = nil
 		}
 	}
 
@@ -283,11 +284,12 @@ func cpuOrZero(s domain.Session) float64 {
 }
 
 // flatRowCount is how many selectable rows visibleSessions renders: one
-// per session plus one per visible subagent.
+// per session plus one per panel.ChildRows entry (non-workflow subagents
+// and collapsed workflows), exactly as the table flattens them.
 func (m Model) flatRowCount() int {
 	n := 0
 	for _, s := range m.visibleSessions() {
-		n += 1 + len(s.Subagents)
+		n += 1 + len(panel.ChildRows(s))
 	}
 	return n
 }
@@ -311,7 +313,7 @@ func (m Model) selectedSession() (domain.Session, bool) {
 			return s, true
 		}
 		row++
-		for range s.Subagents {
+		for range panel.ChildRows(s) {
 			if row == m.selected {
 				return s, true
 			}
@@ -335,7 +337,7 @@ func (m Model) View() tea.View {
 
 	if m.showDetail {
 		if s, ok := m.selectedSession(); ok {
-			return tea.NewView(panel.DetailRender(s, m.roles, m.width, m.height, m.renderOpts()))
+			return tea.NewView(panel.DetailRender(s, m.roles, m.width, m.height, m.snap.At, m.renderOpts()))
 		}
 	}
 

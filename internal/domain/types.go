@@ -129,18 +129,69 @@ type ToolCall struct {
 	ID   string    `json:"id"`
 }
 
-// Subagent is one child (Task) invocation within a Claude session.
+// Subagent status values. Done and Failed are set only from a definitive
+// signal (a tool_result, a task-notification, a workflow journal record, a
+// finished Codex turn); silence is never completion, so an unfinished child
+// with no recent activity reads Idle rather than Done.
+const (
+	SubagentRunning = "running"
+	SubagentIdle    = "idle"
+	SubagentDone    = "done"
+	SubagentFailed  = "failed"
+)
+
+// Subagent is one child invocation within a session: a Claude Agent/Task
+// spawn, a Claude workflow agent, or a Codex spawned or guardian thread.
+// Session.Subagents is flat; ParentID and WorkflowID carry the tree.
 type Subagent struct {
 	TokenRate   *TokenRate `json:"token_rate,omitempty"`
+	ID          string     `json:"id"`
+	ParentID    string     `json:"parent_id,omitempty"`
+	WorkflowID  string     `json:"workflow_id,omitempty"`
+	Phase       string     `json:"phase,omitempty"`
 	Hash        string     `json:"hash"`
 	AgentType   string     `json:"agent_type"`
 	Description string     `json:"description"`
 	Model       string     `json:"model"`
 	ToolUseID   string     `json:"tool_use_id"`
 	SpawnDepth  int        `json:"spawn_depth"`
-	Usage       Usage      `json:"usage"`
-	Live        bool       `json:"live"`
-	CostUSD     *float64   `json:"cost_usd"`
+	Background  bool       `json:"background"`
+	Status      string     `json:"status"`
+	StartedAt   time.Time  `json:"started_at"`
+	// LastActivityAt is the newest transcript record timestamp, which is also
+	// the burn tracker's event time for this child's usage.
+	LastActivityAt time.Time `json:"last_activity_at"`
+	// CurrentTool is the newest tool_use still awaiting its tool_result.
+	CurrentTool string `json:"current_tool,omitempty"`
+	ToolCalls   int    `json:"tool_calls"`
+	// ContextUsed is this child's last-request prompt size (input plus cache
+	// reads and writes), which selects its long-context pricing tier.
+	ContextUsed  int64    `json:"context_used"`
+	Usage        Usage    `json:"usage"`
+	Live         bool     `json:"live"` // Status == SubagentRunning
+	CostUSD      *float64 `json:"cost_usd"`
+	BurnUSDPerHr *float64 `json:"burn_usd_per_hr"`
+}
+
+// Workflow summarises one Claude workflow run (subagents/workflows/wf_*):
+// its agents are the Session.Subagents carrying this WorkflowID. Counts and
+// times come from the source; CostUSD and BurnUSDPerHr are summed from those
+// subagents by the reducer.
+type Workflow struct {
+	TokenRate      *TokenRate `json:"token_rate,omitempty"`
+	ID             string     `json:"id"`
+	Status         string     `json:"status"`
+	Phase          string     `json:"phase,omitempty"` // newest phase any agent started in
+	Agents         int        `json:"agents"`
+	Running        int        `json:"running"`
+	Done           int        `json:"done"`
+	Failed         int        `json:"failed"`
+	StartedAt      time.Time  `json:"started_at"`
+	LastActivityAt time.Time  `json:"last_activity_at"`
+	Usage          Usage      `json:"usage"`
+	CostUSD        *float64   `json:"cost_usd"`
+	CostPartial    bool       `json:"cost_partial"` // CostUSD omits an unpriced agent
+	BurnUSDPerHr   *float64   `json:"burn_usd_per_hr"`
 }
 
 // Session is one agent session (Claude or Codex), joined to a process where
@@ -162,12 +213,18 @@ type Session struct {
 	CostUSD      *float64       `json:"cost_usd"`
 	BurnUSDPerHr *float64       `json:"burn_usd_per_hr"`
 	Priced       bool           `json:"priced"`
+	CostPartial  bool           `json:"cost_partial"` // CostUSD omits an unpriced subagent
 	ContextUsed  int64          `json:"context_used"`
 	ContextMax   int64          `json:"context_max"`
 	ContextExact bool           `json:"context_exact"`
 	Tools        []ToolCall     `json:"tools"`
 	ToolCounts   map[string]int `json:"tool_counts"`
 	Subagents    []Subagent     `json:"subagents"`
-	Proc         *ProcSample    `json:"proc"`
-	RateLimits   []RateLimit    `json:"rate_limits"`
+	Workflows    []Workflow     `json:"workflows"`
+	// LastUsageAt is the newest usage-record timestamp in this session's own
+	// transcript or any child's. The burn tracker times cost deltas by it, so
+	// a parent blocked on a subagent still burns at the child's rate.
+	LastUsageAt time.Time   `json:"last_usage_at"`
+	Proc        *ProcSample `json:"proc"`
+	RateLimits  []RateLimit `json:"rate_limits"`
 }

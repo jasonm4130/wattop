@@ -53,10 +53,12 @@ type sessionAgg struct {
 	resultedToolUseIDs map[string]bool
 	rateLimit          *domain.RateLimit
 	rateLimitAt        time.Time
-	// subagentSizes is the byte length each child transcript had at the
-	// previous poll, keyed by its agent-<hash> filename stem. Comparing
-	// against it is the growth half of the subagent liveness rule.
-	subagentSizes    map[string]int64
+	// subagents is the per-child and per-journal state for this session's
+	// subagents directory, plus task-notifications seen in any transcript.
+	subagents subagentTracker
+	// lastUsageAt is the newest timestamp of a usage-bearing record in the
+	// session's own transcript.
+	lastUsageAt      time.Time
 	highWaterMark    int64
 	lastPromptTokens int64
 	// nextTranscriptScan throttles the search for a transcript this
@@ -87,15 +89,16 @@ const transcriptRescanInterval = time.Minute
 // tool_use was answered" is monotone. A tool_result that was once observed
 // happened, whatever the rewritten file now says, so keeping the set can
 // only ever be right — while clearing it would resurrect every finished
-// subagent as Live, since a compacted transcript no longer carries the
-// tool_result lines that retired them and Walk has no other evidence.
+// subagent, since a compacted transcript no longer carries the tool_result
+// lines that retired them and nothing else records it. The same holds for
+// the task-notifications in subagents, and lastUsageAt is a newest-seen
+// timestamp, a last-observed fact.
 //
-// subagentSizes survives for the mirror-image reason. It records how long
-// each child transcript was at the previous poll, and a child transcript
-// is a separate file that a rewrite of the parent does not touch. Dropping
-// the sizes here would make every child unseen again, and an unseen child
-// is treated as growing — so a compaction would relight every hung
-// subagent, which is the same bug from the other side.
+// subagents (per-child tail state, accumulated usage, observed sizes)
+// survives for the mirror-image reason: each child transcript is a separate
+// file that a rewrite of the parent does not touch. Dropping that state
+// would re-read every child from byte 0 and forget when each was last seen
+// growing, for no change in the children themselves.
 func (a *sessionAgg) resetAccumulators() {
 	a.usageAccounting = usageAccounting{}
 	a.tools = nil
@@ -177,7 +180,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		agg = &sessionAgg{
 			toolCounts:         make(map[string]int),
 			resultedToolUseIDs: make(map[string]bool),
-			subagentSizes:      make(map[string]int64),
+			subagents:          newSubagentTracker(),
 		}
 		s.agg[f.SessionID] = agg
 	}
@@ -238,6 +241,9 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		}
 		if ev.HasUsage {
 			agg.usageAccounting.add(ev)
+			if ev.Timestamp.After(agg.lastUsageAt) {
+				agg.lastUsageAt = ev.Timestamp
+			}
 
 			prompt := ev.Usage.Input + ev.Usage.CacheRead + ev.Usage.CacheCreate5m + ev.Usage.CacheCreate1h
 			agg.lastPromptTokens = prompt
@@ -255,6 +261,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		for _, id := range ev.ToolResultIDs {
 			agg.resultedToolUseIDs[id] = true
 		}
+		agg.subagents.noteNotification(ev.Notification)
 		if ev.RateLimit != nil && ev.RateLimit.Scope == fiveHourRateLimitScope {
 			agg.rateLimit = ev.RateLimit
 			agg.rateLimitAt = ev.Timestamp
@@ -279,33 +286,13 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	}
 
 	subagentsDir := filepath.Join(s.projectsDir, sanitizeCWD(f.CWD), f.SessionID, "subagents")
-	recs, err := walkRecords(subagentsDir, agg.resultedToolUseIDs)
+	subagents, workflows, childUsageAt, err := agg.subagents.collect(subagentsDir, now, agg.resultedToolUseIDs)
 	if err != nil {
 		return domain.Session{}, err
 	}
-
-	// Liveness is a conjunction, and this is where its two halves meet.
-	// walkRecords supplies the back-link half — the parent has recorded no
-	// tool_result for this child's tool_use — and the comparison below
-	// supplies the growth half from the size the same child's transcript
-	// had at the previous poll. A child that died or hung before the
-	// parent wrote its tool_result stops growing, and stops reading Live
-	// on the next poll, instead of standing as Live until a record that is
-	// never coming lands. A child whose transcript this Source has not
-	// seen before has no previous size to fall short of: it has just
-	// appeared, which is growth, so it reads Live until a poll watches it
-	// sit still.
-	var subagents []domain.Subagent
-	if len(recs) > 0 {
-		subagents = make([]domain.Subagent, 0, len(recs))
-	}
-	for _, rec := range recs {
-		prev, seen := agg.subagentSizes[rec.Key]
-		agg.subagentSizes[rec.Key] = rec.Size
-		sub := rec.Sub
-		sub.TokenRate = rec.window.Rate(now)
-		sub.Live = sub.Live && (!seen || rec.Size > prev)
-		subagents = append(subagents, sub)
+	lastUsageAt := agg.lastUsageAt
+	if childUsageAt.After(lastUsageAt) {
+		lastUsageAt = childUsageAt
 	}
 
 	ctxMax := contextWindow(agg.highWaterMark)
@@ -339,6 +326,8 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		Tools:        agg.tools,
 		ToolCounts:   agg.toolCounts,
 		Subagents:    subagents,
+		Workflows:    workflows,
+		LastUsageAt:  lastUsageAt,
 		RateLimits:   rateLimits,
 	}
 	return sess, nil
