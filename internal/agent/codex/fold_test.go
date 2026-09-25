@@ -413,8 +413,8 @@ func TestSessionLastUsageAtIsMaxOfRootAndChildren(t *testing.T) {
 			"payload": map[string]any{
 				"type": "token_count",
 				"info": map[string]any{
-					"total_token_usage": map[string]any{"input_tokens": input, "output_tokens": output, "total_tokens": input + output},
-					"last_token_usage":  map[string]any{"input_tokens": input, "output_tokens": output, "total_tokens": input + output},
+					"total_token_usage":    map[string]any{"input_tokens": input, "output_tokens": output, "total_tokens": input + output},
+					"last_token_usage":     map[string]any{"input_tokens": input, "output_tokens": output, "total_tokens": input + output},
 					"model_context_window": 128000,
 				},
 			},
