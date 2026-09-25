@@ -411,17 +411,17 @@ func TestSubagentRowsRenderIndented(t *testing.T) {
 	}
 
 	out := SessionsRender([]domain.Session{withSubagents}, r, 120, 5, -1, snap.At, Options{})
-	if !strings.Contains(out, "live") {
-		t.Errorf("expected the live subagent's state to render, got:\n%s", out)
+	if !strings.Contains(out, "● run") {
+		t.Errorf("expected the running subagent's state to render, got:\n%s", out)
 	}
-	if !strings.Contains(out, "finished") {
+	if !strings.Contains(out, "done") {
 		t.Errorf("expected a finished subagent's state to render, got:\n%s", out)
 	}
 
 	filtered := withSubagents
 	filtered.Subagents = nil
 	filteredOut := SessionsRender([]domain.Session{filtered}, r, 120, 5, -1, snap.At, Options{})
-	if strings.Contains(filteredOut, "live") || strings.Contains(filteredOut, "finished") {
+	if strings.Contains(filteredOut, "● run") || strings.Contains(filteredOut, "done") {
 		t.Errorf("filtering subagents out should drop their rows entirely, got:\n%s", filteredOut)
 	}
 }
@@ -614,7 +614,7 @@ func TestComputeSessionColsNeverOverflowsWidth(t *testing.T) {
 			n++
 		}
 		if c.ShowSA {
-			fields = append(fields, 3)
+			fields = append(fields, wSA)
 			n++
 		}
 		if c.ShowGPU {

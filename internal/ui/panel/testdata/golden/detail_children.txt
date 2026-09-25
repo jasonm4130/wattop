@@ -1,0 +1,40 @@
+Session  sess-children (claude)  bind=exact                                                                             
+Model    claude-opus-5   cwd /home/u/tree                                                                               
+                                                                                                                        
+Cost & burn: total ~$12.34   rate $8.50/hr                                                                              
+Tokens: input 120.0k  output 9.0k  cache-read 800.0k  cache-write-5m 0  cache-write-1h 0  thinking 0                    
+Recorded tok/s (60s): in 900.0  out 42.5  cache-read 0.0                                                                
+                                                                                                                        
+Tool-call histogram                                                                                                     
+  (no tool calls)                                                                                                       
+                                                                                                                        
+Recent tool log                                                                                                         
+  (none)                                                                                                                
+                                                                                                                        
+Subagents (11 · 4 running)                                                                                              
+  ├─ ● run Explore      map the repo layout          claude-fable-5-1  10m  14 tools  ▸ Grep  $0.42 $1.80/h             
+  │  └─ ● run worker    patch the parser             claude-sonnet-5  4m  6 tools  ▸ Edit  $0.10 $0.60/h                
+  ├─ idle  general-pu…⇢ watch the build              claude-sonnet-5  14m  3 tools  $0.05                               
+  ├─ fail  worker       flaky migration              claude-sonnet-5  5m  9 tools  $0.20                                
+  ├─ done  Explore      search the docs              claude-fable-5-1  2m  4 tools  $0.12                               
+  └─ done  worker       try the nightly model        claude-nightly-experimental  2m  2 tools  $—                       
+  Workflow wf_7f3a9c21e5b4  ● run  phase implement  2 run 2/5 done 1 fail  ~$3.21 $4.40/h                               
+    ├─ done  review     review api layer             claude-sonnet-5  3m  11 tools  $0.80                               
+    ├─ done  review     review storage layer         claude-sonnet-5  4m  8 tools  $0.70                                
+    ├─ fail  review     review ui layer              claude-nightly-experimental  2m  1 tools  $—                       
+    ├─ ● run implement  implement fixes              claude-opus-5  9m  21 tools  ▸ Bash  $1.21 $3.10/h                 
+    └─ ● run implement  write tests                  claude-sonnet-5  8m  7 tools  $0.50 $1.30/h                        
+                                                                                                                        
+Process:                                                                                                                
+  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —                                                             
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

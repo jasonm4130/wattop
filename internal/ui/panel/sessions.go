@@ -38,6 +38,9 @@ const (
 	wBurn   = 8
 	wCPU    = 5
 	wRSS    = 6
+	// wSA holds the SA column's running/total pair ("3/41", up to
+	// "999/999"), right-aligned like the TL count beside it.
+	wSA = 7
 )
 
 // colFloor is the narrowest any flexible column is shrunk to before it
@@ -62,7 +65,7 @@ type sessionCols struct {
 
 // computeSessionCols fits the table into width display columns, minus the
 // 2-column selection gutter every row carries (see styleSelected). A full
-// table (all 14 columns at base width) needs 143 columns; short of that,
+// table (all 14 columns at base width) needs 147 columns; short of that,
 // TL, SA and GPU/s -- the three lowest-value columns -- drop first, in
 // that order. If the table still does not fit, the flexible columns
 // shrink toward colFloor in priority order -- OUT/s and CTX first, since
@@ -85,7 +88,7 @@ func computeSessionCols(width int) sessionCols {
 			cols = append(cols, 3)
 		}
 		if c.ShowSA {
-			cols = append(cols, 3)
+			cols = append(cols, wSA)
 		}
 		if c.ShowGPU {
 			cols = append(cols, 6)
@@ -149,8 +152,9 @@ const unknownPID = "(pid unknown)"
 // must stay deterministic given its inputs). selected is the flattened row
 // index to highlight, or -1 for none.
 //
-// Subagents render as indented child rows directly under their parent
-// session, in the order Session.Subagents lists them.
+// Children render as indented rows directly under their parent session, in
+// ChildRows order: non-workflow subagents in tree order, then one collapsed
+// row per workflow.
 //
 // When the flattened row count exceeds the frame's data height, the table
 // scrolls: the visible window is recentred on selected (windowRows), and
@@ -169,7 +173,7 @@ func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, sel
 	return frame(lines, width, height)
 }
 
-// sessionRows flattens sessions (and their subagents) into one
+// sessionRows flattens sessions (and their ChildRows) into one
 // already-styled line per row, in flattened-row order.
 func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Options, selected int, cols sessionCols) []string {
 	var lines []string
@@ -178,9 +182,16 @@ func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Op
 		isSel := row == selected
 		lines = append(lines, styleSelected(sessionRow(r, s, at, plainIfSelected(opts, isSel), cols), isSel, r, opts))
 		row++
-		for i := range s.Subagents {
+		for _, c := range ChildRows(s) {
 			isSel = row == selected
-			lines = append(lines, styleSelected(subagentRow(r, &s.Subagents[i], plainIfSelected(opts, isSel), cols), isSel, r, opts))
+			o := plainIfSelected(opts, isSel)
+			var line string
+			if c.Workflow != nil {
+				line = workflowRow(r, c.Workflow, o, cols)
+			} else {
+				line = subagentRow(r, c.Subagent, c.Depth, o, cols)
+			}
+			lines = append(lines, styleSelected(line, isSel, r, opts))
 			row++
 		}
 	}
@@ -275,7 +286,7 @@ func sessionsHeader(cols sessionCols) string {
 		parts = append(parts, "TL")
 	}
 	if cols.ShowSA {
-		parts = append(parts, "SA")
+		parts = append(parts, padLine("SA", wSA))
 	}
 	parts = append(parts, padLine(truncate("CPU%", cols.CPU), cols.CPU))
 	if cols.ShowGPU {
@@ -318,6 +329,10 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	if s.Priced && s.CostUSD != nil {
 		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
 	}
+	if s.CostPartial {
+		// The total omits an unpriced subagent: mark it as a lower bound.
+		cost = "~" + cost
+	}
 	cost = padLine(truncate(cost, cols.Cost), cols.Cost)
 	burn := "—"
 	if s.BurnUSDPerHr != nil {
@@ -341,7 +356,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 		parts = append(parts, fmt.Sprintf("%3d", len(s.Tools)))
 	}
 	if cols.ShowSA {
-		parts = append(parts, fmt.Sprintf("%3d", len(s.Subagents)))
+		parts = append(parts, fmt.Sprintf("%*s", wSA, truncate(subagentCounts(s.Subagents), wSA)))
 	}
 	parts = append(parts, padLine(truncate(cpu, cols.CPU), cols.CPU))
 	if cols.ShowGPU {
@@ -400,45 +415,98 @@ func tokenRateCell(rate *domain.TokenRate, width int) string {
 	return padLine(truncate(text, width), width)
 }
 
-// subagentRow renders one child row, indented under its parent.
-// AgentType/Description identify it, Model is the resolved (not requested)
-// model id, and Live/finished state and cost round it out. An unpriced
-// subagent model renders "$—", matching the parent's own rule.
-func subagentRow(r theme.Roles, sa *domain.Subagent, opts Options, cols sessionCols) string {
-	state := "finished"
-	color := r.Muted
-	if sa.Live {
-		state = "live"
-		color = r.Busy
+// subagentCounts is the SA cell: running/total over every subagent,
+// workflow agents included.
+func subagentCounts(subagents []domain.Subagent) string {
+	running := 0
+	for i := range subagents {
+		if childRunning(subagents[i].Status, subagents[i].Live) {
+			running++
+		}
 	}
-	cost := "$—"
-	if sa.CostUSD != nil {
-		cost = fmt.Sprintf("$%.2f", *sa.CostUSD)
+	return fmt.Sprintf("%d/%d", running, len(subagents))
+}
+
+// childStatusCell renders a child row's STATUS cell: the tree indent (two
+// spaces, plus two per depth level) followed by label, inside the cell
+// itself. The indent lives in the cell rather than as a separate prefix so
+// an indented child row costs exactly the same total width as a parent row
+// -- both are built from the same cols, and a prefix on top of that would
+// silently push every child row past whatever computeSessionCols budgeted
+// for width. Deep nesting stops indenting once the label would drop below
+// four columns.
+func childStatusCell(opts Options, color, label string, depth, width int) string {
+	indent := 2 + 2*depth
+	if limit := width - 4; indent > limit {
+		indent = max(0, limit)
 	}
-	// The two-space indent lives inside the STATUS cell itself (rather than
-	// as a separate prefix) so an indented child row costs exactly the same
-	// total width as a parent row -- both are built from the same cols,
-	// and a prefix on top of that would silently push every subagent row
-	// two columns past whatever computeSessionCols budgeted for width.
-	const indent = "  "
-	label := styled(opts, color, padLine(indent+truncate(state, cols.Status-len(indent)), cols.Status))
-	parts := []string{
-		label, padLine("", cols.PID), padLine(truncate(sa.AgentType, cols.Agent), cols.Agent),
-		padLine(truncate(sa.Model, cols.Model), cols.Model), padLine(truncate(sa.Description, cols.CWD), cols.CWD),
-		padLine("", cols.Ctx), tokenRateCell(sa.TokenRate, cols.Rate), padLine(truncate(cost, cols.Cost), cols.Cost), padLine("", cols.Burn),
-	}
+	return styled(opts, color, padLine(strings.Repeat(" ", indent)+truncate(label, width-indent), width))
+}
+
+// childTailCells are the blank TL/SA/CPU/GPU/RSS cells a child row carries
+// so its width matches the parent row's.
+func childTailCells(cols sessionCols) []string {
+	var parts []string
 	if cols.ShowTL {
 		parts = append(parts, padLine("", 3))
 	}
 	if cols.ShowSA {
-		parts = append(parts, padLine("", 3))
+		parts = append(parts, padLine("", wSA))
 	}
 	parts = append(parts, padLine("", cols.CPU))
 	if cols.ShowGPU {
 		parts = append(parts, padLine("", 6))
 	}
-	parts = append(parts, padLine("", cols.RSS))
-	return strings.Join(parts, " ")
+	return append(parts, padLine("", cols.RSS))
+}
+
+// subagentRow renders one non-workflow child row, indented by depth under
+// its parent. AgentType/Description identify it (a trailing "⇢" on the
+// agent marks a background spawn), Model is the resolved (not requested)
+// model id, and the CWD cell leads with the tool a running child is
+// waiting on. An unpriced subagent model renders "$—", matching the
+// parent's own rule.
+func subagentRow(r theme.Roles, sa *domain.Subagent, depth int, opts Options, cols sessionCols) string {
+	color, state := childStatus(r, sa.Status, sa.Live)
+	label := childStatusCell(opts, color, state, depth, cols.Status)
+
+	agent := truncate(sa.AgentType, cols.Agent)
+	if sa.Background {
+		agent = truncate(sa.AgentType, cols.Agent-1) + "⇢"
+	}
+	desc := sa.Description
+	if sa.CurrentTool != "" && childRunning(sa.Status, sa.Live) {
+		desc = "▸ " + sa.CurrentTool + " · " + desc
+	}
+	parts := []string{
+		label, padLine("", cols.PID), padLine(agent, cols.Agent),
+		padLine(truncate(sa.Model, cols.Model), cols.Model), padLine(truncate(desc, cols.CWD), cols.CWD),
+		padLine("", cols.Ctx), tokenRateCell(sa.TokenRate, cols.Rate),
+		padLine(truncate(childCost(sa.CostUSD, false), cols.Cost), cols.Cost),
+		padLine(truncate(childBurn(sa.BurnUSDPerHr), cols.Burn), cols.Burn),
+	}
+	return strings.Join(append(parts, childTailCells(cols)...), " ")
+}
+
+// workflowRow renders one collapsed workflow row: its status, id, newest
+// phase and agent counts, with rate, cost and burn summed from its agents.
+func workflowRow(r theme.Roles, w *domain.Workflow, opts Options, cols sessionCols) string {
+	color, state := childStatus(r, w.Status, false)
+	label := childStatusCell(opts, color, "wf "+state, 0, cols.Status)
+
+	summary := shortWorkflowID(w.ID)
+	if w.Phase != "" {
+		summary += " · " + w.Phase
+	}
+	summary += " · " + workflowCounts(w)
+	parts := []string{
+		label, padLine("", cols.PID), padLine(truncate("workflow", cols.Agent), cols.Agent),
+		padLine("", cols.Model), padLine(truncate(summary, cols.CWD), cols.CWD),
+		padLine("", cols.Ctx), tokenRateCell(w.TokenRate, cols.Rate),
+		padLine(truncate(childCost(w.CostUSD, w.CostPartial), cols.Cost), cols.Cost),
+		padLine(truncate(childBurn(w.BurnUSDPerHr), cols.Burn), cols.Burn),
+	}
+	return strings.Join(append(parts, childTailCells(cols)...), " ")
 }
 
 // statusInfo maps a Session.Status to its severity color and display
