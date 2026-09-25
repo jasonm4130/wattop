@@ -27,16 +27,19 @@ func TestRepeatedMessageUsageCountedOnce(t *testing.T) {
 	if r := a.window.Rate(now); r.OutputPerSec != float64(577)/60 || r.InputPerSec != 5 {
 		t.Fatalf("rate %+v", r)
 	}
-	path := filepath.Join(t.TempDir(), "child.jsonl")
-	if err := os.WriteFile(path, []byte(transcript), 0600); err != nil {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "agent-c.meta.json"), []byte(`{"agentType":"general-purpose"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	child, _, _, err := sumTranscript(path)
+	if err := os.WriteFile(filepath.Join(dir, "agent-c.jsonl"), []byte(transcript), 0600); err != nil {
+		t.Fatal(err)
+	}
+	subs, err := Walk(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.usage != a.usage {
-		t.Fatalf("child accounting differs: %+v", child.usage)
+	if len(subs) != 1 || subs[0].Usage != a.usage {
+		t.Fatalf("child accounting differs: %+v", subs)
 	}
 }
 
