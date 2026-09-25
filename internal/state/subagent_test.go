@@ -149,3 +149,44 @@ func TestDroppedSessionForgetsChildBurn(t *testing.T) {
 		}
 	}
 }
+
+// TestSiblingsWithoutIDsBurnSeparately: children without an ID (older
+// fixtures, replayed snapshots) must not share one burn key, or each
+// sibling's cost is diffed against the other's.
+func TestSiblingsWithoutIDsBurnSeparately(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+	sess := domain.Session{
+		Agent: "claude", ID: "s1", Model: "claude-opus-5",
+		Subagents: []domain.Subagent{
+			{Hash: "agent-1", Model: "claude-opus-5", LastActivityAt: at(0).Add(-time.Hour), Usage: domain.Usage{Input: 100_000}},
+			{Hash: "agent-2", Model: "claude-opus-5", LastActivityAt: at(0).Add(-time.Hour), Usage: domain.Usage{Input: 1_000}},
+		},
+	}
+	for sec := 0; sec < 5; sec++ {
+		snap := st.Reduce(Inputs{At: at(sec), Sessions: []domain.Session{sess}})
+		for _, sa := range findSession(t, snap, "claude", "s1").Subagents {
+			if sa.BurnUSDPerHr != nil && *sa.BurnUSDPerHr != 0 {
+				t.Fatalf("cycle %d: unchanged child %s burns %v, want none", sec, sa.Hash, *sa.BurnUSDPerHr)
+			}
+		}
+	}
+}
+
+// TestNewbornChildBurnIsBounded: a child one second old that spent a few
+// cents reports a rate spread over at least childSeedMinSpan.
+func TestNewbornChildBurnIsBounded(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+	sess := domain.Session{
+		Agent: "claude", ID: "s1", Model: "claude-opus-5",
+		Subagents: []domain.Subagent{{
+			ID: "a1", Model: "claude-opus-5", StartedAt: at(0), LastActivityAt: at(1),
+			Usage: domain.Usage{Input: 10_000},
+		}},
+	}
+	snap := st.Reduce(Inputs{At: at(1), Sessions: []domain.Session{sess}})
+	sa := findSession(t, snap, "claude", "s1").Subagents[0]
+	maxRate := *sa.CostUSD / childSeedMinSpan.Hours()
+	if sa.BurnUSDPerHr == nil || *sa.BurnUSDPerHr <= 0 || *sa.BurnUSDPerHr > maxRate+1e-9 {
+		t.Fatalf("newborn burn = %v, want in (0, %v]", sa.BurnUSDPerHr, maxRate)
+	}
+}

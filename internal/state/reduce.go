@@ -265,6 +265,25 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 // exactly like a session's first sighting.
 const childSeedWindow = 2 * time.Minute
 
+// childSeedMinSpan is the shortest span a seeded child's first cost is
+// spread over.
+const childSeedMinSpan = 30 * time.Second
+
+// subagentKey identifies a child within its session for burn tracking: its
+// ID, else its Hash, else its position. Sources that predate Subagent.ID
+// leave it empty, and a shared empty key would diff siblings' costs against
+// each other.
+func subagentKey(sa domain.Subagent, i int) string {
+	switch {
+	case sa.ID != "":
+		return sa.ID
+	case sa.Hash != "":
+		return "hash:" + sa.Hash
+	default:
+		return fmt.Sprintf("#%d", i)
+	}
+}
+
 // subagentBurnKey namespaces a child's burn-tracker key under its session's,
 // so dropping the session can forget every child by prefix.
 func subagentBurnKey(sessionKey, subID string) string {
@@ -277,14 +296,23 @@ func subagentBurnKey(sessionKey, subID string) string {
 func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time.Time) {
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		if sa.CostUSD == nil {
+		// A child with no activity timestamp has nothing to time its spend
+		// by; the wall-clock fallback would read a backfill as a burn.
+		if sa.CostUSD == nil || sa.LastActivityAt.IsZero() {
 			sa.BurnUSDPerHr = nil
 			continue
 		}
-		key := subagentBurnKey(sessionBurnKey, sa.ID)
+		key := subagentBurnKey(sessionBurnKey, subagentKey(*sa, i))
 		last, seen := st.burnLastCost[key]
 		if !seen && !sa.StartedAt.IsZero() && !sa.LastActivityAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
-			st.burn.Observe(key, 0, at, sa.StartedAt)
+			// Spread a newborn's spend over at least childSeedMinSpan, so a
+			// child that spent a few cents in its first second does not
+			// report hundreds of dollars an hour.
+			seedAt := sa.StartedAt
+			if floor := sa.LastActivityAt.Add(-childSeedMinSpan); floor.Before(seedAt) {
+				seedAt = floor
+			}
+			st.burn.Observe(key, 0, at, seedAt)
 			seen, last = true, 0
 		}
 		if !seen || last != *sa.CostUSD {

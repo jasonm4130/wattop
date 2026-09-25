@@ -34,7 +34,7 @@
   [38;2;110;118;129m  done          [m               worker claude-sonnet… implement task 4             —     $0.08                         
   [38;2;110;118;129m  done          [m               worker claude-sonnet… implement task 5             —     $0.09                         
                                                                                                                         
-Machine  [38;2;255;166;87m2.0W total[m  |  [38;2;86;211;100m$0.00/hr[m total  |  [38;2;86;211;100m$1.56 session total[m  |  wattop self 0.0% CPU                                 
+Machine  [38;2;255;166;87m2.0W total[m  |  [38;2;86;211;100m$0.00/hr[m total  |  [38;2;86;211;100m~$1.56 session total[m  |  wattop self 0.0% CPU                                
                                                       sort:status   theme:wattop-dark   1 hidden (a)   g graphs   [38;2;88;166;255m? help[m
 1 models unpriced: claude-nightly-experimental                                                                          
 [38;2;110;118;129mCosts are estimates from a pricing table and ignore subscription plans.[m                                                 

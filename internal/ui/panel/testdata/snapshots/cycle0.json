@@ -88,7 +88,7 @@
         "Edit": 1,
         "Read": 1
       },
-      "subagents": [],
+      "subagents": null,
       "workflows": null,
       "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": {
@@ -146,7 +146,7 @@
       "tool_counts": {
         "shell": 1
       },
-      "subagents": [],
+      "subagents": null,
       "workflows": null,
       "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": {
@@ -208,7 +208,7 @@
       "context_exact": true,
       "tools": [],
       "tool_counts": {},
-      "subagents": [],
+      "subagents": null,
       "workflows": null,
       "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
@@ -244,7 +244,7 @@
       "context_exact": false,
       "tools": [],
       "tool_counts": {},
-      "subagents": [],
+      "subagents": null,
       "workflows": null,
       "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
@@ -416,7 +416,7 @@
       "context_exact": false,
       "tools": [],
       "tool_counts": {},
-      "subagents": [],
+      "subagents": null,
       "workflows": null,
       "last_usage_at": "0001-01-01T00:00:00Z",
       "proc": null,
@@ -424,7 +424,7 @@
     }
   ],
   "total_cost_usd": 1.2389200000000002,
-  "total_cost_partial": false,
+  "total_cost_partial": true,
   "total_burn_usd_per_hr": 0,
   "unpriced_models": [
     "claude-nightly-experimental"
