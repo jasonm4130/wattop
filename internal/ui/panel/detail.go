@@ -289,21 +289,65 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 		}
 		out = append(out, fit(head))
 
-		var agents []int
-		for i := range s.Subagents {
-			if s.Subagents[i].WorkflowID == w.ID {
-				agents = append(agents, i)
-			}
-		}
+		agents, hidden := workflowAgentsShown(s.Subagents, w)
 		for k, i := range agents {
 			branch := "├─ "
-			if k == len(agents)-1 {
+			if k == len(agents)-1 && hidden == 0 {
 				branch = "└─ "
 			}
 			out = append(out, fit(subagentDetailLine(r, opts, "    "+branch, &s.Subagents[i], true, at)))
 		}
+		if hidden > 0 {
+			out = append(out, fit(styled(opts, r.Muted, fmt.Sprintf("    └─ … %d more done", hidden))))
+		}
 	}
 	return out
+}
+
+// workflowDoneShown is how many finished agents a workflow lists: its most
+// recently active ones. A single run can hold a hundred agents, and listing
+// every one would push the rest of the panel off screen.
+const workflowDoneShown = 3
+
+// workflowAgentsShown returns the indexes of w's agents to list, in
+// s.Subagents order, and how many finished agents it left out. Every
+// unfinished or failed agent is listed; of the done ones, only the
+// workflowDoneShown most recently active, and none once the whole workflow
+// is done.
+func workflowAgentsShown(subs []domain.Subagent, w *domain.Workflow) ([]int, int) {
+	var done []int
+	keep := make(map[int]bool)
+	for i := range subs {
+		if subs[i].WorkflowID != w.ID {
+			continue
+		}
+		if subs[i].Status == domain.SubagentDone {
+			done = append(done, i)
+		} else {
+			keep[i] = true
+		}
+	}
+	limit := workflowDoneShown
+	if w.Status == domain.SubagentDone {
+		limit = 0
+	}
+	recent := append([]int(nil), done...)
+	sort.SliceStable(recent, func(a, b int) bool {
+		return subs[recent[a]].LastActivityAt.After(subs[recent[b]].LastActivityAt)
+	})
+	if len(recent) > limit {
+		recent = recent[:limit]
+	}
+	for _, i := range recent {
+		keep[i] = true
+	}
+	var shown []int
+	for i := range subs {
+		if keep[i] {
+			shown = append(shown, i)
+		}
+	}
+	return shown, len(done) - len(recent)
 }
 
 // subagentDetailLine is one child's detail line after its tree prefix:
