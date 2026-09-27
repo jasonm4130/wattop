@@ -1,7 +1,13 @@
 // Renders one frame of the wattop dashboard as an HTML string. Shared by the
 // Astro page (first frame, server-rendered so the hero works without JS) and
 // the client script (every later frame). All values come from the trimmed
-// `wattop --demo --json` snapshots in src/data/demo.json.
+// `wattop --demo --json` snapshots in src/data/demo.json (refresh with
+// `pnpm demo:refresh`; the mapping lives in scripts/demo-schema.mjs).
+//
+// Cell text follows the TUI (internal/ui/panel/sessions.go, children.go):
+// the static "⠋ Busy" glyph, child rows indented by two spaces per depth
+// level rather than drawn with tree lines, a trailing "⇢" on a background
+// subagent, and blank child $/HR cells when there is no positive burn.
 
 export type Child = {
   k: 'sa' | 'wf';
@@ -17,6 +23,8 @@ export type Child = {
   agents?: number;
   running?: number;
   done?: number;
+  failed?: number;
+  partial?: boolean;
   out: number | null;
   cost: number | null;
   burn: number | null;
@@ -25,16 +33,19 @@ export type Child = {
 export type Session = {
   agent: string;
   kind: string;
-  pid: number;
+  pid: number | null;
+  bind: string;
   cwd: string;
   model: string;
   st: string;
-  ctx: number | null;
+  ctx: number;
   exact: boolean;
   out: number | null;
   cost: number | null;
+  partial: boolean;
   burn: number | null;
   tl: number;
+  sa: [number, number];
   cpu: number | null;
   gpu: number | null;
   rss: number | null;
@@ -56,6 +67,7 @@ export type Frame = {
     throttled: boolean;
     mem: [number, number, number, number];
     dram: number | null;
+    dramEst: boolean;
     net: [number, number];
     disk: [number, number];
   };
@@ -96,12 +108,12 @@ function bytes(n: number, perSec = false): string {
 }
 
 function rss(n: number | null): string {
-  if (n == null) return '—';
-  return n >= 1e9 ? `${(n / 1e9).toFixed(1)}G` : `${Math.round(n / 1e6)}M`;
+  return n == null ? '—' : `${Math.round(n / 1e6)}M`;
 }
 
 const THERMAL = ['Nominal', 'Fair', 'Serious', 'Critical'];
-const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/** sessions.go spinnerGlyph: one static braille frame. */
+const SPIN = '⠋';
 
 function trunc(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
@@ -120,85 +132,102 @@ function gauge(pct: number, cls: string): string {
   return `<span class="g" aria-hidden="true"><span class="g-f ${cls}" style="width:${p}%"></span></span>`;
 }
 
-function ctxGauge(pct: number | null, exact: boolean): string {
-  if (pct == null) return '<td class="c-ctx num">—</td>';
-  const tone = pct >= 80 ? 'hot' : pct >= 60 ? 'waiting' : 'busy';
-  return `<td class="c-ctx"><span class="ctx ${exact ? 'exact' : 'est'}" title="${exact ? 'exact (Codex rate_limits)' : 'estimate (dashed edge)'}"><span class="ctx-g">${gauge(pct, tone)}</span><span class="ctx-n">${exact ? '' : '~'}${pct}%</span></span></td>`;
+/** sessions.go ctxGauge: "~" marks Claude's estimate; severity at 70/90%. */
+function ctxGauge(pct: number, exact: boolean): string {
+  const tone = pct >= 90 ? 'hot' : pct >= 70 ? 'waiting' : 'busy';
+  const text = pct > 100 ? '<span class="hot-c">&gt;100%</span>' : `${pct}%`;
+  return `<td class="c-ctx"><span class="ctx ${exact ? 'exact' : 'est'}" title="${exact ? 'exact (Codex rate_limits)' : 'estimate (dashed edge)'}"><span class="ctx-m">${exact ? '' : '~'}</span><span class="ctx-g">${gauge(pct, tone)}</span><span class="ctx-n">${text}</span></span></td>`;
 }
 
-function status(st: string, tick: number): string {
+/** sessions.go statusInfo. */
+function status(st: string): string {
   switch (st) {
     case 'busy':
-      return `<span class="st busy"><span class="spin" aria-hidden="true">${SPIN[tick % SPIN.length]}</span> Busy</span>`;
+      return `<span class="st busy"><span class="spin" aria-hidden="true">${SPIN}</span> Busy</span>`;
     case 'waiting':
       return '<span class="st waiting">Waiting</span>';
-    case 'idle':
-      return '<span class="st idle">Idle</span>';
+    case 'rate-limited':
+      return '<span class="st warn">RateLimited</span>';
+    case 'unknown':
+      return '<span class="st muted">Unknown</span>';
     case 'stale':
       return '<span class="st muted">Stale</span>';
     default:
-      return `<span class="st">${esc(st)}</span>`;
+      return `<span class="st muted">${esc(st)}</span>`;
   }
 }
 
-function childStatus(st: string): string {
-  if (st === 'running') return '<span class="st busy">● run</span>';
-  if (st === 'idle') return '<span class="st waiting">idle</span>';
-  if (st === 'done') return '<span class="st muted">done</span>';
-  if (st === 'failed') return '<span class="st hot">fail</span>';
-  return esc(st);
+/** children.go childStatus (prefix "wf " for a workflow row). */
+function childStatus(st: string, prefix = ''): string {
+  if (st === 'running') return `<span class="st busy">${prefix}● run</span>`;
+  if (st === 'idle') return `<span class="st waiting">${prefix}idle</span>`;
+  if (st === 'done') return `<span class="st muted">${prefix}done</span>`;
+  if (st === 'failed') return `<span class="st hot">${prefix}fail</span>`;
+  return `<span class="st muted">${prefix}${esc(st)}</span>`;
 }
 
-function sessionRows(s: Session, tick: number): string {
-  const kids = s.children.filter((c) => c.k === 'wf' || c.st !== 'done');
-  const sa = s.children.filter((c) => c.k === 'sa');
-  const saRun = sa.filter((c) => c.st === 'running').length;
+/** children.go childBurn: blank unless there is a positive burn. */
+const childBurn = (n: number | null) => (n == null || n <= 0 ? '' : usd(n));
+
+function sessionRows(s: Session): string {
+  const kids = s.children;
   const rows: string[] = [];
   const name = s.cwd.replace(/^~\/code\//, '');
+  const bound = s.bind !== 'unknown';
+  // pidCell's compact form (the TUI drops "pid " when the column is narrow).
+  const pid = bound ? (s.pid == null ? '—' : String(s.pid)) : '—';
+  const bgRun = s.kind !== '' && s.kind !== 'interactive';
+  const agent = bgRun ? `<span class="muted">${esc(s.agent)}*</span>` : `<span class="ag-${s.agent}">${esc(s.agent)}</span>`;
+  const model = esc(trunc(s.model || '—', 16));
+  const cost = (s.partial ? '~' : '') + usd(s.cost);
   rows.push(
     `<tr class="s-row">` +
-      `<td class="c-st">${status(s.st, tick)}</td>` +
-      `<td class="c-pid num">${s.pid}</td>` +
-      `<td class="c-ag"><span class="ag-${s.agent}">${esc(s.agent)}</span></td>` +
-      `<td class="c-model">${esc(trunc(s.model, 16))}</td>` +
+      `<td class="c-st">${status(s.st)}</td>` +
+      `<td class="c-pid num">${pid}</td>` +
+      `<td class="c-ag">${agent}</td>` +
+      `<td class="c-model">${bgRun ? `<span class="muted">${model}</span>` : model}</td>` +
       `<td class="c-cwd"><span class="cwd-full">${esc(s.cwd)}</span><span class="cwd-short">${esc(name)}</span></td>` +
       ctxGauge(s.ctx, s.exact) +
       `<td class="c-out num">${f1(s.out)}</td>` +
-      `<td class="c-cost num">${usd(s.cost)}</td>` +
-      `<td class="c-burn num">${usd(s.burn)}</td>` +
+      `<td class="c-cost num">${cost}</td>` +
+      `<td class="c-burn num">${s.burn == null ? '—' : usd(s.burn)}</td>` +
       `<td class="c-tl num">${s.tl}</td>` +
-      `<td class="c-sa num">${saRun}/${sa.length}</td>` +
-      `<td class="c-cpu num">${s.cpu == null ? '—' : s.cpu.toFixed(1) + '%'}</td>` +
-      `<td class="c-gpu num">${s.gpu ? f1(s.gpu) : '—'}</td>` +
-      `<td class="c-rss num">${rss(s.rss)}</td>` +
+      `<td class="c-sa num">${s.sa[0]}/${s.sa[1]}</td>` +
+      `<td class="c-cpu num">${!bound || s.cpu == null ? '—' : s.cpu.toFixed(1) + '%'}</td>` +
+      `<td class="c-gpu num">${bound ? f1(s.gpu) : '—'}</td>` +
+      `<td class="c-rss num">${bound ? rss(s.rss) : '—'}</td>` +
       `</tr>`,
   );
-  kids.forEach((c, i) => {
-    const last = i === kids.length - 1;
-    const branch = (c.depth ? '│ ' : '') + (last ? '└─' : '├─');
-    const tree = `<span class="tree" aria-hidden="true">${branch}</span>`;
+  kids.forEach((c) => {
+    // childStatusCell: two spaces, plus two per depth level (workflows: 0).
+    const indent = `<span class="ind" aria-hidden="true">${'&nbsp;'.repeat(2 + 2 * (c.k === 'wf' ? 0 : c.depth ?? 0))}</span>`;
     let who: string;
     let what: string;
     let st: string;
     if (c.k === 'wf') {
-      st = `<span class="st busy">wf ● run</span>`;
+      st = childStatus(c.st, 'wf ');
       who = 'workflow';
-      what = `${esc(c.id!.slice(0, 10))} · ${esc(c.phase!)} · ${c.running} run ${c.done}/${c.agents} done`;
+      what =
+        esc(c.id!.slice(0, 10)) +
+        (c.phase ? ` · ${esc(c.phase)}` : '') +
+        ` · ${c.running} run ${c.done}/${c.agents} done` +
+        (c.failed ? ` ${c.failed} fail` : '');
     } else {
       st = childStatus(c.st);
-      who = esc(trunc(c.type!, 14)) + (c.bg ? ' <span class="muted">bg</span>' : '');
-      what = (c.tool ? `<span class="tool">▸ ${esc(c.tool)}</span> · ` : '') + esc(c.desc!);
+      // subagentRow: a background spawn keeps its "⇢" and gives up a letter.
+      who = c.bg ? esc(trunc(c.type!, 13)) + '⇢' : esc(trunc(c.type!, 14));
+      what = (c.tool && c.st === 'running' ? `<span class="tool">▸ ${esc(c.tool)}</span> · ` : '') + esc(c.desc!);
     }
     rows.push(
       `<tr class="c-row">` +
-        `<td class="c-st">${tree}${st}</td>` +
+        `<td class="c-st">${indent}${st}</td>` +
         `<td class="c-pid"></td>` +
         `<td class="c-ag muted">${who}</td>` +
         `<td class="c-model muted">${c.model ? esc(trunc(c.model, 16)) : ''}</td>` +
         `<td class="c-cwd c-desc"><span class="desc">${what}</span></td><td class="c-ctx"></td>` +
         `<td class="c-out num">${f1(c.out)}</td>` +
-        `<td class="c-cost num">${usd(c.cost)}</td>` +
-        `<td class="c-burn num">${usd(c.burn)}</td>` +
+        `<td class="c-cost num">${(c.partial ? '~' : '') + usd(c.cost)}</td>` +
+        `<td class="c-burn num">${childBurn(c.burn)}</td>` +
         `<td class="c-tl"></td><td class="c-sa"></td><td class="c-cpu"></td><td class="c-gpu"></td><td class="c-rss"></td>` +
         `</tr>`,
     );
@@ -264,7 +293,7 @@ export function renderDash(frames: Frame[], tick: number): string {
       <dt>Memory</dt><dd>${gauge(memPct, 'busy')}<span class="num">${memPct.toFixed(1)}%</span><span></span></dd>
     </dl>
     <p class="kv">Mem  ${(memUsed / 1e9).toFixed(1)}/${(memTot / 1e9).toFixed(1)} GB  Swap ${(swapUsed / 1e9).toFixed(1)}/${(swapTot / 1e9).toFixed(1)} GB</p>
-    <p class="kv">DRAM Total ~${f1(s.dram)} GB/s <span class="dim">(estimate)</span></p>
+    ${s.dram == null ? '' : `<p class="kv">DRAM Total ${s.dramEst ? '~' : ''}${f1(s.dram)} GB/s${s.dramEst ? ' <span class="dim">(estimate)</span>' : ''}</p>`}
   </section>`;
 
   const power = `
@@ -291,7 +320,7 @@ export function renderDash(frames: Frame[], tick: number): string {
         <th class="c-tl num" scope="col">TL</th><th class="c-sa num" scope="col">SA</th><th class="c-cpu num" scope="col">CPU%</th>
         <th class="c-gpu num" scope="col">GPU/s</th><th class="c-rss num" scope="col">RSS</th>
       </tr></thead>
-      <tbody>${f.sessions.map((x) => sessionRows(x, tick)).join('')}</tbody>
+      <tbody>${f.sessions.map((x) => sessionRows(x)).join('')}</tbody>
     </table>
     </div>
   </section>`;

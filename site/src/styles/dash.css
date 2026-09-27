@@ -368,9 +368,12 @@
 .s-row .st {
   font-weight: 600;
 }
-.tree {
-  color: var(--dim);
-  margin-right: 0.5ch;
+.st.warn {
+  color: var(--warn);
+}
+/* Child rows: the TUI indents by spaces (2 + 2 per depth), no tree lines. */
+.ind {
+  white-space: pre;
 }
 .tool {
   color: var(--accent);
@@ -390,6 +393,12 @@
 .ctx-g {
   flex: 1;
   min-width: 0;
+}
+.ctx-m:empty {
+  display: none;
+}
+.ctx-m {
+  margin-right: -0.5ch;
 }
 .ctx-n {
   min-width: 4.5ch;

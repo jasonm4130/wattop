@@ -25,7 +25,7 @@ const canonical = new URL(path, 'https://wattop.app').href;
     {noindex && <meta name="robots" content="noindex" />}
     <meta name="theme-color" content="#0d1117" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preload" href="/fonts/jetbrains-mono-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/jetbrains-mono-wght.woff2" as="font" type="font/woff2" crossorigin />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="wattop" />
     <meta property="og:title" content={title} />
@@ -36,6 +36,7 @@ const canonical = new URL(path, 'https://wattop.app').href;
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="wattop: agents and Apple Silicon hardware in one terminal pane" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script is:inline defer src="https://app.skopia.dev/skopia.js" data-site="wattop" data-endpoint="https://app.skopia.dev/e"></script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>

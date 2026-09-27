@@ -38,14 +38,14 @@
   --border: #d0d7de;
   --accent: #0969da;
   --idle: #0969da;
-  --busy: #1a7f37;
+  --busy: #177033; /* TUI #1a7f37 is 4.36:1 on --sel; this is 5.3:1 */
   --waiting: #9a6700;
   --warn: #bc4c00;
   --hot: #cf222e;
   --cpu: #0550ae;
   --gpu: #6639ba;
   --watts: #bc4c00;
-  --cost: #1a7f37;
+  --cost: #177033;
   --track: #d0d7de;
   --sel: #eaeef2;
 }

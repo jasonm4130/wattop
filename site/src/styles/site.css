@@ -17,7 +17,6 @@ body {
   line-height: 1.6;
   font-feature-settings: 'calt' 0;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 a {
   color: var(--accent);
@@ -185,6 +184,26 @@ kbd {
     radial-gradient(1200px 500px at 70% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
     linear-gradient(var(--bg), var(--bg));
 }
+.pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 1.2ch;
+  margin: 0 0 20px;
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.pill span + span::before {
+  content: '·';
+  margin-right: 1.2ch;
+  color: var(--dim);
+}
+.pill span:first-child {
+  color: var(--accent);
+}
 .prompt {
   margin: 0 0 18px;
   color: var(--muted);
@@ -307,6 +326,61 @@ kbd {
 .btn.ghost:hover {
   border-color: var(--muted);
 }
+/* The install command is the primary action: filled with the accent. */
+.cmd.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.cmd.primary code,
+.cmd.primary .cmd-p {
+  color: var(--bg);
+  font-weight: 600;
+}
+.cmd.primary .cmd-copy {
+  color: var(--bg);
+  border-left-color: color-mix(in srgb, var(--bg) 35%, transparent);
+  font-weight: 600;
+}
+.cmd.primary .cmd-copy:hover {
+  background: color-mix(in srgb, var(--bg) 14%, transparent);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 2ch;
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.chips kbd {
+  margin-right: 0.6ch;
+}
+.reqs {
+  margin: 0 0 56px;
+  padding: 16px 20px;
+  border: 1px solid color-mix(in srgb, var(--waiting) 55%, var(--border));
+  border-left: 4px solid var(--waiting);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--waiting) 7%, var(--bg));
+  font-size: 14px;
+  max-width: 90ch;
+}
+.reqs p {
+  margin: 0;
+}
+.reqs p + p {
+  margin-top: 8px;
+  color: var(--muted);
+}
+.reqs strong {
+  color: var(--fg);
+}
+.alt {
+  margin: 18px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
 .req {
   display: flex;
   flex-wrap: wrap;
@@ -315,10 +389,11 @@ kbd {
   font-size: 13px;
   color: var(--muted);
 }
-.req span + span::before {
-  content: '·';
-  margin-right: 1.6ch;
-  color: var(--dim);
+.nw {
+  white-space: nowrap;
+}
+.req code {
+  font-size: 0.95em;
 }
 
 .hero-fig {
@@ -464,6 +539,7 @@ kbd {
   align-items: start;
 }
 .shell {
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-2);
@@ -702,7 +778,6 @@ kbd {
 
 /* comparison */
 .cmp-wrap {
-  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -710,7 +785,6 @@ kbd {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
-  min-width: 720px;
 }
 .cmp th,
 .cmp td {
@@ -894,15 +968,6 @@ kbd {
   .ledger {
     grid-template-columns: 1fr;
   }
-  .cmp-wrap::after {
-    content: 'scroll →';
-    position: sticky;
-    left: 0;
-    display: block;
-    padding: 6px 16px;
-    font-size: 12px;
-    color: var(--muted);
-  }
   .ledger dt {
     padding-bottom: 0;
   }
@@ -916,6 +981,51 @@ kbd {
   }
   .specs dd {
     margin-bottom: 10px;
+  }
+}
+
+/* Phones and narrow tablets: each tool becomes a card of label/value rows. */
+@media (max-width: 760px) {
+  .cmp thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .cmp,
+  .cmp tbody,
+  .cmp tr,
+  .cmp th,
+  .cmp td {
+    display: block;
+  }
+  .cmp tr {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .cmp tbody tr:first-child {
+    border-top: 0;
+  }
+  .cmp tbody th {
+    padding: 0 0 6px;
+    border: 0;
+  }
+  .cmp td {
+    display: flex;
+    justify-content: space-between;
+    gap: 2ch;
+    padding: 3px 0;
+    border: 0;
+    font-size: 13px;
+  }
+  .cmp td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    text-align: left;
+  }
+  .cmp td {
+    text-align: right;
   }
 }
 

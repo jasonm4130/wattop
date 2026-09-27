@@ -1,5 +1,6 @@
 ---
 import ThemeToggle from './ThemeToggle.astro';
+import { VERSION } from '../lib/site';
 const { home = true } = Astro.props as { home?: boolean };
 const p = home ? '' : '/';
 ---
@@ -7,7 +8,7 @@ const p = home ? '' : '/';
 <header class="bar">
   <nav class="bar-in" aria-label="Main">
     <a href="/" class="wm" aria-label="wattop home">
-      <span class="wm-cursor" aria-hidden="true">▍</span>wattop<span class="wm-v">v0.3.0</span>
+      <span class="wm-cursor" aria-hidden="true">▍</span>wattop<span class="wm-v">{VERSION}</span>
     </a>
     <ul class="bar-links">
       <li class="opt"><a href={`${p}#install`}>install</a></li>
