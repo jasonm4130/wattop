@@ -34,7 +34,7 @@ func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortK
 
 	watts := fdash(snap.Sys.Power.SystemWatts, "%.1fW")
 	burnColor := r.ChartCost
-	if snap.TotalBurnUSDPerHr >= 5 {
+	if snap.TotalBurnUSDPerHr >= opts.burnHot() {
 		burnColor = r.CostHot
 	}
 	burn := styled(opts, burnColor, fmt.Sprintf("$%.2f/hr", snap.TotalBurnUSDPerHr))

@@ -173,7 +173,7 @@ func main() {
 		return
 	}
 
-	model := ui.New(st, resolvedThemeName, roles).WithNoColor(noColor)
+	model := ui.New(st, resolvedThemeName, roles).WithNoColor(noColor).WithBurnHot(cfg.BurnHotUSDPerHr)
 	if err := runInteractive(ctx, loop, model); err != nil {
 		fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
 		os.Exit(1)

@@ -294,6 +294,23 @@ func TestFooterBurnGoesHotAboveThreshold(t *testing.T) {
 	}
 }
 
+// TestFooterBurnHotThresholdIsConfigurable: config.toml's
+// burn_hot_usd_per_hr reaches the footer through Options, moving the line
+// the default $5/hr would draw.
+func TestFooterBurnHotThresholdIsConfigurable(t *testing.T) {
+	r := loadDarkRoles(t)
+	opts := Options{BurnHotUSDPerHr: 10}
+	below := FooterRender(&domain.Snapshot{TotalBurnUSDPerHr: 9.5}, r, 120, 4, "cost", "dark", false, 0, opts)
+	above := FooterRender(&domain.Snapshot{TotalBurnUSDPerHr: 10.5}, r, 120, 4, "cost", "dark", false, 0, opts)
+
+	if strings.Contains(below, styled(Options{}, r.CostHot, "$9.50/hr")) {
+		t.Errorf("with a $10/hr threshold, $9.50/hr must not be hot; got:\n%s", below)
+	}
+	if want := styled(Options{}, r.CostHot, "$10.50/hr"); !strings.Contains(above, want) {
+		t.Errorf("with a $10/hr threshold, $10.50/hr must be hot; got:\n%s", above)
+	}
+}
+
 // TestFooterStatusLineAdvertisesKeymap asserts the footer names the active
 // sort key and theme and points at the `?` help overlay -- otherwise s and
 // t leave no trace on screen at all.

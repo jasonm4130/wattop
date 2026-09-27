@@ -53,6 +53,11 @@ type Model struct {
 	// neither, so the resolved answer arrives through WithNoColor.
 	noColor bool
 
+	// burnHot is config.toml's burn_hot_usd_per_hr, arriving through
+	// WithBurnHot for the same reason noColor arrives through WithNoColor.
+	// Zero means unset; the panel applies its default.
+	burnHot float64
+
 	width, height int
 }
 
@@ -87,10 +92,17 @@ func (m Model) WithNoColor(v bool) Model {
 	return m
 }
 
+// WithBurnHot returns m with the $/hr hot-burn threshold set (config.toml's
+// burn_hot_usd_per_hr). Zero or negative keeps the panel default.
+func (m Model) WithBurnHot(usdPerHr float64) Model {
+	m.burnHot = usdPerHr
+	return m
+}
+
 // renderOpts is the one place the model's display flags become panel
 // options, so a new flag reaches every panel by being added here once.
 func (m Model) renderOpts() panel.Options {
-	return panel.Options{NoColor: m.noColor}
+	return panel.Options{NoColor: m.noColor, BurnHotUSDPerHr: m.burnHot}
 }
 
 // Init starts the program with no initial command: the sampling cycle that

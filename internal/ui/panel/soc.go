@@ -17,6 +17,23 @@ type Options struct {
 	// characters and no lipgloss styling is applied anywhere in the panel.
 	// This is the --no-color / NO_COLOR contract.
 	NoColor bool
+
+	// BurnHotUSDPerHr is the $/hr at or above which a burn rate renders
+	// CostHot, in both the footer's machine total and a session's detail
+	// view. config.toml's burn_hot_usd_per_hr; zero or negative means unset
+	// and defaultBurnHotUSDPerHr applies.
+	BurnHotUSDPerHr float64
+}
+
+// defaultBurnHotUSDPerHr is the hot-burn line when config sets none.
+const defaultBurnHotUSDPerHr = 5.0
+
+// burnHot resolves the hot-burn threshold, applying the default when unset.
+func (o Options) burnHot() float64 {
+	if o.BurnHotUSDPerHr > 0 {
+		return o.BurnHotUSDPerHr
+	}
+	return defaultBurnHotUSDPerHr
 }
 
 const gaugeWidth = 20
