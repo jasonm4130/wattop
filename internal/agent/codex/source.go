@@ -4,18 +4,33 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// shortlistWindow bounds how far back ShortlistRollouts looks for a rollout
-// file, by mtime. A rollout untouched for longer than this cannot be a live
-// session regardless of its status inference. It is the outer bound only:
-// Poll then applies the much tighter lookback below, and reaches past it
-// solely for a rollout that binds to a live codex process.
+// shortlistWindow bounds how far back discovery looks for a rollout file, by
+// mtime. Poll then applies the much tighter lookback below, and reaches past
+// it solely for a rollout that binds to a live codex process. A rollout that
+// was bound on an earlier poll is kept past this window for as long as its
+// process lives (see Source.pinned), because a codex session can sit idle
+// for days and still be running.
+//
+// The window is deliberately not widened back to the oldest live codex
+// process's start time: a long-lived `codex app-server` daemon (weeks old
+// on a real machine) would drag every rollout since it started — hundreds
+// of files, gigabytes — into a full read on startup.
 const shortlistWindow = 24 * time.Hour
+
+// pinnedPID identifies the process a rollout was bound to. The start time
+// guards against pid reuse: a recycled pid with a different start is a
+// different process.
+type pinnedPID struct {
+	pid   int
+	start time.Time
+}
 
 // DefaultIdleThreshold is the mtime age past which a rollout with no other
 // signal is considered stale, per the plan's default.
@@ -39,8 +54,18 @@ type Source struct {
 	lookback      time.Duration
 	codexPath     string // resolved once at startup; "" if codex is not on $PATH.
 
+	index    *rolloutIndex
 	tails    map[string]*tailState
 	rollouts map[string]*Rollout
+
+	// pinned holds every rollout that was bound to a live codex process on
+	// the previous poll (a root by bindAll, or a child folded under such a
+	// root), keyed by path. Poll re-adds these to the shortlist whatever
+	// their mtime while the same process (pid and start time) is alive, so
+	// a session idle past shortlistWindow is not dropped. Liveness is only
+	// known after binding, hence carrying it poll to poll; a session already
+	// idle past the window when wattop starts is not found this way.
+	pinned map[string]pinnedPID
 }
 
 // NewSource constructs a Codex Source rooted at root (normally
@@ -55,8 +80,10 @@ func NewSource(root string, idleThreshold time.Duration) *Source {
 		idleThreshold: idleThreshold,
 		lookback:      DefaultLookback,
 		codexPath:     codexPath,
+		index:         newRolloutIndex(root),
 		tails:         make(map[string]*tailState),
 		rollouts:      make(map[string]*Rollout),
+		pinned:        make(map[string]pinnedPID),
 	}
 }
 
@@ -84,10 +111,11 @@ func (s *Source) Close() error { return nil }
 // than being dropped. Only a rollout that is both older than the lookback
 // and bound to nothing is dropped, since nothing about it can be current.
 func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSample) ([]domain.Session, error) {
-	paths, err := ShortlistRollouts(s.root, now, shortlistWindow)
+	paths, err := s.index.shortlist(now, now.Add(-shortlistWindow))
 	if err != nil {
 		return nil, err
 	}
+	paths = s.addPinned(paths, procs)
 
 	// Tier 1 is every rollout touched within the lookback; tier 2 is the
 	// older ones, which are read at all only when a live codex process
@@ -155,6 +183,7 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		}
 	}
 	binds := bindAll(topLevel, procs, s.codexPath)
+	s.repin(binds, procs)
 
 	// filtered applies the same "old and bound to nothing" drop to every
 	// rollout, root or child alike: a child's binding is always nil (it is
@@ -235,6 +264,52 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 	}
 
 	return sessions, nil
+}
+
+// addPinned merges into the shortlist every pinned rollout whose process
+// (same pid, same start time) is still in procs, and forgets the rest. The
+// result stays path-sorted, which dedupSessionID relies on.
+func (s *Source) addPinned(paths []string, procs []domain.ProcSample) []string {
+	if len(s.pinned) == 0 {
+		return paths
+	}
+	alive := make(map[int]time.Time, len(procs))
+	for _, p := range procs {
+		alive[p.PID] = p.StartTime
+	}
+	have := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		have[p] = true
+	}
+	added := false
+	for path, pp := range s.pinned {
+		if start, ok := alive[pp.pid]; !ok || !start.Equal(pp.start) {
+			delete(s.pinned, path)
+			continue
+		}
+		if !have[path] {
+			paths = append(paths, path)
+			added = true
+		}
+	}
+	if added {
+		sort.Strings(paths)
+	}
+	return paths
+}
+
+// repin replaces the pinned set with this poll's pid-bound rollouts.
+func (s *Source) repin(binds map[string]binding, procs []domain.ProcSample) {
+	starts := make(map[int]time.Time, len(procs))
+	for _, p := range procs {
+		starts[p.PID] = p.StartTime
+	}
+	clear(s.pinned)
+	for path, b := range binds {
+		if b.PID != nil {
+			s.pinned[path] = pinnedPID{pid: *b.PID, start: starts[*b.PID]}
+		}
+	}
 }
 
 // dedupSessionID keeps two rollouts that happen to share a ThreadID within
