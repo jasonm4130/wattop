@@ -18,10 +18,13 @@ type SysSample struct {
 	Temps        map[string]float64 `json:"temps"`
 	Fans         []Fan              `json:"fans"`
 	ThermalState int                `json:"thermal_state"`
-	Memory       MemorySample       `json:"memory"`
-	Net          NetSample          `json:"net"`
-	Disk         DiskSample         `json:"disk"`
-	Missing      []string           `json:"missing"`
+	// Throttled is true when the OS reports thermal pressure above Nominal
+	// (ThermalState >= 1), i.e. it is applying thermal mitigation.
+	Throttled bool         `json:"throttled"`
+	Memory    MemorySample `json:"memory"`
+	Net       NetSample    `json:"net"`
+	Disk      DiskSample   `json:"disk"`
+	Missing   []string     `json:"missing"`
 }
 
 // Snapshot is the full state of one refresh tick — the headless JSON contract.

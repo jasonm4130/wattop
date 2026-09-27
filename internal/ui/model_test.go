@@ -405,12 +405,47 @@ func dormantCorpus() []domain.Session {
 	}
 }
 
+// dormantCycle delivers dormantCorpus with the bound sessions' pids alive in
+// the process table, as the reducer needs to attach a Proc to each.
+func dormantCycle(at time.Time) CycleMsg {
+	msg := cycleMsg(at, dormantCorpus())
+	msg.Inputs.Procs = []domain.ProcSample{{PID: 101}, {PID: 102}, {PID: 103}}
+	return msg
+}
+
+// TestCrashedClaudeSessionIsDormant: a Claude session always binds "exact"
+// (its session file names its pid), so a crashed one -- stale, pid no
+// longer in the process table -- used to stay on the table forever. A
+// stale session with no live process is dormant whatever its BindConf.
+func TestCrashedClaudeSessionIsDormant(t *testing.T) {
+	m := newTestModel(t)
+	msg := cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
+		{Agent: "claude", ID: "crashed", Status: "stale", BindConf: "exact", PID: pidOf(104)},
+		{Agent: "claude", ID: "idle-alive", Status: "stale", BindConf: "exact", PID: pidOf(105)},
+	})
+	msg.Inputs.Procs = []domain.ProcSample{{PID: 105}}
+	mi, _ := m.Update(msg)
+	m = mi.(Model)
+
+	vis := m.visibleSessions()
+	if len(vis) != 1 || vis[0].ID != "idle-alive" {
+		ids := make([]string, 0, len(vis))
+		for _, s := range vis {
+			ids = append(ids, s.ID)
+		}
+		t.Fatalf("visible sessions = %v, want only idle-alive (crashed has no live pid)", ids)
+	}
+	if m.hiddenSessions() != 1 {
+		t.Errorf("hiddenSessions() = %d, want 1", m.hiddenSessions())
+	}
+}
+
 // TestDormantRowsHiddenByDefault: a session that is both stale and bound to
 // no process is off the table until `a` asks for it, and a stale session
 // that still holds a pid is never hidden.
 func TestDormantRowsHiddenByDefault(t *testing.T) {
 	m := newTestModel(t)
-	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
 	m = mi.(Model)
 
 	got := make([]string, 0, 5)
@@ -437,7 +472,7 @@ func TestDormantRowsHiddenByDefault(t *testing.T) {
 // footer's count to zero, and toggles off again.
 func TestShowAllTogglesDormantRows(t *testing.T) {
 	m := newTestModel(t)
-	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
 	m = mi.(Model)
 
 	mi, _ = m.Update(keyMsg("a"))
@@ -491,7 +526,7 @@ func TestLiveSessionsSortFirst(t *testing.T) {
 // the footer says how many, and which key brings them back.
 func TestFooterAdvertisesHiddenCount(t *testing.T) {
 	m := newTestModel(t)
-	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), dormantCorpus()))
+	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
 	m = mi.(Model)
 	m.width, m.height = 120, 40
 

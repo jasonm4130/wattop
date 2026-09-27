@@ -114,6 +114,92 @@ type Usage struct {
 	CachedInput   int64 `json:"cached_input"`
 }
 
+// UsageKey identifies one pricing bucket of a UsageLedger: the model a
+// request ran on, and its prompt size in thousands of tokens.
+//
+// PromptK is ceil(promptTokens/1000). Pricing tiers are published as
+// *_above_<N>k_tokens and apply when a request's prompt is strictly greater
+// than N*1000 tokens; ceil preserves that comparison exactly, since
+// promptTokens > N*1000 iff ceil(promptTokens/1000) > N. So 272000 tokens
+// is PromptK 272 (not above 272k) and 272001 is PromptK 273 (above), and
+// pricing PromptK*1000 selects the same tier the request's own size would.
+type UsageKey struct {
+	Model   string
+	PromptK int64
+}
+
+// UsageLedger is usage bucketed by (model, prompt-size tier), so cost can be
+// priced per request at that request's own model and long-context tier
+// rather than cumulative usage at the latest model and prompt size. Sessions
+// and subagents carry one alongside their cumulative Usage, which stays the
+// display total. A nil ledger means the source did not record one.
+type UsageLedger map[UsageKey]Usage
+
+// PromptK converts a prompt size in tokens to UsageKey.PromptK:
+// ceil(promptTokens/1000), and 0 for a non-positive size.
+func PromptK(promptTokens int64) int64 {
+	if promptTokens <= 0 {
+		return 0
+	}
+	return (promptTokens + 999) / 1000
+}
+
+// Add accumulates u under (model, PromptK(promptTokens)). The ledger must be
+// non-nil. A negative u (a correction to an earlier add) is applied as is.
+func (l UsageLedger) Add(model string, promptTokens int64, u Usage) {
+	k := UsageKey{Model: model, PromptK: PromptK(promptTokens)}
+	l[k] = l[k].Plus(u)
+}
+
+// Merge adds every bucket of o into l. l must be non-nil.
+func (l UsageLedger) Merge(o UsageLedger) {
+	for k, u := range o {
+		l[k] = l[k].Plus(u)
+	}
+}
+
+// Clone returns an independent copy, or nil for a nil ledger. Sources hand
+// out clones so a snapshot never aliases a map the next poll mutates.
+func (l UsageLedger) Clone() UsageLedger {
+	if l == nil {
+		return nil
+	}
+	out := make(UsageLedger, len(l))
+	for k, u := range l {
+		out[k] = u
+	}
+	return out
+}
+
+// Plus returns the field-wise sum of u and o.
+func (u Usage) Plus(o Usage) Usage {
+	return Usage{
+		Input:         u.Input + o.Input,
+		Output:        u.Output + o.Output,
+		CacheRead:     u.CacheRead + o.CacheRead,
+		CacheCreate5m: u.CacheCreate5m + o.CacheCreate5m,
+		CacheCreate1h: u.CacheCreate1h + o.CacheCreate1h,
+		Thinking:      u.Thinking + o.Thinking,
+		CachedInput:   u.CachedInput + o.CachedInput,
+	}
+}
+
+// Minus returns the field-wise difference u - o.
+func (u Usage) Minus(o Usage) Usage {
+	return Usage{
+		Input:         u.Input - o.Input,
+		Output:        u.Output - o.Output,
+		CacheRead:     u.CacheRead - o.CacheRead,
+		CacheCreate5m: u.CacheCreate5m - o.CacheCreate5m,
+		CacheCreate1h: u.CacheCreate1h - o.CacheCreate1h,
+		Thinking:      u.Thinking - o.Thinking,
+		CachedInput:   u.CachedInput - o.CachedInput,
+	}
+}
+
+// IsZero reports whether every field is zero.
+func (u Usage) IsZero() bool { return u == Usage{} }
+
 // TokenRate is recorded transcript usage per second over the last 60 seconds.
 // Input includes cache reads/writes; output includes reported reasoning.
 type TokenRate struct {
@@ -166,11 +252,15 @@ type Subagent struct {
 	ToolCalls   int    `json:"tool_calls"`
 	// ContextUsed is this child's last-request prompt size (input plus cache
 	// reads and writes), which selects its long-context pricing tier.
-	ContextUsed  int64    `json:"context_used"`
-	Usage        Usage    `json:"usage"`
-	Live         bool     `json:"live"` // Status == SubagentRunning
-	CostUSD      *float64 `json:"cost_usd"`
-	BurnUSDPerHr *float64 `json:"burn_usd_per_hr"`
+	ContextUsed int64 `json:"context_used"`
+	Usage       Usage `json:"usage"`
+	// Ledger is Usage bucketed per request by model and prompt tier, which
+	// is what pricing reads when present. Not serialised: Usage is the
+	// display total.
+	Ledger       UsageLedger `json:"-"`
+	Live         bool        `json:"live"` // Status == SubagentRunning
+	CostUSD      *float64    `json:"cost_usd"`
+	BurnUSDPerHr *float64    `json:"burn_usd_per_hr"`
 }
 
 // Workflow summarises one Claude workflow run (subagents/workflows/wf_*):
@@ -210,6 +300,7 @@ type Session struct {
 	StatusSince  time.Time      `json:"status_since"`
 	Model        string         `json:"model"`
 	Usage        Usage          `json:"usage"`
+	Ledger       UsageLedger    `json:"-"` // Usage per request by model and prompt tier; see Subagent.Ledger
 	CostUSD      *float64       `json:"cost_usd"`
 	BurnUSDPerHr *float64       `json:"burn_usd_per_hr"`
 	Priced       bool           `json:"priced"`

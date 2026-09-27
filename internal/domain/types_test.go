@@ -252,6 +252,9 @@ func TestSnapshotJSONKeys(t *testing.T) {
 	if _, ok := sys["soc_name"]; !ok {
 		t.Error("missing \"sys.soc_name\"")
 	}
+	if _, ok := sys["throttled"]; !ok {
+		t.Error("missing \"sys.throttled\"")
+	}
 	if _, ok := sys["bandwidth"]; !ok {
 		t.Fatal("missing \"sys.bandwidth\"")
 	}

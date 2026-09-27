@@ -63,7 +63,7 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 	burnColor := ""
 	if s.BurnUSDPerHr != nil {
 		burn = fmt.Sprintf("$%.2f/hr", *s.BurnUSDPerHr)
-		if *s.BurnUSDPerHr >= burnHotThresholdUSDPerHr {
+		if *s.BurnUSDPerHr >= opts.burnHot() {
 			burnColor = r.CostHot
 		}
 	}
@@ -111,12 +111,6 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 
 	return frame(lines, width, height)
 }
-
-// burnHotThresholdUSDPerHr is the per-session burn rate that turns the
-// cost line CostHot -- the same $5/hr line FooterRender uses for the
-// machine-wide total, so a single session that alone crosses the
-// machine's own hot threshold reads as hot here too.
-const burnHotThresholdUSDPerHr = 5.0
 
 // toolHistogramLabelW is the fixed column width the tool name is padded or
 // elided to, so a long MCP tool name (e.g. "mcp__tavily__tavily_extract",
