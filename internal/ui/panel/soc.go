@@ -21,11 +21,15 @@ type Options struct {
 
 const gaugeWidth = 20
 
+// thermalNames is the OSThermalPressureLevel scale ioreport.m's
+// getThermalState reports (the same scale `powermetrics --samplers thermal`
+// prints), not NSProcessInfoThermalState's coarser Fair/Serious/Critical.
 var thermalNames = map[int]string{
 	0: "Nominal",
-	1: "Fair",
-	2: "Serious",
-	3: "Critical",
+	1: "Moderate",
+	2: "Heavy",
+	3: "Trapping",
+	4: "Sleeping",
 }
 
 func thermalLabel(state int) string {
@@ -36,8 +40,8 @@ func thermalLabel(state int) string {
 }
 
 // thermalColor picks the severity role for a thermal state: Nominal is
-// baseColor (the panel's normal border/text color), Fair is Warn, and
-// Serious/Critical/anything unrecognised is Hot.
+// baseColor (the panel's normal border/text color), Moderate is Warn, and
+// Heavy/Trapping/Sleeping/anything unrecognised is Hot.
 func thermalColor(r theme.Roles, state int, baseColor string) string {
 	switch {
 	case state >= 2 || state < 0:
@@ -79,7 +83,7 @@ func Render(sample domain.SysSample, r theme.Roles, width, height int, opts Opti
 	lines = append(lines, bandwidthLine(sample.Bandwidth))
 	lines = append(lines, tempLine(sample.Temps))
 	lines = append(lines, fansLine(sample.Fans))
-	lines = append(lines, thermalLine(r, sample.ThermalState, opts))
+	lines = append(lines, thermalLine(r, sample.ThermalState, sample.Throttled, opts))
 	lines = append(lines, memoryLine(sample.Memory))
 	lines = append(lines, netDiskLine(sample.Net, sample.Disk))
 
@@ -213,8 +217,14 @@ func fansLine(fans []domain.Fan) string {
 	return "Fans   " + strings.Join(parts, "  ")
 }
 
-func thermalLine(r theme.Roles, state int, opts Options) string {
-	return "Thermal  " + styled(opts, thermalColor(r, state, r.Idle), thermalLabel(state))
+// thermalLine renders the thermal pressure label, followed by a THROTTLED
+// badge when the OS reports it is applying thermal mitigation.
+func thermalLine(r theme.Roles, state int, throttled bool, opts Options) string {
+	line := "Thermal  " + styled(opts, thermalColor(r, state, r.Idle), thermalLabel(state))
+	if throttled {
+		line += " " + styled(opts, r.Hot, "THROTTLED")
+	}
+	return line
 }
 
 func gb(b uint64) float64 { return float64(b) / 1e9 }

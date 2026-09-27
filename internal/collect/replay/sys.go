@@ -191,8 +191,16 @@ func getString(m map[string]json.RawMessage, key string) string {
 	return s
 }
 
+// thermalStates maps mactop's headless thermal_state string onto the
+// OSThermalPressureLevel scale the live sampler reports (see
+// internal/soc/mactop/sys_info.go's thermalStateString). The
+// NSProcessInfoThermalState names are kept as aliases for older captures.
 var thermalStates = map[string]int{
 	"Nominal":  0,
+	"Moderate": 1,
+	"Heavy":    2,
+	"Trapping": 3,
+	"Sleeping": 4,
 	"Fair":     1,
 	"Serious":  2,
 	"Critical": 3,
@@ -303,6 +311,7 @@ func decodeSysRecord(rec []byte) (domain.SysSample, map[string]bool, error) {
 	if ts := getString(top, "thermal_state"); ts != "" {
 		if state, ok := thermalStates[ts]; ok {
 			sample.ThermalState = state
+			sample.Throttled = state >= 1
 		} else {
 			sample.ThermalState = -1
 		}
