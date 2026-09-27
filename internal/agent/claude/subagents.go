@@ -316,12 +316,14 @@ func (t *subagentTracker) applyChildEvent(c *childState, ev Event, resulted map[
 			c.lastActivityAt = ts
 		}
 	}
-	if ev.Model != "" {
+	if realModel(ev.Model) {
 		c.model = ev.Model
 	}
 	if ev.HasUsage {
-		c.acc.add(ev)
-		c.lastPrompt = ev.Usage.Input + ev.Usage.CacheRead + ev.Usage.CacheCreate5m + ev.Usage.CacheCreate1h
+		c.acc.add(ev, c.model)
+		if !ev.Usage.IsZero() {
+			c.lastPrompt = promptTokens(ev.Usage)
+		}
 		if ev.Timestamp.After(c.lastUsageAt) {
 			c.lastUsageAt = ev.Timestamp
 		}
@@ -432,6 +434,7 @@ func (t *subagentTracker) subagentOf(c *childState, j *journalState, now time.Ti
 		ToolCalls:      c.toolCalls,
 		ContextUsed:    c.lastPrompt,
 		Usage:          c.acc.usage,
+		Ledger:         c.acc.ledger.Clone(),
 	}
 
 	switch {

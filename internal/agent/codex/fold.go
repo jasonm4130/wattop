@@ -58,6 +58,7 @@ func buildSubagent(c Rollout, parentID string, idleThreshold time.Duration, now 
 		Description:    desc,
 		Model:          c.Model,
 		Usage:          c.Usage,
+		Ledger:         c.Ledger.Clone(),
 		ContextUsed:    c.ContextUsed,
 		SpawnDepth:     c.SpawnDepth,
 		StartedAt:      c.MetaAt,

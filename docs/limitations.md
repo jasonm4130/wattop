@@ -268,7 +268,11 @@ both verified arithmetically rather than guessed:
   message instead ($6.51 `claude-fable-5-1` + $5.15 `claude-opus-5`), and
   arrives at different token totals for the parent (input 84,323 /
   output 66,935 / cache-read 11,793,625 against wattop's 2,306 / 90,236 /
-  10,546,114).
+  10,546,114). The figures above predate per-request pricing: wattop then
+  priced a session's whole usage at its latest model and long-context
+  tier, so this session's `claude-opus-5` turns were billed at
+  `claude-fable-5-1` rates. It now prices each request at its own model
+  and tier, as `ccusage` does, and has not been re-cross-checked since.
 
 Neither tool knows about subscription plans, so neither figure is what the
 account is actually billed. The divergence is recorded here because "our

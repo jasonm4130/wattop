@@ -69,6 +69,7 @@ func (b *Book) swap(snap snapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.snap = snap
+	b.cards.Clear()
 }
 
 func cacheFilePath() string {

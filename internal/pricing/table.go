@@ -22,8 +22,8 @@ var embeddedTable []byte
 
 // modelEntry is one model's raw pricing record from the upstream table,
 // kept as a loose map because tiered cost keys (e.g. *_above_272k_tokens)
-// vary by model and are discovered at lookup time, never declared as
-// fields — see (*Book).Cost's tier scan.
+// vary by model and are discovered from the entry's own keys, never
+// declared as fields — see parseRateCard, which parses them once per model.
 type modelEntry map[string]any
 
 // modelTable maps a bare model key, as published upstream, to its entry.
@@ -43,6 +43,10 @@ type snapshot struct {
 type Book struct {
 	mu   sync.RWMutex
 	snap snapshot
+	// cards caches each table key's parsed rateCard (key: the resolved
+	// model string), so the tier-key regex runs once per model rather than
+	// on every Cost call. swap clears it.
+	cards sync.Map
 }
 
 // Load returns the embedded snapshot. It never touches the network and
