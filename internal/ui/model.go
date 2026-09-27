@@ -191,8 +191,14 @@ func (m *Model) cycleTheme(dir int) {
 // threshold) and unbound alone is not enough (a recent rollout whose pid
 // join failed is still worth showing); only the pair means nothing about
 // the row can be current.
+//
+// "Bound to no live process" is read from Proc, which the reducer attaches
+// only when the session's pid is in this cycle's process table (and leaves
+// nil when PID is nil). A PID alone is not liveness: Claude sessions always
+// bind "exact" from their session file, so a crashed Claude session keeps
+// its PID and BindConf forever and would otherwise never go dormant.
 func dormant(s domain.Session) bool {
-	return s.Status == "stale" && (s.PID == nil || s.BindConf == "unknown")
+	return s.Status == "stale" && (s.Proc == nil || s.BindConf == "unknown")
 }
 
 // visibleSessions applies the dormant-row filter, the current sort and the
