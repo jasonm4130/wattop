@@ -120,6 +120,21 @@ stale, say) is hidden from the table and counted in the footer as
 `N hidden (a)`, with `a` toggling it back. Nothing is silently dropped from
 the screen without being counted.
 
+Rollouts are discovered by mtime across the whole `~/.codex/sessions`
+tree, not by folder date: Codex files a rollout under the day the session
+started and keeps appending to it, so a resumed or multi-day session lives
+in an old `YYYY/MM/DD` folder. To keep that cheap, the full tree (one
+`lstat` per rollout file, no file opened) is re-walked only every 30 s;
+between walks only today's, yesterday's and the folders that held a recent
+rollout at the last walk are listed. A session resumed in an older folder
+can therefore take up to 30 s to appear. The discovery window is 24 h; a
+rollout that was bound to a live `codex` process stays listed past that for
+as long as the same process (pid and start time) is alive, so a session
+idle for days still shows. A session already idle for more than 24 h when
+wattop starts is not found: the window is deliberately not widened back to
+the oldest `codex` process's start, because a long-lived `codex app-server`
+daemon would drag weeks of rollouts into a full read.
+
 The lookback is a constant, not yet a config key: `codex.WithLookback`
 exists but `cmd/wattop` does not read a `codex_lookback_minutes` from
 `config.toml`, so 2 h is what you get.
