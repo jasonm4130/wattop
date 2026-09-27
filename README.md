@@ -14,9 +14,10 @@ or as part of your own tooling.
 This is an early-stage project. Token rates are 60-second transcript averages,
 and dollar figures are estimates—not subscription balances.
 
-![wattop showing hardware and token throughput graphs with Claude and Codex sessions](docs/assets/wattop.png)
+![wattop showing hardware and token throughput graphs with Claude and Codex sessions](docs/assets/wattop.gif)
 
-*Synthetic demonstration data; rates and costs are illustrative.*
+*Synthetic demonstration data; rates and costs are illustrative. Recorded from
+`wattop --demo` with `make demo`; [still image](docs/assets/wattop.png).*
 
 ## Scope
 
@@ -70,6 +71,7 @@ wattop --interval 2s      # SoC sample interval, 500ms-5s
 wattop --json             # one Snapshot per interval as NDJSON, no alt screen
 wattop --json --once      # exactly one Snapshot, then exit
 wattop --no-color         # or NO_COLOR=1: no ANSI styling, gauges as blocks
+wattop --demo             # synthetic machine and sessions for screenshots; reads no local data
 wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```

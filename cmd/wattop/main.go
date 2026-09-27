@@ -19,6 +19,7 @@ import (
 
 	"github.com/jasonm4130/wattop/internal/agent/claude"
 	"github.com/jasonm4130/wattop/internal/agent/codex"
+	"github.com/jasonm4130/wattop/internal/collect/demo"
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/pricing"
 	"github.com/jasonm4130/wattop/internal/proc"
@@ -50,7 +51,7 @@ const (
 )
 
 // cliFlags is the parsed top-level flag surface: --theme, --interval,
-// --json, --once, --no-color, --version. Pulled out of main() so
+// --json, --once, --no-color, --version, --demo. Pulled out of main() so
 // run_test.go can assert the flag surface parses without exec'ing the
 // built binary.
 type cliFlags struct {
@@ -60,6 +61,7 @@ type cliFlags struct {
 	once     bool
 	noColor  bool
 	version  bool
+	demo     bool
 }
 
 // newFlagSet declares the top-level flags into f. Output is discarded and
@@ -75,6 +77,7 @@ func newFlagSet(f *cliFlags) *flag.FlagSet {
 	fs.BoolVar(&f.once, "once", false, "with --json, print exactly one Snapshot and exit")
 	fs.BoolVar(&f.noColor, "no-color", false, "disable all ANSI styling")
 	fs.BoolVar(&f.version, "version", false, "print the version and exit")
+	fs.BoolVar(&f.demo, "demo", false, "synthetic data for screenshots")
 	return fs
 }
 
@@ -140,9 +143,14 @@ func main() {
 		return
 	}
 
-	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+	// --demo ignores config.toml as well as every real collector, so a
+	// recording looks the same on any machine.
+	var cfg Config
+	if !flags.demo {
+		cfg, err = loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+		}
 	}
 
 	interval := resolveInterval(flags.interval, cfg)
@@ -153,9 +161,27 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	src, book, sysAvailable := buildSources(ctx, cfg)
+	var (
+		src          Sources
+		book         *pricing.Book
+		sysAvailable bool
+		world        *demo.World
+	)
+	if flags.demo {
+		src, book, world, err = buildDemoSources(interval)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+			os.Exit(1)
+		}
+		sysAvailable = true
+	} else {
+		src, book, sysAvailable = buildSources(ctx, cfg)
+	}
 	burn := pricing.NewBurnTracker(burnWindow, burnAlpha)
 	st := state.New(book, burn)
+	if world != nil {
+		prewarmDemo(st, world, time.Now(), demoPrewarm)
+	}
 	loop := NewLoop(src, interval, st, sysAvailable)
 
 	if flags.json {
