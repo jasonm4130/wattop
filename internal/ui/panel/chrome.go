@@ -73,7 +73,7 @@ func HardwareRender(s domain.SysSample, r theme.Roles, width, height int, opts O
 
 	p := s.Power
 	power := []string{
-		styled(opts, r.ChartWatts, fdash(p.SystemWatts, "%.1f W")) + " system" + "    " + thermalLine(r, s.ThermalState, opts),
+		styled(opts, r.ChartWatts, fdash(p.SystemWatts, "%.1f W")) + " system" + "    " + thermalLine(r, s.ThermalState, s.Throttled, opts),
 		fmt.Sprintf("CPU %s   GPU %s   ANE %s", fdash(p.CPUWatts, "%.1fW"), fdash(p.GPUWatts, "%.1fW"), fdash(p.ANEWatts, "%.1fW")),
 		"DRAM " + fdash(p.DRAMWatts, "%.1fW"),
 		"",

@@ -336,3 +336,35 @@ func TestFrameNegativeWidthNeverPanics(t *testing.T) {
 		t.Errorf("frame with negative width: got %q, want %q", out, want)
 	}
 }
+
+// TestThermalLabelsMatchPressureScale pins the thermal row to the scale the
+// sampler actually reports: ioreport.m's getThermalState returns the
+// OSThermalPressureLevel scale (0=Nominal, 1=Moderate, 2=Heavy, 3=Trapping,
+// 4=Sleeping), not NSProcessInfoThermalState's Fair/Serious/Critical.
+func TestThermalLabelsMatchPressureScale(t *testing.T) {
+	want := map[int]string{
+		0: "Nominal", 1: "Moderate", 2: "Heavy", 3: "Trapping", 4: "Sleeping",
+		-1: "Unknown", 5: "Unknown",
+	}
+	for state, label := range want {
+		if got := thermalLabel(state); got != label {
+			t.Errorf("thermalLabel(%d) = %q, want %q", state, got, label)
+		}
+	}
+}
+
+// TestThermalLineShowsThrottledBadge asserts a throttled sample carries a
+// THROTTLED badge on the thermal row, and an unthrottled one does not.
+func TestThermalLineShowsThrottledBadge(t *testing.T) {
+	r, err := theme.Load("wattop-dark")
+	if err != nil {
+		t.Fatalf("theme.Load: %v", err)
+	}
+	opts := Options{NoColor: true}
+	if got := thermalLine(r, 2, true, opts); !strings.Contains(got, "THROTTLED") {
+		t.Errorf("throttled thermal line = %q, want a THROTTLED badge", got)
+	}
+	if got := thermalLine(r, 0, false, opts); strings.Contains(got, "THROTTLED") {
+		t.Errorf("unthrottled thermal line = %q, want no THROTTLED badge", got)
+	}
+}

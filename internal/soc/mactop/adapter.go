@@ -41,8 +41,20 @@ var (
 
 // Init initializes the IOReport subscription. Passwordless on Apple
 // Silicon; returns a descriptive error rather than hanging.
+//
+// It also takes a baseline read of the delta-based collectors
+// (GetCPUPercentages, getNetDiskMetrics). Both report zero on their first
+// call because they have nothing to subtract from; without this baseline
+// the first SampleAll -- which is the only sample --json --once ever takes
+// -- reported every core idle and 0 B/s of net and disk I/O. With it, the
+// first SampleAll's delta spans that sample's full blocking interval.
 func Init() error {
-	return initSocMetrics()
+	if err := initSocMetrics(); err != nil {
+		return err
+	}
+	_, _ = GetCPUPercentages()
+	_ = getNetDiskMetrics()
+	return nil
 }
 
 // Sample blocks for durationMs inside C sampling IOReport and SMC — the

@@ -37,6 +37,22 @@ func TestLiveSample(t *testing.T) {
 		t.Errorf("want at least two clusters with nonzero CoreCount, got %d (clusters=%+v)", nonzeroClusters, sample.Clusters)
 	}
 
+	// The first Sample after Init must carry a real CPU-usage delta: Init
+	// takes the baseline. Some core is always busy across a 1s window on a
+	// live machine (this test process, at minimum), so all-zero means the
+	// delta had no baseline.
+	anyActive := false
+	for _, c := range sample.Clusters {
+		for _, v := range c.CoreActive {
+			if v > 0 {
+				anyActive = true
+			}
+		}
+	}
+	if !anyActive {
+		t.Errorf("first Sample after Init reports every core at 0%% active (clusters=%+v)", sample.Clusters)
+	}
+
 	if sample.Power.CPUWatts == nil {
 		t.Error("Power.CPUWatts is nil")
 	} else if v := *sample.Power.CPUWatts; v <= 0 || v >= 200 {
