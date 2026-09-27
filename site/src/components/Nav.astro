@@ -1,0 +1,22 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+const { home = true } = Astro.props as { home?: boolean };
+const p = home ? '' : '/';
+---
+
+<header class="bar">
+  <nav class="bar-in" aria-label="Main">
+    <a href="/" class="wm" aria-label="wattop home">
+      <span class="wm-cursor" aria-hidden="true">▍</span>wattop<span class="wm-v">v0.3.0</span>
+    </a>
+    <ul class="bar-links">
+      <li class="opt"><a href={`${p}#install`}>install</a></li>
+      <li class="opt"><a href={`${p}#features`}>features</a></li>
+      <li class="opt"><a href={`${p}#privacy`}>privacy</a></li>
+      <li class="opt"><a href={`${p}#compare`}>compare</a></li>
+      <li><a href="/docs/">docs</a></li>
+      <li><a href="https://github.com/jasonm4130/wattop" rel="noopener">github<span aria-hidden="true">&nbsp;↗</span></a></li>
+    </ul>
+    <ThemeToggle />
+  </nav>
+</header>

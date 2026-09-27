@@ -1,0 +1,174 @@
+/* Starlight restyled as a terminal: wattop palettes, monospace throughout,
+   square panels, `##` headings. */
+:root,
+:root[data-theme='dark'] {
+  --sl-font: var(--mono);
+  --sl-font-mono: var(--mono);
+  --sl-color-accent-low: #0f2a4a;
+  --sl-color-accent: #58a6ff;
+  --sl-color-accent-high: #a5d0ff;
+  --sl-color-white: #e6e6e6;
+  --sl-color-gray-1: #e6e6e6;
+  --sl-color-gray-2: #c9d1d9;
+  --sl-color-gray-3: #8b949e;
+  --sl-color-gray-4: #6e7681;
+  --sl-color-gray-5: #30363d;
+  --sl-color-gray-6: #161b22;
+  --sl-color-black: #0d1117;
+  --sl-color-bg-nav: #0d1117;
+  --sl-color-bg-sidebar: #0d1117;
+  --sl-color-hairline: #30363d;
+  --sl-color-hairline-light: #30363d;
+  --sl-color-hairline-shade: #21262d;
+  --sl-text-h1: 2rem;
+  --sl-text-h2: 1.375rem;
+  --sl-text-h3: 1.125rem;
+  --sl-text-h4: 1rem;
+  --sl-text-body: 0.9375rem;
+  --sl-line-height: 1.7;
+  --sl-content-width: 48rem;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ddf4ff;
+  --sl-color-accent: #0969da;
+  --sl-color-accent-high: #0550ae;
+  --sl-color-white: #1f2328;
+  --sl-color-gray-1: #1f2328;
+  --sl-color-gray-2: #31363c;
+  --sl-color-gray-3: #59636e;
+  --sl-color-gray-4: #6e7781;
+  --sl-color-gray-5: #d0d7de;
+  --sl-color-gray-6: #f6f8fa;
+  --sl-color-gray-7: #f6f8fa;
+  --sl-color-black: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #ffffff;
+  --sl-color-hairline: #d0d7de;
+  --sl-color-hairline-light: #d0d7de;
+  --sl-color-hairline-shade: #eaeef2;
+}
+
+body {
+  font-feature-settings: 'calt' 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* headings read like markdown in a terminal */
+.sl-markdown-content h2::before {
+  content: '## ';
+  color: var(--sl-color-accent);
+  font-weight: 400;
+}
+.sl-markdown-content h3::before {
+  content: '### ';
+  color: var(--sl-color-accent);
+  font-weight: 400;
+}
+h1#_top {
+  letter-spacing: -0.03em;
+}
+h1#_top::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  margin-left: 0.15em;
+  vertical-align: -0.08em;
+  background: var(--sl-color-accent);
+}
+
+/* sidebar entries as a file list */
+.sidebar-content a[aria-current='page'] {
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-white);
+  border-left: 2px solid var(--sl-color-accent);
+  border-radius: 0;
+  font-weight: 600;
+}
+.sidebar-content a[aria-current='page']::before {
+  content: '▸ ';
+  color: var(--sl-color-accent);
+}
+.sidebar-content .group-label .large {
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--sl-color-accent);
+}
+
+/* code, tables and asides as panels */
+.sl-markdown-content :not(pre) > code {
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 3px;
+  padding: 0.05em 0.35ch;
+  font-size: 0.9em;
+}
+.expressive-code .frame {
+  --button-spacing: 0.4rem;
+}
+.expressive-code pre {
+  border-radius: 4px !important;
+}
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  font-size: 0.9em;
+  border: 1px solid var(--sl-color-hairline);
+}
+.sl-markdown-content th,
+.sl-markdown-content td {
+  padding: 0.5rem 0.75rem;
+}
+@media (min-width: 50rem) {
+  .sl-markdown-content td:first-child {
+    white-space: nowrap;
+  }
+}
+.sl-markdown-content th {
+  color: var(--sl-color-gray-3);
+  text-transform: uppercase;
+  font-weight: 400;
+  font-size: 0.85em;
+  letter-spacing: 0.03em;
+}
+.starlight-aside {
+  border-radius: 4px;
+}
+.sl-markdown-content kbd {
+  border: 1px solid var(--sl-color-hairline);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 0.5ch;
+  color: var(--sl-color-accent);
+  font-size: 0.85em;
+}
+
+/* the theme toggle inside Starlight's header */
+.theme-toggle {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-3);
+  background: none;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 3px;
+  padding: 2px 1ch;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.theme-toggle:hover {
+  color: var(--sl-color-white);
+}
+.tt-k {
+  color: var(--sl-color-accent);
+  margin-right: 0.6ch;
+}
+.tt-v {
+  color: var(--sl-color-white);
+}
+@media (max-width: 50rem) {
+  .tt-l {
+    display: none;
+  }
+}
