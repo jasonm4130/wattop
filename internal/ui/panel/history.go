@@ -58,7 +58,7 @@ func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.R
 func HardwareSummary(s domain.SysSample, r theme.Roles, width, height int, opts Options) string {
 	return frame([]string{
 		Rule("wattop / "+valueOrDash(s.SoCName)+" / g meters", r, width, opts),
-		memoryLine(s.Memory) + "  " + thermalLine(r, s.ThermalState, opts),
+		memoryLine(s.Memory) + "  " + thermalLine(r, s.ThermalState, s.Throttled, opts),
 		powerLine(s.Power),
 	}, width, height)
 }

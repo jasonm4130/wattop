@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,6 +87,55 @@ func TestFlagSurfaceParses(t *testing.T) {
 	}
 	if !versionFlags.version {
 		t.Error("version = false, want true")
+	}
+}
+
+// TestDiscardStdLogWhileTUIRuns: the standard logger (pricing refresh
+// failures, from a background goroutine) must not write into the alt
+// screen while the TUI runs, and must go back to stderr afterwards.
+func TestDiscardStdLogWhileTUIRuns(t *testing.T) {
+	prev := log.Writer()
+	defer log.SetOutput(prev)
+	log.SetOutput(os.Stderr)
+
+	restore := discardStdLog()
+	if log.Writer() != io.Discard {
+		t.Errorf("while the TUI runs, log.Writer() = %v, want io.Discard", log.Writer())
+	}
+	restore()
+	if log.Writer() != os.Stderr {
+		t.Errorf("after the TUI exits, log.Writer() = %v, want os.Stderr", log.Writer())
+	}
+}
+
+// TestHelpPrintsUsageAndExitsZero: -h/--help is a request, not an error. It
+// prints usage -- including the doctor subcommand and its flags -- to
+// stdout, nothing to stderr, and exits 0.
+func TestHelpPrintsUsageAndExitsZero(t *testing.T) {
+	for _, arg := range []string{"-h", "--help"} {
+		_, err := parseFlags([]string{arg})
+		var stdout, stderr bytes.Buffer
+		if code := parseErrorExit(err, &stdout, &stderr); code != 0 {
+			t.Errorf("%s: exit code = %d, want 0", arg, code)
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("%s: wrote to stderr: %q", arg, stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"-json", "-once", "-interval", "doctor", "-ioreport-groups"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: usage is missing %q:\n%s", arg, want, out)
+			}
+		}
+	}
+
+	_, err := parseFlags([]string{"--bogus"})
+	var stdout, stderr bytes.Buffer
+	if code := parseErrorExit(err, &stdout, &stderr); code != 2 {
+		t.Errorf("--bogus: exit code = %d, want 2", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "bogus") {
+		t.Errorf("--bogus: stdout=%q stderr=%q, want the error on stderr only", stdout.String(), stderr.String())
 	}
 }
 

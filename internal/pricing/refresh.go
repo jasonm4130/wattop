@@ -16,6 +16,16 @@ import (
 // attempted.
 const refreshTTL = 24 * time.Hour
 
+// pricingClient bounds the background fetch: nothing waits on the refresh
+// goroutine, so without a timeout a stalled server would hold its
+// connection open for the life of the process.
+var pricingClient = &http.Client{Timeout: 10 * time.Second}
+
+// maxPricingBody caps how much of the upstream response is read. The full
+// LiteLLM table is well under this; anything larger is refused rather
+// than buffered into memory whole.
+const maxPricingBody = 20 << 20
+
 // Refresh performs an async, non-blocking pricing refresh into
 // $XDG_CACHE_HOME/wattop/pricing.json with a 24h TTL: a fresh cache is used
 // rather than blocking on the network, a stale or missing one triggers a
@@ -77,21 +87,30 @@ func cacheFilePath() string {
 // curated subset table.json.gz embeds), so a refresh resolves strictly more
 // models than the embedded snapshot, never fewer.
 func fetchSnapshot(ctx context.Context) (snapshot, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, SourceURL, nil)
+	return fetchSnapshotFrom(ctx, pricingClient, SourceURL)
+}
+
+// fetchSnapshotFrom is fetchSnapshot with the client and URL injectable
+// for tests.
+func fetchSnapshotFrom(ctx context.Context, client *http.Client, url string) (snapshot, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return snapshot{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return snapshot{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return snapshot{}, fmt.Errorf("fetch %s: status %d", SourceURL, resp.StatusCode)
+		return snapshot{}, fmt.Errorf("fetch %s: status %d", url, resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPricingBody+1))
 	if err != nil {
 		return snapshot{}, err
+	}
+	if len(body) > maxPricingBody {
+		return snapshot{}, fmt.Errorf("fetch %s: response exceeds %d bytes", url, maxPricingBody)
 	}
 	var models modelTable
 	if err := json.Unmarshal(body, &models); err != nil {

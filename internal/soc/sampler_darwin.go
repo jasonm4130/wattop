@@ -85,6 +85,7 @@ func sysSampleFromComposite(c Composite) domain.SysSample {
 		Temps:        tempsFromComposite(c),
 		Fans:         fansFromComposite(c),
 		ThermalState: c.Thermal,
+		Throttled:    c.Throttled,
 		Memory: domain.MemorySample{
 			TotalBytes:     c.Mem.Total,
 			UsedBytes:      c.Mem.Used,

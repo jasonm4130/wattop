@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -293,11 +295,25 @@ func recoverToErr(err *error) {
 	}
 }
 
+// discardStdLog routes the standard logger to io.Discard and returns a
+// func restoring its previous output. The pricing refresh logs its
+// failures from a background goroutine with log.Printf; under the TUI that
+// line lands in the middle of the alt screen. The failure is not lost --
+// the "pricing" source health badge reports a table that stops refreshing
+// -- and --json and doctor never call this, so they keep stderr logging.
+func discardStdLog() (restore func()) {
+	prev := log.Writer()
+	log.SetOutput(io.Discard)
+	return func() { log.SetOutput(prev) }
+}
+
 // runInteractive builds the Bubble Tea program and drives Loop.Cycle on its
 // own goroutine, sending each cycle's Inputs into the program as one
 // ui.CycleMsg. It blocks until the program exits (quit key, or ctx
 // cancellation).
 func runInteractive(ctx context.Context, loop *Loop, model ui.Model) error {
+	defer discardStdLog()()
+
 	p := tea.NewProgram(model, tea.WithContext(ctx))
 
 	loop.Send = func(in state.Inputs) {
