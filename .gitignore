@@ -4,3 +4,8 @@
 
 # subagent memories
 .claude/agent-memory/
+
+# site/ (wattop.app)
+site/node_modules/
+site/dist/
+site/.astro/
