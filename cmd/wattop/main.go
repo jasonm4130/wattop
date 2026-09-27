@@ -7,8 +7,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/jasonm4130/wattop/internal/agent/claude"
 	"github.com/jasonm4130/wattop/internal/agent/codex"
+	"github.com/jasonm4130/wattop/internal/collect/demo"
 	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/pricing"
 	"github.com/jasonm4130/wattop/internal/proc"
@@ -48,7 +51,7 @@ const (
 )
 
 // cliFlags is the parsed top-level flag surface: --theme, --interval,
-// --json, --once, --no-color, --version. Pulled out of main() so
+// --json, --once, --no-color, --version, --demo. Pulled out of main() so
 // run_test.go can assert the flag surface parses without exec'ing the
 // built binary.
 type cliFlags struct {
@@ -58,21 +61,70 @@ type cliFlags struct {
 	once     bool
 	noColor  bool
 	version  bool
+	demo     bool
 }
 
-func parseFlags(args []string) (cliFlags, error) {
-	var f cliFlags
+// newFlagSet declares the top-level flags into f. Output is discarded and
+// Usage is a no-op: parseErrorExit, not the flag package, decides where
+// usage and errors go, so -h prints to stdout and a bad flag to stderr.
+func newFlagSet(f *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("wattop", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
 	fs.StringVar(&f.theme, "theme", "", "theme name or bare hex accent (default: $WATTOP_THEME, then config.toml, then wattop-dark)")
 	fs.DurationVar(&f.interval, "interval", 0, "SoC sample interval, 500ms-5s (default: config.toml, then 1s)")
 	fs.BoolVar(&f.json, "json", false, "print one Snapshot per interval as NDJSON and never enter the alt screen")
 	fs.BoolVar(&f.once, "once", false, "with --json, print exactly one Snapshot and exit")
 	fs.BoolVar(&f.noColor, "no-color", false, "disable all ANSI styling")
 	fs.BoolVar(&f.version, "version", false, "print the version and exit")
-	if err := fs.Parse(args); err != nil {
+	fs.BoolVar(&f.demo, "demo", false, "synthetic data for screenshots")
+	return fs
+}
+
+// newDoctorFlagSet declares doctor's own flags. Shared by runDoctorCommand
+// and writeUsage so the top-level help can never drift from what doctor
+// actually parses.
+func newDoctorFlagSet(groups *bool) *flag.FlagSet {
+	fs := flag.NewFlagSet("wattop doctor", flag.ExitOnError)
+	fs.BoolVar(groups, "ioreport-groups", false, "enumerate IOReport groups with channel counts")
+	return fs
+}
+
+func parseFlags(args []string) (cliFlags, error) {
+	var f cliFlags
+	if err := newFlagSet(&f).Parse(args); err != nil {
 		return cliFlags{}, err
 	}
 	return f, nil
+}
+
+// writeUsage prints the full usage text: the top-level flags, then the
+// doctor subcommand and its flags.
+func writeUsage(w io.Writer) {
+	var f cliFlags
+	fs := newFlagSet(&f)
+	fs.SetOutput(w)
+	fmt.Fprintf(w, "Usage:\n  wattop [flags]\n  wattop doctor [doctor flags]\n\nFlags:\n")
+	fs.PrintDefaults()
+
+	var groups bool
+	dfs := newDoctorFlagSet(&groups)
+	dfs.SetOutput(w)
+	fmt.Fprintf(w, "\nCommands:\n  doctor\tprint which SoC channels, agent sources, pricing and theme resolve on this machine\n\nDoctor flags:\n")
+	dfs.PrintDefaults()
+}
+
+// parseErrorExit handles a parseFlags error and returns the exit code:
+// -h/--help prints usage to stdout and exits 0; any other error prints
+// itself and the usage to stderr and exits 2.
+func parseErrorExit(err error, stdout, stderr io.Writer) int {
+	if errors.Is(err, flag.ErrHelp) {
+		writeUsage(stdout)
+		return 0
+	}
+	fmt.Fprintf(stderr, "wattop: %v\n", err)
+	writeUsage(stderr)
+	return 2
 }
 
 func main() {
@@ -83,8 +135,7 @@ func main() {
 
 	flags, err := parseFlags(os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
-		os.Exit(2)
+		os.Exit(parseErrorExit(err, os.Stdout, os.Stderr))
 	}
 
 	if flags.version {
@@ -92,9 +143,14 @@ func main() {
 		return
 	}
 
-	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+	// --demo ignores config.toml as well as every real collector, so a
+	// recording looks the same on any machine.
+	var cfg Config
+	if !flags.demo {
+		cfg, err = loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+		}
 	}
 
 	interval := resolveInterval(flags.interval, cfg)
@@ -105,9 +161,27 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	src, book, sysAvailable := buildSources(ctx, cfg)
+	var (
+		src          Sources
+		book         *pricing.Book
+		sysAvailable bool
+		world        *demo.World
+	)
+	if flags.demo {
+		src, book, world, err = buildDemoSources(interval)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
+			os.Exit(1)
+		}
+		sysAvailable = true
+	} else {
+		src, book, sysAvailable = buildSources(ctx, cfg)
+	}
 	burn := pricing.NewBurnTracker(burnWindow, burnAlpha)
 	st := state.New(book, burn)
+	if world != nil {
+		prewarmDemo(st, world, time.Now(), demoPrewarm)
+	}
 	loop := NewLoop(src, interval, st, sysAvailable)
 
 	if flags.json {
@@ -125,7 +199,7 @@ func main() {
 		return
 	}
 
-	model := ui.New(st, resolvedThemeName, roles).WithNoColor(noColor)
+	model := ui.New(st, resolvedThemeName, roles).WithNoColor(noColor).WithBurnHot(cfg.BurnHotUSDPerHr)
 	if err := runInteractive(ctx, loop, model); err != nil {
 		fmt.Fprintf(os.Stderr, "wattop: %v\n", err)
 		os.Exit(1)
@@ -135,8 +209,8 @@ func main() {
 // runDoctorCommand parses doctor's own tiny flag set (--ioreport-groups)
 // and runs the report, without touching the main flag set above.
 func runDoctorCommand(args []string) {
-	fs := flag.NewFlagSet("wattop doctor", flag.ExitOnError)
-	groups := fs.Bool("ioreport-groups", false, "enumerate IOReport groups with channel counts")
+	groups := new(bool)
+	fs := newDoctorFlagSet(groups)
 	_ = fs.Parse(args)
 
 	cfg, err := loadConfig()

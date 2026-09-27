@@ -26,6 +26,7 @@
     "temps": null,
     "fans": null,
     "thermal_state": 0,
+    "throttled": false,
     "memory": {
       "total_bytes": 0,
       "used_bytes": 0,

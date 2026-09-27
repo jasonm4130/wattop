@@ -120,6 +120,21 @@ stale, say) is hidden from the table and counted in the footer as
 `N hidden (a)`, with `a` toggling it back. Nothing is silently dropped from
 the screen without being counted.
 
+Rollouts are discovered by mtime across the whole `~/.codex/sessions`
+tree, not by folder date: Codex files a rollout under the day the session
+started and keeps appending to it, so a resumed or multi-day session lives
+in an old `YYYY/MM/DD` folder. To keep that cheap, the full tree (one
+`lstat` per rollout file, no file opened) is re-walked only every 30 s;
+between walks only today's, yesterday's and the folders that held a recent
+rollout at the last walk are listed. A session resumed in an older folder
+can therefore take up to 30 s to appear. The discovery window is 24 h; a
+rollout that was bound to a live `codex` process stays listed past that for
+as long as the same process (pid and start time) is alive, so a session
+idle for days still shows. A session already idle for more than 24 h when
+wattop starts is not found: the window is deliberately not widened back to
+the oldest `codex` process's start, because a long-lived `codex app-server`
+daemon would drag weeks of rollouts into a full read.
+
 The lookback is a constant, not yet a config key: `codex.WithLookback`
 exists but `cmd/wattop` does not read a `codex_lookback_minutes` from
 `config.toml`, so 2 h is what you get.
@@ -253,7 +268,11 @@ both verified arithmetically rather than guessed:
   message instead ($6.51 `claude-fable-5-1` + $5.15 `claude-opus-5`), and
   arrives at different token totals for the parent (input 84,323 /
   output 66,935 / cache-read 11,793,625 against wattop's 2,306 / 90,236 /
-  10,546,114).
+  10,546,114). The figures above predate per-request pricing: wattop then
+  priced a session's whole usage at its latest model and long-context
+  tier, so this session's `claude-opus-5` turns were billed at
+  `claude-fable-5-1` rates. It now prices each request at its own model
+  and tier, as `ccusage` does, and has not been re-cross-checked since.
 
 Neither tool knows about subscription plans, so neither figure is what the
 account is actually billed. The divergence is recorded here because "our

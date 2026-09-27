@@ -22,11 +22,9 @@ type Config struct {
 	// spelling of --interval. 0 means unset.
 	IntervalMs int `toml:"interval_ms"`
 
-	// BurnHotUSDPerHr is the $/hr burn rate rendered as "hot", a reserved
-	// knob: no shipped panel reads it yet (the sessions/footer panels are
-	// Task 12's files, out of this task's scope), but config.go's job is to
-	// parse and expose it so a later task's rendering has it to consume
-	// without a second config pass.
+	// BurnHotUSDPerHr is the $/hr burn rate at or above which the footer's
+	// machine total and a session's detail view render as "hot". 0 means
+	// unset -- the panel default of $5/hr applies.
 	BurnHotUSDPerHr float64 `toml:"burn_hot_usd_per_hr"`
 
 	// CodexStaleMinutes is the mtime age, in minutes, past which a Codex

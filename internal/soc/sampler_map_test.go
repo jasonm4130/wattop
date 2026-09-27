@@ -202,3 +202,15 @@ func TestChannelsResolveOnSourceNotValue(t *testing.T) {
 		}
 	})
 }
+
+// TestThrottledReachesSysSample: mactop computes Throttled from the thermal
+// pressure level; the mapping must carry it onto domain.SysSample rather
+// than discard it.
+func TestThrottledReachesSysSample(t *testing.T) {
+	var c Composite
+	c.Thermal = 2
+	c.Throttled = true
+	if s := sysSampleFromComposite(c); !s.Throttled {
+		t.Error("SysSample.Throttled = false, want true for a throttled Composite")
+	}
+}

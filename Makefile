@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/jasonm4130/wattop/internal/version.Version=$(VERSION) \
            -X github.com/jasonm4130/wattop/internal/version.Commit=$(COMMIT) \
            -X github.com/jasonm4130/wattop/internal/version.BuildDate=$(DATE)
 
-.PHONY: test test-hw build lint clean fixtures pricing vendor-diff
+.PHONY: test test-hw build lint clean fixtures pricing vendor-diff demo
 
 test:
 	go test ./...
@@ -31,3 +31,12 @@ pricing:
 
 vendor-diff:
 	./scripts/vendor-diff.sh
+
+# demo re-records the README hero GIF and screenshot from `wattop --demo`
+# (synthetic data only) with charmbracelet/vhs, then letterboxes the
+# screenshot into the 1280x640 GitHub social preview with ffmpeg.
+demo: build
+	vhs docs/demo.tape
+	ffmpeg -v error -y -i docs/assets/wattop.png \
+		-vf "scale=-2:600:flags=lanczos,pad=1280:640:(ow-iw)/2:(oh-ih)/2:color=0x1c1c2c" \
+		docs/assets/social-preview.png

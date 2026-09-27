@@ -9,7 +9,9 @@ package codex
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,7 +70,10 @@ type Rollout struct {
 	Status        string // "busy" | "waiting" | "stale", inferred from the task_started/task_complete histogram; see parse.go
 	TaskCompleted bool   // true once at least one task_complete has been seen
 
-	Usage        domain.Usage
+	Usage domain.Usage
+	// Ledger is Usage broken down per token_count by model and prompt size,
+	// for per-request pricing; it always sums to Usage (see fileLedger).
+	Ledger       domain.UsageLedger
 	ContextUsed  int64 // total_tokens from the most recent token_count event
 	ContextMax   int64 // info.model_context_window, falling back to task_started's top-level model_context_window
 	ContextExact bool  // true once both ContextUsed and ContextMax are known from the transcript
@@ -141,58 +146,171 @@ func (t *tailState) readNewLines() ([][]byte, error) {
 	return lines, nil
 }
 
-// ShortlistRollouts walks root (normally ~/.codex/sessions) looking for
-// rollout-<ts>-<uuid>.jsonl files under today's and yesterday's YYYY/MM/DD
-// local-time directories, and returns those modified within the last
-// maxAge. Shortlisting is by mtime, never by the filename's embedded
-// timestamp: rollout filenames are local time while the records inside are
-// UTC, so a file named for "today" in local time can hold a last event
-// timestamped "yesterday" in UTC (or vice versa) near midnight, and
-// filtering by the filename would silently skip the current day's
-// directory. now is passed in so tests are deterministic.
+// ShortlistRollouts walks the whole of root (normally ~/.codex/sessions)
+// looking for rollout-<ts>-<uuid>.jsonl files, and returns those modified
+// within the last maxAge. It is the stateless form of rolloutIndex's full
+// walk; Source.Poll goes through a rolloutIndex so it does not re-walk the
+// tree on every poll.
+//
+// Selection is by mtime, never by the YYYY/MM/DD folder or the filename's
+// embedded timestamp. Codex writes a rollout into the folder of the day the
+// session STARTED and keeps appending to it, so a resumed or multi-day
+// session lives in an old folder with a fresh mtime; and rollout filenames
+// are local time while the records inside are UTC, so the name's date can
+// disagree with the records near midnight. now is passed in so tests are
+// deterministic.
 func ShortlistRollouts(root string, now time.Time, maxAge time.Duration) ([]string, error) {
-	var dirs []string
-	for _, d := range []time.Time{now, now.Add(-24 * time.Hour)} {
-		dirs = append(dirs, filepath.Join(root, d.Format("2006"), d.Format("01"), d.Format("02")))
-	}
+	matches, _, err := walkRollouts(root, now.Add(-maxAge))
+	return matches, err
+}
 
-	seen := make(map[string]bool)
+// walkRollouts stats every rollout file under root and returns, sorted, the
+// paths whose mtime is not before cutoff, plus the set of directories that
+// held at least one of them. It opens no file. A missing root is not an
+// error: Codex may simply never have run on this machine. An unreadable
+// subdirectory is skipped rather than failing the whole walk.
+func walkRollouts(root string, cutoff time.Time) ([]string, map[string]bool, error) {
 	var matches []string
-	cutoff := now.Add(-maxAge)
+	dirs := make(map[string]bool)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if path == root {
+				return err
+			}
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() || !isRolloutName(d.Name()) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || info.ModTime().Before(cutoff) {
+			return nil
+		}
+		matches = append(matches, path)
+		dirs[filepath.Dir(path)] = true
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, dirs, nil
+		}
+		return nil, nil, err
+	}
+	sort.Strings(matches)
+	return matches, dirs, nil
+}
 
-	for _, dir := range dirs {
-		if seen[dir] {
+// scanRolloutDir is walkRollouts for a single directory: one ReadDir plus
+// one lstat per rollout file in it. A missing directory yields nothing.
+func scanRolloutDir(dir string, cutoff time.Time) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var matches []string
+	for _, e := range entries {
+		if e.IsDir() || !isRolloutName(e.Name()) {
 			continue
 		}
-		seen[dir] = true
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
+		info, err := e.Info()
+		if err != nil || info.ModTime().Before(cutoff) {
+			continue
 		}
+		matches = append(matches, filepath.Join(dir, e.Name()))
+	}
+	return matches, nil
+}
 
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			if !strings.HasPrefix(name, "rollout-") || !strings.HasSuffix(name, ".jsonl") {
-				continue
-			}
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			if info.ModTime().Before(cutoff) {
-				continue
-			}
-			matches = append(matches, filepath.Join(dir, name))
+func isRolloutName(name string) bool {
+	return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
+}
+
+// rewalkInterval is how often rolloutIndex re-walks the whole sessions tree.
+// Between walks, a rollout in a day folder that held nothing recent at the
+// last walk (an old session just resumed) is not seen; this bounds that
+// delay. New sessions are not delayed: today's and yesterday's folders are
+// listed on every poll.
+const rewalkInterval = 30 * time.Second
+
+// rolloutIndex is the cached discovery behind Source.Poll.
+//
+// Cost: a full walk is one ReadDir per directory and one lstat per rollout
+// file in the tree — it opens no file. Codex never deletes rollouts, so the
+// tree grows forever (hundreds to low thousands of files after months of
+// use); a full walk is therefore done only every rewalkInterval, when the
+// root directory's mtime changes, or when the caller widens the cutoff past
+// the last walk's. Every other poll lists only the "hot" day folders the
+// last walk found a recent rollout in, plus today's and yesterday's
+// folders, so a steady-state poll is a handful of ReadDirs and lstats of
+// the files in those few folders — which also re-stats every cached
+// candidate each poll, so a cached rollout that goes idle drops out without
+// waiting for a walk.
+type rolloutIndex struct {
+	root       string
+	walkedAt   time.Time // zero until the first full walk
+	walkCutoff time.Time // the cutoff that full walk used
+	rootMtime  time.Time
+	hotDirs    map[string]bool
+}
+
+func newRolloutIndex(root string) *rolloutIndex {
+	return &rolloutIndex{root: root}
+}
+
+// shortlist returns every rollout under the index's root whose mtime is not
+// before cutoff, sorted, walking the full tree only when the cache cannot
+// answer (see rolloutIndex).
+func (x *rolloutIndex) shortlist(now, cutoff time.Time) ([]string, error) {
+	fi, err := os.Stat(x.root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			x.walkedAt = time.Time{}
+			x.hotDirs = nil
+			return nil, nil
 		}
+		return nil, err
 	}
 
+	needWalk := x.walkedAt.IsZero() ||
+		now.Sub(x.walkedAt) >= rewalkInterval ||
+		now.Before(x.walkedAt) || // the clock went backwards
+		cutoff.Before(x.walkCutoff) ||
+		!fi.ModTime().Equal(x.rootMtime)
+
+	if needWalk {
+		matches, dirs, err := walkRollouts(x.root, cutoff)
+		if err != nil {
+			return nil, err
+		}
+		x.walkedAt = now
+		x.walkCutoff = cutoff
+		x.rootMtime = fi.ModTime()
+		x.hotDirs = dirs
+		return matches, nil
+	}
+
+	dirs := make(map[string]bool, len(x.hotDirs)+2)
+	for d := range x.hotDirs {
+		dirs[d] = true
+	}
+	for _, d := range []time.Time{now, now.Add(-24 * time.Hour)} {
+		dirs[filepath.Join(x.root, d.Format("2006"), d.Format("01"), d.Format("02"))] = true
+	}
+
+	var matches []string
+	for dir := range dirs {
+		m, err := scanRolloutDir(dir, cutoff)
+		if err != nil {
+			continue // an unreadable folder is skipped, as in a full walk.
+		}
+		matches = append(matches, m...)
+	}
 	sort.Strings(matches)
 	return matches, nil
 }

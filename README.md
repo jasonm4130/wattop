@@ -1,38 +1,69 @@
 # wattop
 
 [![CI](https://github.com/jasonm4130/wattop/actions/workflows/ci.yml/badge.svg)](https://github.com/jasonm4130/wattop/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/jasonm4130/wattop)](https://github.com/jasonm4130/wattop/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Watch your Mac and your coding agents in one terminal.**
+**A terminal monitor for Apple Silicon Macs that watches your coding agents and your hardware in one pane.**
 
-wattop puts Apple Silicon power, CPU, GPU, and thermals beside your Claude Code
-and Codex sessions. Two-minute graphs show token activity and hardware load;
-session rows show output tokens/s, estimated cost, and process resources.
-Four themes, keyboard navigation, and JSON output make it useful at a glance
-or as part of your own tooling.
+![wattop showing hardware and token throughput graphs with Claude and Codex sessions](docs/assets/wattop.gif)
 
-This is an early-stage project. Token rates are 60-second transcript averages,
-and dollar figures are estimates—not subscription balances.
-
-![wattop showing hardware and token throughput graphs with Claude and Codex sessions](docs/assets/wattop.png)
-
-*Synthetic demonstration data; rates and costs are illustrative.*
-
-## Scope
-
-macOS, Apple Silicon (arm64) only. Built with CGO against IOReport and SMC,
-so it links `-lIOReport`, a private Apple framework — it is **not
-cross-compilable** and there is no Linux or Intel build. No external
-runtime: no Node, no Python, no subprocess, no Homebrew dependency at
-runtime — macOS system frameworks only, one static-enough binary.
-
-## Install
-
-On **Apple Silicon with macOS 14 or newer**:
+*Synthetic demonstration data from `wattop --demo` (re-record with `make demo`);
+rates and costs are illustrative. [Still image](docs/assets/wattop.png).*
 
 ```sh
 brew install --cask jasonm4130/wattop/wattop
 wattop
+```
+
+- **Claude Code and Codex, live.** Every running session with its status, output tokens/s, context fill, estimated cost and `$/hr`, bound to its process's CPU, GPU and memory.
+- **Subagents and workflows as a tree.** Claude `Agent` spawns (nested and background), workflow runs with phase and progress, and Codex child threads, each with its own rate and cost.
+- **Apple Silicon hardware beside it.** CPU/GPU/ANE/DRAM power, E- and P-cluster load, GPU, temperatures, fans, thermal pressure, memory and swap, network and disk, with two-minute history graphs.
+- **No sudo, no runtime dependencies.** Reads IOReport and SMC directly instead of wrapping `powermetrics` (which needs root); one binary, macOS system frameworks only.
+- **Scriptable.** `--json` streams one snapshot per interval as NDJSON; `--once` prints one and exits.
+
+## How it compares
+
+| | Hardware power & sensors | Claude Code / Codex sessions | Subagent tree | Live TUI | Needs sudo |
+|---|:-:|:-:|:-:|:-:|:-:|
+| **wattop** | yes | both, live | yes | yes | no |
+| [mactop](https://github.com/metaspartan/mactop) | yes | no | no | yes | no |
+| [asitop](https://github.com/tlkh/asitop) | yes | no | no | yes | yes |
+| [ccusage](https://github.com/ryoppippi/ccusage) | no | both, plus others (reports) | no | no | no |
+| [Claude Code Usage Monitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor) | no | Claude, live | no | yes | no |
+
+wattop vendors mactop's IOReport/SMC collector (see [Attribution](#attribution)).
+Comparison checked against each project's README in September 2026. If you
+only want hardware, mactop is excellent; if you want historical usage reports
+across many agents, ccusage is. wattop is for watching live agents and the
+machine running them at once.
+
+## Privacy
+
+wattop runs entirely on your Mac. It reads Claude Code and Codex transcripts
+under `~/.claude` and `~/.codex` read-only and never writes to them. There is
+no telemetry and no account. The only network request is a pricing-table
+refresh: at most one `GET` per 24 hours to
+[LiteLLM's public price list](https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json)
+on raw.githubusercontent.com, cached in `$XDG_CACHE_HOME/wattop/pricing.json` (default `~/.cache`). If it
+fails, the table embedded in the binary is used. `--json` output includes
+session working directories, process command lines and subagent
+descriptions; treat it like your shell history before sharing it.
+
+## Requirements
+
+Apple Silicon (arm64) with macOS 14 or newer. wattop links Apple's private
+IOReport framework through CGO, so there is no Linux or Intel build. Hardware
+support varies by chip and macOS version; run `wattop doctor` to see what
+resolved on yours, and see [limitations](docs/limitations.md).
+
+This is an early-stage project. Token rates are 60-second transcript averages,
+and dollar figures are API-price estimates, not subscription balances.
+
+## Install
+
+```sh
+brew install --cask jasonm4130/wattop/wattop
 ```
 
 Update with `brew update && brew upgrade --cask wattop`.
@@ -43,9 +74,13 @@ Release archives include checksums and GitHub build provenance; they are not
 Apple-notarized. The cask removes quarantine from its installed `wattop` binary
 to allow it to launch. See [verification instructions](docs/releasing.md#verify-a-download).
 
-### Build from source
+With Go 1.27 and the Xcode command line tools:
 
-Requires **Apple Silicon, macOS, Go 1.27, and Xcode command line tools**.
+```sh
+go install github.com/jasonm4130/wattop/cmd/wattop@latest
+```
+
+### Build from source
 
 ```sh
 git clone https://github.com/jasonm4130/wattop.git
@@ -54,12 +89,9 @@ make build
 ./bin/wattop
 ```
 
-The build enables CGO for IOReport and SMC. Run `./bin/wattop doctor` to inspect
-hardware support on your Mac. The examples below assume `bin/wattop` is on your
-`PATH`; otherwise use `./bin/wattop`.
-
-Tagged releases are built by GitHub Actions with a macOS 14 deployment target.
-Hardware support varies by chip and macOS version; see [limitations](docs/limitations.md).
+The build enables CGO for IOReport and SMC. The examples below assume `wattop`
+is on your `PATH`; otherwise use `./bin/wattop`. Tagged releases are built by
+GitHub Actions with a macOS 14 deployment target.
 
 ## Usage
 
@@ -70,6 +102,7 @@ wattop --interval 2s      # SoC sample interval, 500ms-5s
 wattop --json             # one Snapshot per interval as NDJSON, no alt screen
 wattop --json --once      # exactly one Snapshot, then exit
 wattop --no-color         # or NO_COLOR=1: no ANSI styling, gauges as blocks
+wattop --demo             # synthetic machine and sessions for screenshots; reads no local data
 wattop doctor             # what actually resolved on this chip
 wattop doctor --ioreport-groups  # + every IOReport group and its channel count
 ```
@@ -89,7 +122,8 @@ and guardian threads. Each child shows its status (`● run`, `idle`, `done`,
 `fail`), the tool it is waiting on, output rate, cost and its own `$/hr`. A
 workflow collapses to one row with its phase and running/done counts; `enter`
 opens the full tree, and the `SA` column reads running/total. A `~` before a
-cost means it leaves out a child on a model the pricing table does not know.
+cost means it leaves out usage, the session's own or a child's, on a model
+the pricing table does not know.
 
 **Terminal width: the dashboard fits at 80 columns and above; the detail view needs
 103 columns.** The table narrows — columns shrink, the context gauge
@@ -145,7 +179,9 @@ not an error — every field just keeps its default.
 Costs are computed from an embedded, filtered snapshot of LiteLLM's pricing
 table (`internal/pricing/table.json.gz`), refreshed in the background at
 startup and cached, so pricing works instantly and offline on first run.
-Run `make pricing` to pull the latest upstream table and regenerate
+Each request is priced at its own model and its own long-context tier, so a
+`/model` switch or one very long prompt never reprices the rest of a
+session. Run `make pricing` to pull the latest upstream table and regenerate
 `docs/pricing-update.md` with the commit and checksum that produced it —
 see that file for how to verify the checksum and add a model upstream
 hasn't published yet.
@@ -177,15 +213,13 @@ this release was verified against.
 
 ## Self-CPU overhead
 
-Measured over a 60-second `--json` run on the M5 Max this was built on:
-`Snapshot.self_cpu_pct` settles to **4.2%-7.0% (mean 5.35%)** in steady
-state, corroborated independently by `ps -o %cpu` on the running process
-(5.4%). The first ~5 samples after startup show a transient over-read of
-190-300% before settling — not a sustained cost, but also not yet fully
-explained; see [`docs/limitations.md`](docs/limitations.md) and
-[`docs/manual-qa.md`](docs/manual-qa.md) item 11 for the raw sample
-sequence. A monitor that distorts what it measures must be accountable for
-its own overhead; this is that accounting.
+Measured over a 75-second `--json` run on an M5 Max watching 12 Claude/Codex
+sessions with 1,293 subagents: `Snapshot.self_cpu_pct` settles to **mean
+5.19% (max 6.94%)** in steady state. The first ~5 samples after startup read
+95-304% while wattop catches up on existing transcripts (and, on M5-class
+chips, calibrates DRAM bandwidth); see [`docs/limitations.md`](docs/limitations.md) and
+[`docs/manual-qa.md`](docs/manual-qa.md) item 11. A monitor that distorts what
+it measures must be accountable for its own overhead; this is that accounting.
 
 ## Attribution
 

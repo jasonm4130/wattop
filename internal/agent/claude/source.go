@@ -16,7 +16,7 @@ import (
 // constant, never a lookup against a pricing/model table — see the Task 8
 // spec for why max_input_tokens would be the wrong ceiling even if this
 // package imported the pricing table, which it must not.
-var contextWindowLadder = []int64{200_000, 500_000, 1_000_000}
+var contextWindowLadder = []int64{200_000, 1_000_000}
 
 // contextWindow returns the smallest ladder entry that is >= hwm (the
 // observed high-water-mark prompt token count), so the estimate
@@ -236,19 +236,25 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 			continue
 		}
 
-		if ev.Model != "" {
+		// A <synthetic> record names no model the API ran, so it never
+		// replaces the last real one.
+		if realModel(ev.Model) {
 			agg.model = ev.Model
 		}
 		if ev.HasUsage {
-			agg.usageAccounting.add(ev)
+			agg.usageAccounting.add(ev, agg.model)
 			if ev.Timestamp.After(agg.lastUsageAt) {
 				agg.lastUsageAt = ev.Timestamp
 			}
 
-			prompt := ev.Usage.Input + ev.Usage.CacheRead + ev.Usage.CacheCreate5m + ev.Usage.CacheCreate1h
-			agg.lastPromptTokens = prompt
-			if prompt > agg.highWaterMark {
-				agg.highWaterMark = prompt
+			// All-zero usage (a <synthetic> record) is no request, so it
+			// says nothing about the prompt size.
+			if !ev.Usage.IsZero() {
+				prompt := promptTokens(ev.Usage)
+				agg.lastPromptTokens = prompt
+				if prompt > agg.highWaterMark {
+					agg.highWaterMark = prompt
+				}
 			}
 		}
 		for _, tc := range ev.Tools {
@@ -320,6 +326,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		StatusSince:  statusSince,
 		Model:        agg.model,
 		Usage:        agg.usage,
+		Ledger:       agg.ledger.Clone(),
 		ContextUsed:  agg.lastPromptTokens,
 		ContextMax:   ctxMax,
 		ContextExact: false,
