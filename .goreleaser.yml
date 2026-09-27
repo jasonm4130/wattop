@@ -37,16 +37,44 @@ checksum:
   name_template: "checksums.txt"
 
 changelog:
+  use: github
   sort: asc
+  abbrev: 7
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-
+      - "^Merge "
+      - "^docs"
+      - "^test"
+      - "^chore"
+      - "^style"
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Performance
+      regexp: '^perf'
+      order: 2
+    - title: Other changes
+      order: 999
 
 release:
   github:
     owner: jasonm4130
     name: wattop
   prerelease: auto
+  name_template: "wattop v{{ .Version }}"
+  header: |
+    Terminal monitor for Apple Silicon Macs: Claude Code and Codex sessions beside CPU/GPU/ANE power, temperatures and fans.
+
+    **Requirements:** Apple Silicon (arm64), macOS 14 or newer.
+
+    ```sh
+    brew install --cask jasonm4130/wattop/wattop
+    ```
+
+    Archives include `checksums.txt` and GitHub build provenance
+    ([verify a download](https://github.com/jasonm4130/wattop/blob/main/docs/releasing.md#verify-a-download)).
+    They are not Apple-notarized.
