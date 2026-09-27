@@ -272,6 +272,26 @@ func (w *World) Procs(at time.Time) []domain.ProcSample {
 	return out
 }
 
+// SelfProc returns a process row for wattop itself under pid, so the
+// footer's self-CPU figure reads like a real run (about 1.5-3% CPU and
+// 60 MB resident) instead of 0.0%. The caller supplies pid (the reducer
+// keys self on os.Getpid); World itself never looks it up.
+func (w *World) SelfProc(pid int, at time.Time) domain.ProcSample {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	t := w.seconds(w.tick)
+	return domain.ProcSample{
+		PID:       pid,
+		Comm:      "wattop",
+		Argv:      []string{"wattop", "--demo"},
+		CWD:       "~/code/wattop",
+		RSSBytes:  uint64(56e6 + 8e6*smooth(w.seed, chSelf+1, t, 12)),
+		CPUPct:    round1(1.5 + 1.5*smooth(w.seed, chSelf, t, 4)),
+		StartTime: w.ago(at, w.tick),
+	}
+}
+
 // Sessions returns every session whose Agent is agent ("claude" or
 // "codex"), or all of them when agent is empty. at is the cycle's clock
 // time: every timestamp in the result is an offset back from it.

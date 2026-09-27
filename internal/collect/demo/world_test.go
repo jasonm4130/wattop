@@ -74,6 +74,10 @@ func TestWorldIsPlausible(t *testing.T) {
 			t.Fatalf("tick %d: fans %d clusters %d, want 2 and 2", i, len(s.Fans), len(s.Clusters))
 		}
 
+		if self := w.SelfProc(4242, at); self.CPUPct < 1.5 || self.CPUPct > 3 || self.RSSBytes < 50e6 || self.RSSBytes > 70e6 {
+			t.Errorf("tick %d: self proc cpu %.1f%% rss %d outside 1.5-3%% / 50-70 MB", i, self.CPUPct, self.RSSBytes)
+		}
+
 		sessions := w.Sessions("", at)
 		procs := w.Procs(at)
 		if len(procs) != len(sessions) {

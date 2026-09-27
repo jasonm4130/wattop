@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/collect/demo"
@@ -30,7 +31,7 @@ func buildDemoSources(interval time.Duration) (Sources, *pricing.Book, *demo.Wor
 	w := demo.New(demo.DefaultSeed, interval)
 	src := Sources{
 		Sys:  demo.NewSampler(w),
-		Proc: demo.NewProcSource(w, nil),
+		Proc: demo.NewProcSource(w, nil, os.Getpid()),
 		Agents: []domain.AgentSource{
 			demo.NewAgentSource(w, "claude"),
 			demo.NewAgentSource(w, "codex"),
@@ -50,7 +51,7 @@ func prewarmDemo(st *state.State, w *demo.World, now time.Time, span time.Durati
 		st.Reduce(state.Inputs{
 			At:       at,
 			Sys:      w.Sys(),
-			Procs:    w.Procs(at),
+			Procs:    append(w.Procs(at), w.SelfProc(os.Getpid(), at)),
 			Sessions: w.Sessions("", at),
 		})
 	}

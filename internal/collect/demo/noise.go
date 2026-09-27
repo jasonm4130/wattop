@@ -51,6 +51,7 @@ const (
 	chDiskR
 	chDiskW
 	chSwell
+	chSelf
 	chCoreBase = 1000
 	chSessBase = 2000
 	chToolBase = 3000

@@ -88,6 +88,9 @@ func TestDemoSnapshotIsLiveAndPriced(t *testing.T) {
 	if p := snap.Sys.Power.SystemWatts; p == nil || *p <= 0 {
 		t.Errorf("system watts = %v, want > 0", p)
 	}
+	if snap.SelfCPUPct <= 0 {
+		t.Errorf("self CPU = %.1f%%, want > 0 (demo must report a wattop process)", snap.SelfCPUPct)
+	}
 	if len(snap.Degraded) != 0 {
 		t.Errorf("degraded = %v, want none", snap.Degraded)
 	}

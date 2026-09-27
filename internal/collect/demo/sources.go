@@ -42,19 +42,22 @@ func (s *Sampler) Channels() map[string]bool {
 func (s *Sampler) Close() error { return nil }
 
 // ProcSource is the domain.ProcSource over a World: one synthetic process
-// per session.
+// per session, plus one for wattop itself when selfPID is set.
 type ProcSource struct {
-	w   *World
-	now func() time.Time
+	w       *World
+	now     func() time.Time
+	selfPID int
 }
 
 // NewProcSource returns a ProcSource over w. now dates each process's
-// start time; nil means time.Now.
-func NewProcSource(w *World, now func() time.Time) *ProcSource {
+// start time; nil means time.Now. selfPID, when positive, adds a
+// synthetic row for wattop under that pid (the caller's os.Getpid, which
+// is how the reducer finds its own CPU figure).
+func NewProcSource(w *World, now func() time.Time, selfPID int) *ProcSource {
 	if now == nil {
 		now = time.Now
 	}
-	return &ProcSource{w: w, now: now}
+	return &ProcSource{w: w, now: now, selfPID: selfPID}
 }
 
 // Scan returns the current tick's synthetic process table.
@@ -62,7 +65,12 @@ func (p *ProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return p.w.Procs(p.now()), nil
+	at := p.now()
+	procs := p.w.Procs(at)
+	if p.selfPID > 0 {
+		procs = append(procs, p.w.SelfProc(p.selfPID, at))
+	}
+	return procs, nil
 }
 
 // Close releases nothing.
