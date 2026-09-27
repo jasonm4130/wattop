@@ -1,0 +1,456 @@
+---
+import Base from '../layouts/Base.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import demoData from '../data/demo.json';
+import { renderDash, WINDOW, seq } from '../lib/dash';
+import type { Demo, Child } from '../lib/dash';
+import { VERSION, REPO, INSTALL as install, GO_INSTALL } from '../lib/site';
+import '../styles/dash.css';
+
+const demo = demoData as unknown as Demo;
+const tick = WINDOW - 1;
+const first = demo.frames[seq(tick, demo.frames.length)];
+const dashHTML = renderDash(demo.frames, tick);
+const lead = first.sessions[0];
+const kids = lead.children;
+
+// Status cell text, as internal/ui/panel/sessions.go statusInfo prints it.
+const stLabel = (st: string) =>
+  ({ busy: '⠋ Busy', waiting: 'Waiting', 'rate-limited': 'RateLimited', stale: 'Stale', unknown: 'Unknown' })[st] ?? st;
+const stClass = (st: string) => (st === 'busy' ? 'busy' : st === 'waiting' ? 'waiting' : st === 'rate-limited' ? 'warn' : 'dim');
+// Child status cell (children.go childStatus), indented 2 + 2 per depth.
+const childLabel = (c: Child) =>
+  (c.k === 'wf' ? 'wf ' : '') + ({ running: '● run', idle: 'idle', done: 'done', failed: 'fail' }[c.st] ?? c.st);
+const childClass = (st: string) => (st === 'running' ? 'busy' : st === 'idle' ? 'waiting' : st === 'failed' ? 'hot-c' : 'dim');
+
+const jqCmd = `$ wattop --demo --json --once \\
+  | jq '.sessions[0] | {agent, status, model,
+                      cost_usd, burn_usd_per_hr}'
+# shown: recorded demo frame 0, rounded;
+# a live --demo run prints its own figures`;
+const j0 = demo.frames[0].sessions[0];
+const jsonOut = JSON.stringify(
+  {
+    agent: j0.agent,
+    status: j0.st,
+    model: j0.model,
+    cost_usd: j0.cost,
+    burn_usd_per_hr: j0.burn,
+  },
+  null,
+  2,
+);
+
+const themes = [
+  { name: 'wattop-dark', bg: '#0d1117', fg: '#e6e6e6', c: ['#58a6ff', '#56d364', '#d29922', '#bc8cff', '#ffa657', '#f85149'] },
+  { name: 'wattop-light', bg: '#ffffff', fg: '#1f2328', c: ['#0969da', '#1a7f37', '#9a6700', '#6639ba', '#bc4c00', '#cf222e'] },
+  { name: 'nord', bg: '#2e3440', fg: '#d8dee9', c: ['#88c0d0', '#a3be8c', '#ebcb8b', '#b48ead', '#d08770', '#bf616a'] },
+  { name: 'catppuccin-mocha', bg: '#1e1e2e', fg: '#cdd6f4', c: ['#cba6f7', '#a6e3a1', '#f9e2af', '#cba6f7', '#fab387', '#f38ba8'] },
+];
+
+const compare = [
+  { name: 'wattop', href: null, hw: 'yes', ag: 'both, live', tree: 'yes', tui: 'yes', sudo: 'no' },
+  { name: 'mactop', href: 'https://github.com/metaspartan/mactop', hw: 'yes', ag: 'no', tree: 'no', tui: 'yes', sudo: 'no' },
+  { name: 'asitop', href: 'https://github.com/tlkh/asitop', hw: 'yes', ag: 'no', tree: 'no', tui: 'yes', sudo: 'yes' },
+  { name: 'ccusage', href: 'https://github.com/ryoppippi/ccusage', hw: 'no', ag: 'both, plus others (reports)', tree: 'no', tui: 'no', sudo: 'no' },
+  {
+    name: 'Claude Code Usage Monitor',
+    href: 'https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor',
+    hw: 'no',
+    ag: 'Claude, live',
+    tree: 'no',
+    tui: 'yes',
+    sudo: 'no',
+  },
+];
+const good = (v: string, invert = false) => {
+  const yes = v !== 'no';
+  return (invert ? !yes : yes) ? 'yes' : 'no';
+};
+---
+
+<Base
+  title="wattop: coding agents and Apple Silicon, in one terminal pane"
+  description="wattop is a terminal monitor for Apple Silicon Macs: live Claude Code and Codex sessions with tokens/s, context, estimated cost and subagent trees, beside CPU/GPU/ANE power, temperatures and memory. No sudo."
+>
+  <Nav />
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-h">
+      <div class="wrap hero-top">
+        <div class="hero-copy">
+        <p class="pill"><span>{VERSION}</span><span>Apple Silicon, macOS 14+</span><span>MIT</span></p>
+        <h1 id="hero-h">
+          Watch the <span class="h-ag">agents</span>.<br />Watch the <span class="h-mac">watts</span>.<span
+            class="cursor"
+            aria-hidden="true"></span>
+        </h1>
+        <p class="lede">
+          Watch every Claude Code and Codex session, its subagents, its output tokens/s (a 60&nbsp;s average) and what
+          it costs, beside what your Mac's CPU, GPU and power are doing. One terminal pane, one binary, no sudo.
+        </p>
+        <div class="cta">
+          <div class="cmd primary" role="group" aria-label="Install command">
+            <code><span class="cmd-p" aria-hidden="true">$</span> {install}</code>
+            <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy install command">
+              <span data-copy-l>copy</span>
+            </button>
+          </div>
+          <a class="btn ghost" href={REPO} rel="noopener">Star on GitHub</a>
+        </div>
+        <p class="req">
+          Nothing else to install: no daemons, no root, no account. No sessions yet? Try <span class="nw"><code>wattop --demo</code>.</span>
+        </p>
+        </div>
+      <ol class="legend" aria-label="What the pane answers">
+        <li>
+          <h2 class="lg-h"><span class="lg-n">01</span> what your agents are doing</h2>
+          <p>
+            Each session's status (<span class="busy">Busy</span>, <span class="waiting">Waiting</span>, RateLimited or
+            Stale), context fill and tool count, bound to its own process. Subagents and workflows nest under it, each
+            with the tool it is on.
+          </p>
+        </li>
+        <li>
+          <h2 class="lg-h"><span class="lg-n">02</span> what they cost</h2>
+          <p>
+            <code>$</code> and <code>$/hr</code> per session and per subagent: API-price estimates from LiteLLM's table.
+            Subscription plans are ignored, and the screen says so.
+          </p>
+        </li>
+        <li>
+          <h2 class="lg-h"><span class="lg-n">03</span> what your Mac is doing</h2>
+          <p>
+            Power by rail, cluster load, temperatures, fans and thermal pressure, with two minutes of history, read
+            without <code>sudo</code>.
+          </p>
+        </li>
+      </ol>
+      </div>
+
+      <figure class="wrap-wide hero-fig" aria-labelledby="dash-cap" aria-describedby="dash-desc">
+        <div class="term">
+          <div class="term-bar">
+            <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="term-title"><b>wattop</b> <span class="dim">/</span> {demo.meta.soc}</span>
+            <span class="tag-demo">--demo · synthetic</span>
+            <button type="button" class="pause" data-dash-pause aria-pressed="false">
+              <span class="k" aria-hidden="true">p</span> <span data-l>pause</span>
+            </button>
+          </div>
+          <div class="dash">
+            <div class="d-body" data-dash data-tick={tick} set:html={dashHTML} />
+          </div>
+        </div>
+        <p id="dash-desc" class="sr-only">
+          A recreation of the wattop terminal dashboard. Top: token throughput graphs (output and input tokens per
+          second) and hardware history graphs for CPU, GPU and power. Middle: CPU cluster, GPU and memory load, and a
+          power, thermals and I/O readout. Bottom: a table of six Claude Code and Codex sessions with status, model,
+          working directory, context fill, output tokens per second, estimated cost and cost per hour, with subagent
+          and workflow rows nested under their sessions. It updates once a second unless paused or reduced motion
+          is set.
+        </p>
+        <figcaption id="dash-cap">
+          Recorded from <code>wattop --demo</code>: a synthetic machine and sessions, so rates and costs are
+          illustrative. This is an HTML recreation that plays {demo.frames.length} recorded <code>--json</code>{' '}
+          snapshots forward and back at one a second.
+        </figcaption>
+      </figure>
+
+    </section>
+
+    <section id="install" class="sec" aria-labelledby="install-h">
+      <div class="wrap">
+        <h2 id="install-h" class="sec-h"><span class="sec-n">01</span> install</h2>
+        <div class="install">
+          <div class="shell" role="region" aria-label="Terminal session: install commands" tabindex="0">
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">{install}</span></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">wattop --demo</span> <span class="sh-x"
+                ># try it: synthetic data, no sessions needed</span
+              ></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">wattop doctor</span> <span class="sh-x"
+                ># what resolved on this chip</span
+              ></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">wattop</span> <span class="sh-x"
+                ># the dashboard; q quits</span
+              ></p>
+            <p class="sh-gap"><span class="sh-x"># or, with Go 1.27 and the Xcode command line tools:</span></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">{GO_INSTALL}</span></p>
+            <p class="sh-gap"><span class="sh-x"># or from source:</span></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">git clone https://github.com/jasonm4130/wattop.git</span></p>
+            <p><span class="sh-p" aria-hidden="true">~ %</span> <span class="sh-c">cd wattop &amp;&amp; make build &amp;&amp; ./bin/wattop</span></p>
+            <p class="sh-gap">
+              <span class="sh-p" aria-hidden="true">~ %</span> <span class="cursor sm" aria-hidden="true"></span>
+            </p>
+          </div>
+          <div class="install-side">
+            <dl class="specs">
+              <dt>needs</dt><dd>Apple Silicon (arm64), macOS 14 or newer. No Intel or Linux build.</dd>
+              <dt>update</dt><dd><code>brew update &amp;&amp; brew upgrade --cask wattop</code></dd>
+              <dt>binary</dt><dd>
+                  arm64 archive on <a href="https://github.com/jasonm4130/wattop/releases/latest" rel="noopener"
+                    >GitHub Releases</a
+                  >, with checksums and GitHub build provenance. Not Apple-notarized: the Homebrew cask removes quarantine
+                  from the <code>wattop</code> binary it installs so that it launches.
+                </dd>
+              <dt>status</dt><dd>Early-stage. Built and tested on an M5 Max so far. Other chips should work; run <code>wattop doctor</code> to see what resolves on yours.</dd>
+            </dl>
+            <a class="more" href="/docs/install/">install docs →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="sec" aria-labelledby="features-h">
+      <div class="wrap">
+        <h2 id="features-h" class="sec-h"><span class="sec-n">02</span> features</h2>
+        <div class="panels">
+          <article class="fp span2">
+            <h3 class="fp-t">sessions</h3>
+            <p class="fp-lead">Claude Code and Codex, live.</p>
+            <p>
+              Status, output tokens/s, context fill, estimated cost and <code>$/hr</code> for every running session, bound
+              to its process's CPU, GPU and memory. Dormant sessions (stale, bound to no live process) are hidden and
+              counted in the footer.
+            </p>
+            <pre class="snip" tabindex="0" role="region" aria-label="Example session rows from the demo"><span class="dim">STATUS       AGENT   CWD                 OUT/s       $    $/HR</span>
+{first.sessions.slice(0, 4).map((s) => (
+  <><span class={stClass(s.st)}>{stLabel(s.st).padEnd(13)}</span>{s.agent.padEnd(8)}{s.cwd.padEnd(18)}{(s.out == null ? '—' : s.out.toFixed(1)).padStart(7)}{(s.cost == null ? '$—' : '$' + s.cost.toFixed(2)).padStart(8)}{(s.burn == null ? '—' : '$' + s.burn.toFixed(2)).padStart(8)}{'\n'}</>
+))}</pre>
+            <p class="chips" aria-label="Session keys"><span><kbd>enter</kbd> detail</span><span><kbd>s</kbd> sort</span><span
+                ><kbd>a</kbd> dormant</span
+              ></p>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">subagents</h3>
+            <p class="fp-lead">Subagents and workflows as a tree.</p>
+            <p>
+              Claude <code>Agent</code> spawns, nested and background; workflow runs with phase and progress; Codex child
+              threads. Each has its own rate and cost.
+            </p>
+            <pre class="snip" tabindex="0" role="region" aria-label="Example subagent rows from the demo"><span class={stClass(lead.st)}>{stLabel(lead.st).padEnd(12)}</span>{lead.cwd}
+{kids.map((c) => (
+  <><span class={childClass(c.st)}>{(' '.repeat(2 + 2 * (c.k === 'wf' ? 0 : c.depth ?? 0)) + childLabel(c)).padEnd(12)}</span>{c.k === 'wf' ? `workflow ${c.phase} ${c.done}/${c.agents}` : c.type + (c.bg ? '⇢' : '')}{'\n'}</>
+))}</pre>
+            <p class="chips" aria-label="Subagent keys"><span><kbd>f</kbd> hide / show subagent rows</span></p>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">power / thermals</h3>
+            <p class="fp-lead">The hardware, beside the agents.</p>
+            <p>
+              CPU/GPU/ANE/DRAM power, E- and P-cluster load, GPU, temperatures, fans, thermal pressure with a <span
+                class="badge-hot">THROTTLED</span
+              > badge, memory and swap, network and disk.
+            </p>
+            <pre class="snip" tabindex="0" role="region" aria-label="Example power readout from the demo"><span class="w-c">{first.sys.w.sys.toFixed(1)} W</span> system  Thermal <span class="idle-c">Nominal</span>
+CPU {first.sys.w.cpu.toFixed(1)}W  GPU {first.sys.w.gpu.toFixed(1)}W  ANE {first.sys.w.ane.toFixed(1)}W
+Temp CPU {first.sys.t[0].toFixed(1)}°C  SOC {first.sys.t[2].toFixed(1)}°C
+Fans {first.sys.fans.map(([l, r]) => `${l} ${r}`).join('  ')} RPM</pre>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">no sudo</h3>
+            <p class="fp-lead">Reads IOReport and SMC directly.</p>
+            <p>
+              No wrapping <code>powermetrics</code>, which needs root. One binary that links only macOS system
+              frameworks, no runtime dependencies.
+            </p>
+            <pre class="snip" tabindex="0" role="region" aria-label="Comparison of how hardware tools read power"><span class="dim"># asitop wraps powermetrics:</span>
+~ % <span class="hot-c">sudo</span> asitop
+<span class="dim"># wattop reads IOReport + SMC as you:</span>
+~ % wattop</pre>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">--json</h3>
+            <p class="fp-lead">Scriptable.</p>
+            <p><code>--json</code> streams one snapshot per interval as NDJSON; <code>--once</code> prints one and exits.</p>
+            <pre class="snip" tabindex="0" role="region" aria-label="Example jq command and JSON output"><span class="dim">{jqCmd}</span>
+{jsonOut}</pre>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">doctor</h3>
+            <p class="fp-lead">See what resolved on your chip.</p>
+            <p>
+              <code>wattop doctor</code> prints which SoC channels, agent sources, pricing and theme resolve, without
+              entering the TUI. Run it first on a new Mac or after a macOS upgrade.
+            </p>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">keys</h3>
+            <dl class="keys">
+              <dt><kbd>↑</kbd><kbd>↓</kbd></dt><dd>select</dd>
+              <dt><kbd>enter</kbd></dt><dd>session detail</dd>
+              <dt><kbd>f</kbd></dt><dd>hide / show subagent rows</dd>
+              <dt><kbd>s</kbd></dt><dd>sort: status → cost → burn → cpu</dd>
+              <dt><kbd>g</kbd></dt><dd>graphs / full meters</dd>
+              <dt><kbd>t</kbd></dt><dd>cycle theme</dd>
+              <dt><kbd>p</kbd></dt><dd>pause display</dd>
+              <dt><kbd>?</kbd></dt><dd>help</dd>
+            </dl>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">themes</h3>
+            <p class="fp-lead">Four, cycled with <kbd>t</kbd>.</p>
+            <ul class="themes">
+              {
+                themes.map((t) => (
+                  <li style={`--tb:${t.bg};--tf:${t.fg}`}>
+                    <span class="th-n">{t.name}</span>
+                    <span class="th-s" aria-hidden="true">
+                      {t.c.map((c) => (
+                        <i style={`background:${c}`} />
+                      ))}
+                    </span>
+                  </li>
+                ))
+              }
+            </ul>
+            <p class="small">Or <code>--theme 58a6ff</code> for a bare accent.</p>
+          </article>
+
+          <article class="fp">
+            <h3 class="fp-t">self-cpu</h3>
+            <p class="fp-lead">~5% of a core, measured.</p>
+            <p>
+              Measured on an M5 Max: 75 s of <code>--json</code> watching 12 sessions and 1,293 subagents,
+              mean&nbsp;<b>5.19%</b>, max 6.94% in steady state. The first ~5 samples after startup read 95-304% while it catches
+              up on existing transcripts.
+            </p>
+            <div class="selfbar" aria-hidden="true"><span class="g"><span class="g-f busy" style="width:5.19%"></span></span></div>
+          </article>
+
+          <article class="fp span2 honest">
+            <h3 class="fp-t">honest labelling</h3>
+            <p class="fp-lead">Estimates that say they are estimates.</p>
+            <ul class="hl">
+              <li><code>$</code> is an estimate from LiteLLM's API prices. It ignores Claude Pro/Max and ChatGPT/Codex plans.</li>
+              <li><code>OUT/s</code> is output tokens over the last 60 s divided by 60, a transcript rate rather than generation speed.</li>
+              <li>Claude context fill is an estimate, drawn with a dashed edge. Codex's is exact, with a solid edge.</li>
+              <li>An unpriced model shows <code>$—</code>, never <code>$0.00</code>. Those mean different things.</li>
+              <li><code>$/hr</code> counts only spend wattop watched happen, so a fresh launch reads <code>$0.00/hr</code>. A nonzero live <code>$/hr</code> has not yet been observed end to end; that path is covered by unit tests.</li>
+              <li>Codex status and pid binding are inferred from rollout files. Codex has no live IPC.</li>
+            </ul>
+            <a class="more" href="/docs/limitations/">all limitations, with evidence →</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy" class="sec" aria-labelledby="privacy-h">
+      <div class="wrap">
+        <h2 id="privacy-h" class="sec-h"><span class="sec-n">03</span> privacy</h2>
+        <div class="priv">
+          <p class="priv-lead">
+            wattop runs entirely on your Mac. No account, no telemetry, one outbound request.
+          </p>
+          <dl class="ledger">
+            <dt><span class="tag rd">read</span></dt>
+            <dd><code>~/.claude</code> and <code>~/.codex</code> transcripts, read-only. Never written to.</dd>
+            <dt><span class="tag rd">read</span></dt>
+            <dd>
+              The whole process table: every process you own, with its command line, working directory, CPU and
+              memory, to find agent processes and bind sessions to them. Kept in memory; nothing leaves the Mac.
+            </dd>
+            <dt><span class="tag net">net</span></dt>
+            <dd>
+              At most one <code>GET</code> per 24 h to{' '}
+              <a
+                href="https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+                rel="noopener">LiteLLM's public price list</a
+              > on raw.githubusercontent.com. If it fails, the table embedded in the binary is used.
+            </dd>
+            <dt><span class="tag wr">write</span></dt>
+            <dd>The price-list cache at <code>$XDG_CACHE_HOME/wattop/pricing.json</code> (default <code>~/.cache</code>).</dd>
+            <dt><span class="tag no">none</span></dt>
+            <dd>Telemetry, analytics, accounts, crash reporting in the <code>wattop</code> binary.</dd>
+            <dt><span class="tag warn-t">note</span></dt>
+            <dd>
+              <code>--json</code> output includes working directories, process command lines and subagent
+              descriptions. Treat it like your shell history before sharing it.
+            </dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare" class="sec" aria-labelledby="compare-h">
+      <div class="wrap">
+        <h2 id="compare-h" class="sec-h"><span class="sec-n">04</span> compare</h2>
+        <div class="cmp-wrap">
+          <table class="cmp">
+            <thead>
+              <tr>
+                <th scope="col"><span class="sr-only">Tool</span></th>
+                <th scope="col">hardware power &amp; sensors</th>
+                <th scope="col">Claude Code / Codex sessions</th>
+                <th scope="col">subagent tree</th>
+                <th scope="col">live TUI</th>
+                <th scope="col">needs sudo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                compare.map((r) => (
+                  <tr class={r.href ? '' : 'me'}>
+                    <th scope="row">{r.href ? <a href={r.href} rel="noopener">{r.name}</a> : r.name}</th>
+                    <td class={good(r.hw)} data-label="hardware power & sensors">{r.hw}</td>
+                    <td class={good(r.ag)} data-label="Claude Code / Codex">{r.ag}</td>
+                    <td class={good(r.tree)} data-label="subagent tree">{r.tree}</td>
+                    <td class={good(r.tui)} data-label="live TUI">{r.tui}</td>
+                    <td class={good(r.sudo, true)} data-label="needs sudo">{r.sudo}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="cmp-note">
+          Checked against each project's README in September 2026. wattop vendors mactop's IOReport/SMC collector. If
+          you only want hardware, mactop is excellent; for historical usage reports across many agents, ccusage is.
+          wattop is for watching live agents and the machine running them at once.
+        </p>
+      </div>
+    </section>
+
+    <section class="sec end" aria-labelledby="end-h">
+      <div class="wrap">
+        <div class="reqs" role="note">
+          <p>
+            <strong>Apple Silicon (arm64) with macOS 14 or newer.</strong> wattop links Apple's private IOReport
+            framework through CGO, so there is no Linux or Intel build.
+          </p>
+          <p>
+            Release archives include checksums and GitHub build provenance; they are not Apple-notarized. This is an
+            early-stage project: read the <a href="/docs/limitations/">limitations</a> before you rely on a number.
+          </p>
+        </div>
+        <h2 id="end-h" class="end-h">One command to install. One to run.</h2>
+        <div class="cta">
+          <div class="cmd primary" role="group" aria-label="Install command">
+            <code><span class="cmd-p" aria-hidden="true">$</span> {install}</code>
+            <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy install command">
+              <span data-copy-l>copy</span>
+            </button>
+          </div>
+          <a class="btn ghost" href={REPO} rel="noopener">Star on GitHub</a>
+        </div>
+        <p class="alt">
+          Or <code>{GO_INSTALL}</code>, or the arm64 archive from{' '}
+          <a href={`${REPO}/releases/latest`} rel="noopener">GitHub Releases</a>. <a href="/docs/">Read the docs</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Base>
+
+<script>
+  import '../scripts/copy';
+  import '../scripts/dash-live';
+</script>

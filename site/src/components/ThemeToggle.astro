@@ -1,0 +1,13 @@
+---
+// Mirrors the TUI footer's `theme:wattop-dark`. Clicking swaps to the
+// wattop-light palette (and back). Behaviour lives in src/scripts/theme.ts.
+---
+
+<button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch colour theme">
+  <span class="tt-k" aria-hidden="true">◐</span>
+  <span class="tt-l">theme:</span><span class="tt-v" data-theme-name>wattop-dark</span>
+</button>
+
+<script>
+  import '../scripts/theme';
+</script>

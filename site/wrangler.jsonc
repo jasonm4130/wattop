@@ -1,0 +1,17 @@
+{
+  "name": "wattop-site",
+  "compatibility_date": "2026-09-01",
+  // Static assets only: no Worker script, no SSR adapter. Workers Builds runs
+  // `pnpm build` (which also writes the CSP hashes into dist/_headers).
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  // Both hosts serve the site; every page's canonical URL is https://wattop.app.
+  // Workers Static Assets' _redirects does not support domain-level
+  // (host-based) rules, so a www -> apex 301 would need a zone Redirect Rule.
+  "routes": [
+    { "pattern": "wattop.app", "custom_domain": true },
+    { "pattern": "www.wattop.app", "custom_domain": true }
+  ]
+}

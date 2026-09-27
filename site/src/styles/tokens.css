@@ -1,0 +1,51 @@
+/* The TUI's own palettes (internal/ui/theme/palettes/wattop-{dark,light}.json).
+   Two text-contrast adjustments: `--muted` is lifted from the TUI's #6e7681
+   (4.1:1 on #0d1117) to #8b949e so small muted text passes WCAG AA; the TUI
+   value survives as `--dim` for rules and decoration only. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-2: #11161d;
+  --surface: #161b22;
+  --fg: #e6e6e6;
+  --muted: #8b949e;
+  --dim: #6e7681;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --idle: #79c0ff;
+  --busy: #56d364;
+  --waiting: #d29922;
+  --warn: #db6d28;
+  --hot: #f85149;
+  --cpu: #58a6ff;
+  --gpu: #bc8cff;
+  --watts: #ffa657;
+  --cost: #56d364;
+  --track: #30363d;
+  --sel: #1f2630;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-2: #f6f8fa;
+  --surface: #f6f8fa;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --dim: #6e7781;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --idle: #0969da;
+  --busy: #177033; /* TUI #1a7f37 is 4.36:1 on --sel; this is 5.3:1 */
+  --waiting: #9a6700;
+  --warn: #bc4c00;
+  --hot: #cf222e;
+  --cpu: #0550ae;
+  --gpu: #6639ba;
+  --watts: #bc4c00;
+  --cost: #177033;
+  --track: #d0d7de;
+  --sel: #eaeef2;
+}

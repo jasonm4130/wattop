@@ -1,0 +1,27 @@
+---
+// Terminal-prompt wordmark; links back to the landing page.
+---
+
+<a href="/" class="site-title wm" translate="no">
+  <span class="wm-cursor" aria-hidden="true">▍</span><span>wattop</span><span class="wm-sub">/docs</span>
+</a>
+
+<style>
+  .site-title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.1em;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--fg);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .wm-cursor {
+    color: var(--accent);
+  }
+  .wm-sub {
+    color: var(--muted);
+    font-weight: 400;
+  }
+</style>

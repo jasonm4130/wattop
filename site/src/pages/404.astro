@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Base title="404: no such page · wattop" description="That page does not exist on wattop.app." path="/404" noindex>
+  <Nav home={false} />
+  <main id="main" class="nf">
+    <div class="wrap">
+      <pre aria-hidden="true"><span class="dim">~ %</span> curl -sI https://wattop.app$REQUEST_URI | head -1
+<span class="hot">HTTP/2 404</span></pre>
+      <h1>Nothing is running here.</h1>
+      <p class="dim">The page you asked for does not exist. It may have moved into the docs.</p>
+      <div class="cta">
+        <a class="btn" href="/">back to wattop.app</a>
+        <a class="btn ghost" href="/docs/">docs</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Base>

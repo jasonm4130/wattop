@@ -1,0 +1,525 @@
+/* The live dashboard recreation. Sized in ch so it behaves like a terminal
+   grid; container queries narrow it the way the TUI narrows at 80 columns. */
+
+.term {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--bg) 60%, transparent),
+    0 30px 80px -20px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 12px 30px -12px rgb(0 0 0 / 0.5);
+  overflow: hidden;
+}
+
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.2ch;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--muted);
+}
+.term-dots {
+  display: inline-flex;
+  gap: 6px;
+}
+.term-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.term-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-title b {
+  color: var(--fg);
+  font-weight: 500;
+}
+.tag-demo {
+  border: 1px solid color-mix(in srgb, var(--waiting) 60%, transparent);
+  color: var(--waiting);
+  padding: 0 0.8ch;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.pause {
+  font: inherit;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.8ch;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pause:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+.pause .k {
+  color: var(--accent);
+}
+
+.dash {
+  container-type: inline-size;
+  container-name: dash;
+}
+.d-body {
+  padding: 14px 16px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.d-head {
+  margin: 0 0 -4px;
+  color: var(--muted);
+}
+.d-head .brand {
+  color: var(--accent);
+}
+.d-head b {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.d-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.pnl {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 12px 10px;
+  min-width: 0;
+}
+.pnl-t {
+  position: absolute;
+  top: -0.8em;
+  left: 10px;
+  margin: 0;
+  padding: 0 0.6ch;
+  background: var(--bg);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.spk-h {
+  display: flex;
+  gap: 1.5ch;
+  margin-top: 2px;
+}
+.spk-h b {
+  font-weight: 600;
+}
+.rng {
+  color: var(--muted);
+}
+.out-c {
+  color: var(--busy);
+}
+.in-c,
+.cpu-c {
+  color: var(--cpu);
+}
+.gpu-c {
+  color: var(--gpu);
+}
+.w-c {
+  color: var(--watts);
+}
+.hot-c {
+  color: var(--hot);
+}
+.cost-c {
+  color: var(--cost);
+}
+.idle-c {
+  color: var(--idle);
+}
+.warn {
+  color: var(--warn);
+}
+.badge-hot {
+  background: var(--hot);
+  color: var(--bg);
+  padding: 0 0.5ch;
+}
+
+.spk {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 62px;
+  margin: 2px 0 6px;
+}
+.spk.sm {
+  height: 34px;
+}
+.spk i {
+  flex: 1 1 0;
+  min-width: 0;
+  display: block;
+  background: currentColor;
+  transition: height 0.9s linear;
+}
+.spk.out {
+  color: var(--busy);
+}
+.spk.in,
+.spk.cpu {
+  color: var(--cpu);
+}
+.spk.gpu {
+  color: var(--gpu);
+}
+.spk.w {
+  color: var(--watts);
+}
+
+.d-axis {
+  margin: -8px 0 -4px;
+}
+.dim,
+.muted {
+  color: var(--muted);
+}
+
+.meters {
+  display: grid;
+  grid-template-columns: 9ch 1fr auto;
+  column-gap: 1ch;
+  margin: 0 0 6px;
+}
+.meters dt {
+  color: var(--fg);
+}
+.meters dd {
+  display: contents;
+}
+.meters dd > .num:first-of-type {
+  text-align: right;
+  min-width: 6ch;
+}
+.meters dd > .num + .num {
+  grid-column: 3;
+  display: none;
+}
+.meters dd {
+  margin: 0;
+}
+.meters .g {
+  align-self: center;
+}
+.meters dd span.num {
+  white-space: nowrap;
+}
+
+.g {
+  position: relative;
+  display: block;
+  height: 0.95em;
+  border-left: 1px solid var(--muted);
+  border-right: 1px solid var(--muted);
+  background-image: radial-gradient(circle, var(--track) 1px, transparent 1.2px);
+  background-size: 4px 4px;
+  background-position: 1px 1px;
+}
+.g-f {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  transition: width 0.9s linear;
+}
+.g-f.busy {
+  background: var(--busy);
+}
+.g-f.waiting {
+  background: var(--waiting);
+}
+.g-f.hot {
+  background: var(--hot);
+}
+.g-f.gpu {
+  background: var(--gpu);
+}
+
+.kv {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kv.gap {
+  margin-top: 0.75em;
+}
+.kv b {
+  font-weight: 600;
+}
+
+/* Sessions table */
+.tbl-wrap {
+  overflow: hidden;
+}
+.ss {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.ss th {
+  color: var(--muted);
+  font-weight: 400;
+  text-align: left;
+  text-transform: uppercase;
+  padding: 0 0.6ch 2px;
+}
+.ss td {
+  padding: 0 0.6ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ss .num {
+  text-align: right;
+}
+.ss tr.s-row:first-child td {
+  background: var(--sel);
+}
+.ss tr.s-row:first-child td.c-st::before {
+  content: '▸ ';
+  color: var(--accent);
+}
+.ss th.c-st {
+  width: 13ch;
+}
+.ss th.c-pid {
+  width: 6.5ch;
+}
+.ss th.c-ag {
+  width: 11ch;
+}
+.ss th.c-model {
+  width: 16ch;
+}
+.ss th.c-ctx {
+  width: 15ch;
+}
+.ss th.c-out {
+  width: 7.5ch;
+}
+.ss th.c-cost,
+.ss th.c-burn {
+  width: 8.5ch;
+}
+.ss th.c-tl,
+.ss th.c-sa {
+  width: 5.5ch;
+}
+.ss th.c-cpu {
+  width: 7ch;
+}
+.ss th.c-gpu {
+  width: 7ch;
+}
+.ss th.c-rss {
+  width: 6.5ch;
+}
+.ss td.c-model {
+  color: var(--fg);
+}
+.ss .s-row .c-model,
+.ss .s-row .c-ag {
+  font-weight: 500;
+}
+.ag-codex {
+  color: var(--muted);
+}
+.st.busy {
+  color: var(--busy);
+}
+.st.waiting {
+  color: var(--waiting);
+}
+.st.idle {
+  color: var(--idle);
+}
+.st.hot {
+  color: var(--hot);
+}
+.st.muted {
+  color: var(--muted);
+}
+.s-row .st {
+  font-weight: 600;
+}
+.st.warn {
+  color: var(--warn);
+}
+/* Child rows: the TUI indents by spaces (2 + 2 per depth), no tree lines. */
+.ind {
+  white-space: pre;
+}
+.tool {
+  color: var(--accent);
+}
+.c-desc .desc {
+  color: var(--muted);
+}
+.cwd-short {
+  display: none;
+}
+
+.ctx {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+}
+.ctx-g {
+  flex: 1;
+  min-width: 0;
+}
+.ctx-m:empty {
+  display: none;
+}
+.ctx-m {
+  margin-right: -0.5ch;
+}
+.ctx-n {
+  min-width: 4.5ch;
+  text-align: right;
+}
+.ctx.est .g {
+  border-right-style: dashed;
+}
+
+.d-foot p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.2ch;
+}
+.d-foot b {
+  font-weight: 600;
+}
+.d-foot .sep {
+  color: var(--dim);
+}
+
+/* ---- narrowing, like the TUI at smaller terminals ---- */
+@container dash (min-width: 1080px) {
+  .meters {
+    grid-template-columns: 9ch 1fr auto auto;
+  }
+  .meters dd > .num + .num {
+    display: block;
+    grid-column: 4;
+    min-width: 9ch;
+    text-align: right;
+  }
+}
+
+@container dash (max-width: 1060px) {
+  .ss .c-tl,
+  .ss .c-gpu {
+    display: none;
+  }
+}
+
+@container dash (max-width: 900px) {
+  .d-body {
+    font-size: 11.5px;
+  }
+  .ss .c-pid,
+  .ss .c-sa,
+  .ss .c-model {
+    display: none;
+  }
+  .ss th.c-ctx {
+    width: 7ch;
+  }
+  .ctx-g {
+    display: none;
+  }
+}
+
+@container dash (max-width: 680px) {
+  .d-body {
+    font-size: 12px;
+    padding: 14px 10px 10px;
+  }
+  .d-row {
+    display: contents;
+  }
+  .p-hw,
+  .p-cm,
+  .d-axis,
+  .d-foot .self,
+  .d-foot .sep,
+  .d-foot .dim,
+  .d-foot .dim {
+    display: none;
+  }
+  .p-tok {
+    order: 1;
+  }
+  .p-ss {
+    order: 2;
+  }
+  .p-pw {
+    order: 3;
+  }
+  .d-foot {
+    order: 4;
+  }
+  .p-tok .spk.in,
+  .p-tok .in-h {
+    display: none;
+  }
+  .spk.out {
+    height: 40px;
+  }
+  .ss .c-ag,
+  .ss .c-ctx,
+  .ss .c-cost,
+  .ss .c-cpu,
+  .ss .c-rss {
+    display: none;
+  }
+  .ss th.c-st {
+    width: 13ch;
+  }
+  .cwd-full {
+    display: none;
+  }
+  .cwd-short {
+    display: inline;
+  }
+  .ss tr.s-row:first-child td.c-st::before {
+    content: '';
+  }
+  .d-foot p {
+    column-gap: 2ch;
+  }
+}
+
+@media (max-width: 640px) {
+  .term-dots {
+    display: none;
+  }
+}

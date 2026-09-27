@@ -1,0 +1,21 @@
+# Cloudflare Workers Static Assets honours this file.
+# script-src stays 'self': no inline JS on the landing page. Starlight's docs
+# pages carry a few small inline scripts (sidebar persistence, search); their
+# sha256 hashes are appended below at build time by integrations/csp-hashes.mjs
+# (an astro:build:done hook, so `pnpm build` must be the deploy's build step).
+# https://app.skopia.dev serves the cookieless Skopia analytics script and
+# receives its events (script-src + connect-src).
+# 'wasm-unsafe-eval' is for Pagefind's search index. style-src needs
+# 'unsafe-inline' for style="" attributes (sparkline bar heights).
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://app.skopia.dev 'wasm-unsafe-eval' __INLINE_SCRIPT_HASHES__; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://app.skopia.dev; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
