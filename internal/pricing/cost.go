@@ -15,45 +15,79 @@ import (
 // only the plain per-token rate is priced here.
 var tierKeyRe = regexp.MustCompile(`^(.+)_above_(\d+)k_tokens$`)
 
-// tieredRate returns the rate an entry charges for base, selecting among
-// whatever *_above_<N>k_tokens variants the entry itself carries — never a
-// hardcoded tier name. gpt-5.6-terra carries *_above_272k_tokens keys;
-// claude-opus-5 carries no *_above_200k_tokens key at all, so it always
-// falls through to the base rate regardless of promptTokens.
-func tieredRate(e modelEntry, base string, promptTokens int64) float64 {
-	type tier struct {
-		threshold int64
-		rate      float64
-	}
-	var tiers []tier
+// The base cost keys Cost prices from.
+const (
+	baseInput         = "input_cost_per_token"
+	baseOutput        = "output_cost_per_token"
+	baseCacheRead     = "cache_read_input_token_cost"
+	baseCacheCreate   = "cache_creation_input_token_cost"
+	baseCacheCreate1h = "cache_creation_input_token_cost_above_1hr"
+)
+
+var rateBases = [...]string{baseInput, baseOutput, baseCacheRead, baseCacheCreate, baseCacheCreate1h}
+
+type tier struct {
+	threshold int64 // tokens; the tier applies to a prompt strictly above it
+	rate      float64
+}
+
+// baseRates is one base key's flat rate plus whatever *_above_<N>k_tokens
+// tiers the entry carries for it, ascending by threshold.
+type baseRates struct {
+	base  float64
+	tiers []tier
+}
+
+// rateCard is a model entry's rates parsed once: tierKeyRe runs over the
+// entry's keys when the card is built, never per Cost call. Cards are
+// cached per resolved model on the Book (see (*Book).cardFor).
+type rateCard struct {
+	bases map[string]baseRates
+}
+
+// parseRateCard reads every base rate and every tiered variant the entry
+// itself carries — never a hardcoded tier name. gpt-5.6-terra carries
+// *_above_272k_tokens keys; claude-opus-5 carries no *_above_200k_tokens
+// key at all, so it always prices at the base rate regardless of prompt
+// size.
+func parseRateCard(e modelEntry) *rateCard {
+	c := &rateCard{bases: make(map[string]baseRates)}
 	for k, v := range e {
-		m := tierKeyRe.FindStringSubmatch(k)
-		if m == nil || m[1] != base {
-			continue
-		}
-		n, err := strconv.ParseInt(m[2], 10, 64)
-		if err != nil {
-			continue
-		}
 		rate, ok := asFloat(v)
 		if !ok {
 			continue
 		}
-		tiers = append(tiers, tier{threshold: n * 1000, rate: rate})
+		if m := tierKeyRe.FindStringSubmatch(k); m != nil {
+			n, err := strconv.ParseInt(m[2], 10, 64)
+			if err != nil {
+				continue
+			}
+			br := c.bases[m[1]]
+			br.tiers = append(br.tiers, tier{threshold: n * 1000, rate: rate})
+			c.bases[m[1]] = br
+			continue
+		}
+		br := c.bases[k]
+		br.base = rate
+		c.bases[k] = br
 	}
-
-	baseRate, _ := asFloat(e[base])
-	if len(tiers) == 0 {
-		return baseRate
+	for k, br := range c.bases {
+		sort.Slice(br.tiers, func(i, j int) bool { return br.tiers[i].threshold < br.tiers[j].threshold })
+		c.bases[k] = br
 	}
+	return c
+}
 
-	sort.Slice(tiers, func(i, j int) bool { return tiers[i].threshold < tiers[j].threshold })
-	for i := len(tiers) - 1; i >= 0; i-- {
-		if promptTokens > tiers[i].threshold {
-			return tiers[i].rate
+// rate returns what the card charges for base at a prompt of promptTokens:
+// the highest tier whose threshold the prompt exceeds, else the base rate.
+func (c *rateCard) rate(base string, promptTokens int64) float64 {
+	br := c.bases[base]
+	for i := len(br.tiers) - 1; i >= 0; i-- {
+		if promptTokens > br.tiers[i].threshold {
+			return br.tiers[i].rate
 		}
 	}
-	return baseRate
+	return br.base
 }
 
 func asFloat(v any) (float64, bool) {
@@ -85,13 +119,16 @@ func (b *Book) Cost(model string, u domain.Usage, promptTokens int64) (usd float
 	if !ok {
 		return 0, false
 	}
-	e := r.entry
+	return r.cost(u, promptTokens), true
+}
 
-	inputRate := tieredRate(e, "input_cost_per_token", promptTokens)
-	outputRate := tieredRate(e, "output_cost_per_token", promptTokens)
-	cacheReadRate := tieredRate(e, "cache_read_input_token_cost", promptTokens)
-	cacheCreateRate := tieredRate(e, "cache_creation_input_token_cost", promptTokens)
-	cacheCreate1hRate := tieredRate(e, "cache_creation_input_token_cost_above_1hr", promptTokens)
+func (r Rates) cost(u domain.Usage, promptTokens int64) float64 {
+	c := r.card
+	inputRate := c.rate(baseInput, promptTokens)
+	outputRate := c.rate(baseOutput, promptTokens)
+	cacheReadRate := c.rate(baseCacheRead, promptTokens)
+	cacheCreateRate := c.rate(baseCacheCreate, promptTokens)
+	cacheCreate1hRate := c.rate(baseCacheCreate1h, promptTokens)
 	if cacheCreate1hRate == 0 && u.CacheCreate1h > 0 {
 		cacheCreate1hRate = cacheCreateRate
 	}
@@ -102,11 +139,65 @@ func (b *Book) Cost(model string, u domain.Usage, promptTokens int64) (usd float
 	}
 	cacheReadTokens := u.CacheRead + u.CachedInput
 
-	usd = float64(billableInput)*inputRate +
+	return float64(billableInput)*inputRate +
 		float64(u.Output)*outputRate +
 		float64(cacheReadTokens)*cacheReadRate +
 		float64(u.CacheCreate5m)*cacheCreateRate +
 		float64(u.CacheCreate1h)*cacheCreate1hRate
+}
 
-	return usd, true
+// CostLedger prices a usage ledger bucket by bucket, each at its own model
+// and at PromptK*1000 prompt tokens — the same tier the request's exact
+// prompt size selects (see domain.UsageKey). Each distinct model resolves
+// once.
+//
+// unpricedModels lists, sorted, every model whose buckets carry tokens but
+// which the book cannot price (including "" for usage filed before any
+// model was known); those buckets are left out of usd. anyPriced reports
+// whether at least one bucket priced. A caller with anyPriced false has no
+// cost at all and must render "$—"; one with both anyPriced and unpriced
+// models has a partial total.
+func (b *Book) CostLedger(l domain.UsageLedger) (usd float64, unpricedModels []string, anyPriced bool) {
+	type resolved struct {
+		r  Rates
+		ok bool
+	}
+	// Summed in key order: floating-point addition is not associative, and
+	// map order would make the same ledger's total wobble in its last bits
+	// from one cycle to the next, which the burn tracker reads as spend.
+	keys := make([]domain.UsageKey, 0, len(l))
+	for k := range l {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Model != keys[j].Model {
+			return keys[i].Model < keys[j].Model
+		}
+		return keys[i].PromptK < keys[j].PromptK
+	})
+
+	byModel := make(map[string]resolved)
+	unpriced := make(map[string]struct{})
+	for _, k := range keys {
+		u := l[k]
+		res, seen := byModel[k.Model]
+		if !seen {
+			r, ok := b.Resolve(k.Model)
+			res = resolved{r: r, ok: ok}
+			byModel[k.Model] = res
+		}
+		if !res.ok {
+			if !u.IsZero() {
+				unpriced[k.Model] = struct{}{}
+			}
+			continue
+		}
+		usd += res.r.cost(u, k.PromptK*1000)
+		anyPriced = true
+	}
+	for m := range unpriced {
+		unpricedModels = append(unpricedModels, m)
+	}
+	sort.Strings(unpricedModels)
+	return usd, unpricedModels, anyPriced
 }

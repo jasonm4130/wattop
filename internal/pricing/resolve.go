@@ -11,6 +11,7 @@ import (
 type Rates struct {
 	model string
 	entry modelEntry
+	card  *rateCard
 }
 
 var (
@@ -29,27 +30,27 @@ func (b *Book) Resolve(model string) (Rates, bool) {
 	models := b.snap.Models
 
 	if e, ok := models[model]; ok {
-		return Rates{model: model, entry: e}, true
+		return b.rates(model, e), true
 	}
 
 	stripped := bracketSuffixRe.ReplaceAllString(model, "")
 	if stripped != model {
 		if e, ok := models[stripped]; ok {
-			return Rates{model: stripped, entry: e}, true
+			return b.rates(stripped, e), true
 		}
 	}
 
 	noDate := dateSuffixRe.ReplaceAllString(stripped, "")
 	if noDate != stripped {
 		if e, ok := models[noDate]; ok {
-			return Rates{model: noDate, entry: e}, true
+			return b.rates(noDate, e), true
 		}
 	}
 
 	for _, prefix := range [...]string{"anthropic.", "openai."} {
 		candidate := prefix + noDate
 		if e, ok := models[candidate]; ok {
-			return Rates{model: candidate, entry: e}, true
+			return b.rates(candidate, e), true
 		}
 	}
 
@@ -60,8 +61,20 @@ func (b *Book) Resolve(model string) (Rates, bool) {
 		}
 	}
 	if bestKey != "" {
-		return Rates{model: bestKey, entry: models[bestKey]}, true
+		return b.rates(bestKey, models[bestKey]), true
 	}
 
 	return Rates{}, false
+}
+
+// rates builds the Rates for the table key model, reusing its parsed rate
+// card. The caller holds b.mu for reading, which is what keeps the cache
+// coherent: swap clears it under the write lock, so no card parsed from a
+// replaced table can be stored after the swap.
+func (b *Book) rates(model string, e modelEntry) Rates {
+	if c, ok := b.cards.Load(model); ok {
+		return Rates{model: model, entry: e, card: c.(*rateCard)}
+	}
+	c, _ := b.cards.LoadOrStore(model, parseRateCard(e))
+	return Rates{model: model, entry: e, card: c.(*rateCard)}
 }
