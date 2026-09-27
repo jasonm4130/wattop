@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,6 +87,24 @@ func TestFlagSurfaceParses(t *testing.T) {
 	}
 	if !versionFlags.version {
 		t.Error("version = false, want true")
+	}
+}
+
+// TestDiscardStdLogWhileTUIRuns: the standard logger (pricing refresh
+// failures, from a background goroutine) must not write into the alt
+// screen while the TUI runs, and must go back to stderr afterwards.
+func TestDiscardStdLogWhileTUIRuns(t *testing.T) {
+	prev := log.Writer()
+	defer log.SetOutput(prev)
+	log.SetOutput(os.Stderr)
+
+	restore := discardStdLog()
+	if log.Writer() != io.Discard {
+		t.Errorf("while the TUI runs, log.Writer() = %v, want io.Discard", log.Writer())
+	}
+	restore()
+	if log.Writer() != os.Stderr {
+		t.Errorf("after the TUI exits, log.Writer() = %v, want os.Stderr", log.Writer())
 	}
 }
 
