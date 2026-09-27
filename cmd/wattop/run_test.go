@@ -87,6 +87,37 @@ func TestFlagSurfaceParses(t *testing.T) {
 	}
 }
 
+// TestHelpPrintsUsageAndExitsZero: -h/--help is a request, not an error. It
+// prints usage -- including the doctor subcommand and its flags -- to
+// stdout, nothing to stderr, and exits 0.
+func TestHelpPrintsUsageAndExitsZero(t *testing.T) {
+	for _, arg := range []string{"-h", "--help"} {
+		_, err := parseFlags([]string{arg})
+		var stdout, stderr bytes.Buffer
+		if code := parseErrorExit(err, &stdout, &stderr); code != 0 {
+			t.Errorf("%s: exit code = %d, want 0", arg, code)
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("%s: wrote to stderr: %q", arg, stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"-json", "-once", "-interval", "doctor", "-ioreport-groups"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: usage is missing %q:\n%s", arg, want, out)
+			}
+		}
+	}
+
+	_, err := parseFlags([]string{"--bogus"})
+	var stdout, stderr bytes.Buffer
+	if code := parseErrorExit(err, &stdout, &stderr); code != 2 {
+		t.Errorf("--bogus: exit code = %d, want 2", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "bogus") {
+		t.Errorf("--bogus: stdout=%q stderr=%q, want the error on stderr only", stdout.String(), stderr.String())
+	}
+}
+
 // TestOnceJSONFromReplay wires the replay sources over the corpus through
 // one coordinated cycle and asserts --once --json's contract: exactly one
 // valid Snapshot line, with sys.soc_name set and sessions an array.
