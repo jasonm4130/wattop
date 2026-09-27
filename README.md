@@ -91,7 +91,8 @@ and guardian threads. Each child shows its status (`● run`, `idle`, `done`,
 `fail`), the tool it is waiting on, output rate, cost and its own `$/hr`. A
 workflow collapses to one row with its phase and running/done counts; `enter`
 opens the full tree, and the `SA` column reads running/total. A `~` before a
-cost means it leaves out a child on a model the pricing table does not know.
+cost means it leaves out usage, the session's own or a child's, on a model
+the pricing table does not know.
 
 **Terminal width: the dashboard fits at 80 columns and above; the detail view needs
 103 columns.** The table narrows — columns shrink, the context gauge
@@ -147,7 +148,9 @@ not an error — every field just keeps its default.
 Costs are computed from an embedded, filtered snapshot of LiteLLM's pricing
 table (`internal/pricing/table.json.gz`), refreshed in the background at
 startup and cached, so pricing works instantly and offline on first run.
-Run `make pricing` to pull the latest upstream table and regenerate
+Each request is priced at its own model and its own long-context tier, so a
+`/model` switch or one very long prompt never reprices the rest of a
+session. Run `make pricing` to pull the latest upstream table and regenerate
 `docs/pricing-update.md` with the commit and checksum that produced it —
 see that file for how to verify the checksum and add a model upstream
 hasn't published yet.

@@ -231,17 +231,19 @@ func (r *Rollout) Apply(line []byte) error {
 				if !r.hasUsage || input != 0 || output != 0 || cached != 0 {
 					r.tokens.Add(recAt, input, output, cached)
 				}
-				r.hasUsage = true
-				if !recAt.IsZero() {
-					r.lastUsageAt = recAt
-				}
-				r.Usage = domain.Usage{
+				total := domain.Usage{
 					Input:         u.InputTokens,
 					Output:        u.OutputTokens,
 					CachedInput:   u.CachedInputTokens,
 					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier; bucketed here for cost.go's sake.
 					Thinking:      u.ReasoningOutputTokens,
 				}
+				r.fileLedger(p.Info, total)
+				r.hasUsage = true
+				if !recAt.IsZero() {
+					r.lastUsageAt = recAt
+				}
+				r.Usage = total
 				// ContextUsed is current context occupancy, not cumulative
 				// session spend: last_token_usage.total_tokens reflects the most
 				// recent turn's context, while total_token_usage.total_tokens sums
@@ -289,6 +291,39 @@ func (r *Rollout) Apply(line []byte) error {
 	}
 
 	return nil
+}
+
+// fileLedger files the usage one token_count adds over the running total
+// (r.Usage, not yet updated) under the current model and this request's
+// prompt size, so it is priced at the tier that request actually hit. It
+// must run after the replay guard, so a replayed prefix files nothing, and
+// before r.Usage takes the new total.
+//
+// The ledger always sums to r.Usage. The first token_count seen files the
+// whole cumulative total, since usage before it is not broken down anywhere
+// this rollout can see; a counter that goes backwards (a reset) restarts
+// the ledger from the new total, exactly as r.Usage is replaced by it. A
+// repeated token_count adds nothing.
+func (r *Rollout) fileLedger(info *tokenCountInfo, total domain.Usage) {
+	prompt := info.LastTokenUsage.InputTokens
+	if prompt <= 0 {
+		// No per-request input: fall back to the same figure ContextUsed
+		// uses, which folds in output and so can only overstate the tier.
+		prompt = info.LastTokenUsage.TotalTokens
+		if prompt <= 0 {
+			prompt = info.TotalTokenUsage.TotalTokens
+		}
+	}
+	delta := total.Minus(r.Usage)
+	reset := delta.Input < 0 || delta.Output < 0 || delta.CachedInput < 0
+	if !r.hasUsage || reset || r.Ledger == nil {
+		r.Ledger = make(domain.UsageLedger)
+		delta = total
+	}
+	if delta.IsZero() {
+		return
+	}
+	r.Ledger.Add(r.Model, prompt, delta)
 }
 
 func rateLimitsToDomain(p *rateLimitsPayload) []domain.RateLimit {

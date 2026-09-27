@@ -185,8 +185,8 @@ func TestContextHighWaterMarkResetsWithTheTranscript(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
 
 	writeFile(t, transcript, assistantRecord(250_000, "Read", ""))
-	if got := pollOnly(t, s, now); got.ctxMax != 500_000 {
-		t.Fatalf("ContextMax = %d at a 250k mark, want the 500k ladder rung", got.ctxMax)
+	if got := pollOnly(t, s, now); got.ctxMax != 1_000_000 {
+		t.Fatalf("ContextMax = %d at a 250k mark, want the 1M ladder rung (Claude has no 500k window)", got.ctxMax)
 	}
 
 	writeFile(t, transcript, assistantRecord(1_000, "Read", ""))

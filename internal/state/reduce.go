@@ -414,49 +414,48 @@ func lastTranscriptAt(s *domain.Session) time.Time {
 }
 
 // priceSession prices s's own usage plus every subagent's usage through
-// st.book. Each subagent's CostUSD is set independently (nil, and its model
-// added to unpriced, when its own model does not resolve) so the UI can
-// still show per-subagent cost breakdown. Session.CostUSD is the *combined*
-// total of s's own usage and every priced subagent when s's own model
-// prices; when s's own model does not resolve, Session.CostUSD is nil and
+// st.book. Each subagent's CostUSD is set independently (nil, and its
+// unpriced models added to unpriced, when none of its own usage prices) so
+// the UI can still show per-subagent cost breakdown. Session.CostUSD is the
+// *combined* total of s's own usage and every priced subagent when s's own
+// usage prices; when none of it does, Session.CostUSD is nil and
 // Session.Priced is false — the whole session renders "$—" rather than a
 // partial number built only from its children, and contributes 0 to
 // TotalCostUSD.
 //
-// Tier selection keys on s.ContextUsed, the last-request prompt size
-// (internal/agent/claude/source.go sets it from the most recent assistant
-// record's input+cache tokens; codex/parse.go from the last token_count's
-// total_tokens, which folds in output and so overstates prompt size by a
-// few percent — the right tier, not an exact one), never on s.Usage, which
-// is the cumulative session total and would push every long-lived session
-// into the long-context tier within a handful of turns regardless of how
-// large any single request actually was.
+// Usage is priced per request wherever the source recorded a ledger
+// (domain.UsageLedger): each bucket at its own model and its own prompt
+// tier, so one request past a long-context threshold, or a /model switch,
+// never reprices the rest of the session's history. Only a row with no
+// ledger (replay fixtures, sources that set Usage alone) falls back to
+// pricing its cumulative Usage at its current Model and the tier its
+// ContextUsed (last-request prompt size) selects.
 //
-// Each subagent tiers on its own ContextUsed, its last-request prompt size.
-// A subagent that spent tokens under a model the book cannot price is left
-// out of the total, and marks the session CostPartial so the total is never
-// shown as exact.
+// A ledger can mix models the book prices with ones it cannot. When some of
+// a row's own buckets price, the unpriced ones are left out of the total,
+// their models are reported, and the session is CostPartial; only when none
+// price is the row unpriced outright, which keeps the rule that a session
+// whose own model does not resolve renders "$—". A subagent that spent
+// tokens under a model the book cannot price is likewise left out of the
+// total and marks the session CostPartial, so the total is never shown as
+// exact.
 func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
-	mainCost, mainOK := st.book.Cost(s.Model, s.Usage, s.ContextUsed)
-	if !mainOK && s.Model != "" {
-		unpriced[s.Model] = struct{}{}
-	}
+	mainCost, mainOK, partial := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
 
 	total := mainCost
-	partial := false
 	s.Subagents = append([]domain.Subagent(nil), s.Subagents...)
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		cost, ok := st.book.Cost(sa.Model, sa.Usage, sa.ContextUsed)
+		cost, ok, saPartial := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
 		if ok {
 			c := cost
 			sa.CostUSD = &c
 			total += cost
+			if saPartial {
+				partial = true
+			}
 		} else {
 			sa.CostUSD = nil
-			if sa.Model != "" {
-				unpriced[sa.Model] = struct{}{}
-			}
 			if childBilled(*sa) {
 				partial = true
 			}
@@ -472,6 +471,28 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 		s.CostUSD = nil
 		s.CostPartial = false
 	}
+}
+
+// priceUsage prices one row's own usage: its ledger when it has one, else
+// its cumulative usage at model and the tier contextUsed selects. ok is
+// whether any of it priced; partial is whether some priced and some did
+// not. Every model that failed to price (other than an empty one) is added
+// to unpriced.
+func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) (cost float64, ok, partial bool) {
+	if len(l) > 0 {
+		usd, missing, anyPriced := st.book.CostLedger(l)
+		for _, m := range missing {
+			if m != "" {
+				unpriced[m] = struct{}{}
+			}
+		}
+		return usd, anyPriced, anyPriced && len(missing) > 0
+	}
+	usd, priced := st.book.Cost(model, u, contextUsed)
+	if !priced && model != "" {
+		unpriced[model] = struct{}{}
+	}
+	return usd, priced, false
 }
 
 // machineCPUPct is the machine-wide CPU history value: the cluster

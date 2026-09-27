@@ -70,7 +70,10 @@ type Rollout struct {
 	Status        string // "busy" | "waiting" | "stale", inferred from the task_started/task_complete histogram; see parse.go
 	TaskCompleted bool   // true once at least one task_complete has been seen
 
-	Usage        domain.Usage
+	Usage domain.Usage
+	// Ledger is Usage broken down per token_count by model and prompt size,
+	// for per-request pricing; it always sums to Usage (see fileLedger).
+	Ledger       domain.UsageLedger
 	ContextUsed  int64 // total_tokens from the most recent token_count event
 	ContextMax   int64 // info.model_context_window, falling back to task_started's top-level model_context_window
 	ContextExact bool  // true once both ContextUsed and ContextMax are known from the transcript

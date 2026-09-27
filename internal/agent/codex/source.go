@@ -356,6 +356,7 @@ func sessionFromRollout(r Rollout, b binding, status string, procs []domain.Proc
 		StatusSince:  r.ModTime,
 		Model:        r.Model,
 		Usage:        r.Usage,
+		Ledger:       r.Ledger.Clone(),
 		ContextUsed:  r.ContextUsed,
 		ContextMax:   r.ContextMax,
 		ContextExact: r.ContextExact,
