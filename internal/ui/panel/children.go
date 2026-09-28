@@ -103,7 +103,7 @@ func childRunning(status string, live bool) bool {
 }
 
 // childCost renders a child's cost, "$—" when it is unpriced, with the
-// partial-cost "~" when the figure omits an unpriced agent.
+// partial-cost "~" when the figure omits usage it could not price.
 func childCost(cost *float64, partial bool) string {
 	text := "$—"
 	if cost != nil {

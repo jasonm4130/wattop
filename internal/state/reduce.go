@@ -337,7 +337,8 @@ func (st *State) forgetSubagentBurn(sessionBurnKey string) {
 
 // summarizeWorkflows fills each workflow's cost, partial flag and burn from
 // the subagents that carry its ID. A workflow whose agents are all unpriced
-// has a nil cost; one with some unpriced agents is partial.
+// has a nil cost; one with some unpriced agents, or an agent whose own cost
+// omits an unpriced model, is partial.
 func summarizeWorkflows(s *domain.Session) {
 	if len(s.Workflows) == 0 {
 		return
@@ -360,6 +361,9 @@ func summarizeWorkflows(s *domain.Session) {
 				wf.CostPartial = true
 			}
 			continue
+		}
+		if sa.CostPartial {
+			wf.CostPartial = true
 		}
 		wf.CostUSD = addPtr(wf.CostUSD, *sa.CostUSD)
 		if sa.BurnUSDPerHr != nil {
@@ -447,6 +451,7 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
 		cost, ok, saPartial := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
+		sa.CostPartial = ok && saPartial
 		if ok {
 			c := cost
 			sa.CostUSD = &c

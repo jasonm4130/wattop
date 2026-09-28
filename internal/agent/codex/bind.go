@@ -187,7 +187,7 @@ func anyCodexCandidate(procs []domain.ProcSample, resolvedCodexPath string) bool
 }
 
 func isCodexCandidate(p domain.ProcSample, resolvedCodexPath string) bool {
-	if len(p.Argv) == 0 {
+	if len(p.Argv) == 0 || isAppServerDaemon(p.Argv) {
 		return false
 	}
 	if filepath.Base(p.Argv[0]) == "codex" {
@@ -199,6 +199,25 @@ func isCodexCandidate(p domain.ProcSample, resolvedCodexPath string) bool {
 	for _, a := range p.Argv {
 		if a == resolvedCodexPath {
 			return true
+		}
+	}
+	return false
+}
+
+// isAppServerDaemon reports whether argv is `codex app-server daemon ...`:
+// the app server's background manager (on a real machine, `app-server
+// daemon pid-update-loop`, weeks old with cwd $HOME). It runs no session,
+// so letting it bind would hand it any rollout started in its cwd, and
+// pinning would keep that rollout alive for the daemon's whole life.
+func isAppServerDaemon(argv []string) bool {
+	for i, a := range argv[1:] {
+		if a == "app-server" {
+			for _, b := range argv[i+2:] {
+				if b == "daemon" {
+					return true
+				}
+			}
+			return false
 		}
 	}
 	return false

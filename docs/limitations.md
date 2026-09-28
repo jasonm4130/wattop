@@ -69,8 +69,9 @@ way.
 
 ## ANE bandwidth carries no channel-presence signal
 
-`ane_bw_combined_gbs` was `null` on every sample of the QA run and of every
-run since. Unlike DRAM, mactop reports ANE bandwidth only as a byte total
+ANE bandwidth (`ane_combined_gbs` in `--json`, `ane_bw_combined_gbs` in
+`wattop doctor`) was `null` on every sample of the QA run and of every run
+since. Unlike DRAM, mactop reports ANE bandwidth only as a byte total
 with nothing saying whether a channel was behind it, so wattop still cannot
 tell an absent ANE channel from one reading exactly zero and reports an
 exact `0.0` as unresolved. That is a weaker rule than the DRAM one above and

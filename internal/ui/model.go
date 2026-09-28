@@ -65,13 +65,23 @@ type Model struct {
 // program; roles is the initially selected theme (resolved by cmd/wattop
 // from --theme/WATTOP_THEME before this is called, since internal/ui does
 // not read flags or the environment).
+//
+// A themeName that is not an embedded palette (a hex accent such as
+// "#ff79c6") joins the cycle ahead of them, so the footer names what is
+// actually on screen and t/T can come back to it.
 func New(st *state.State, themeName string, roles theme.Roles) Model {
 	names := theme.Names()
-	idx := 0
+	idx := -1
 	for i, n := range names {
-		if n == themeName {
+		if strings.EqualFold(n, themeName) {
 			idx = i
 			break
+		}
+	}
+	if idx == -1 {
+		idx = 0
+		if themeName != "" {
+			names = append([]string{themeName}, names...)
 		}
 	}
 	return Model{
@@ -214,9 +224,8 @@ func dormant(s domain.Session) bool {
 }
 
 // visibleSessions applies the dormant-row filter, the current sort and the
-// headless-child filter. filterHeadless hides subagent rows entirely (the
-// child rows a headless Task invocation spawns) rather than the top-level
-// sessions.
+// child-row filter. filterHeadless (the `f` key) hides every session's
+// subagent and workflow rows; top-level sessions are never hidden by it.
 //
 // It never mutates m.snap: the footer's machine totals, and --json, still
 // count every session including the ones hidden here.

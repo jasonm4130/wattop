@@ -374,7 +374,7 @@ func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.S
 	if running && sa.CurrentTool != "" {
 		line += "  ▸ " + sa.CurrentTool
 	}
-	line += "  " + childCost(sa.CostUSD, false)
+	line += "  " + childCost(sa.CostUSD, sa.CostPartial)
 	if b := childBurn(sa.BurnUSDPerHr); b != "" {
 		line += " " + b + "/h"
 	}

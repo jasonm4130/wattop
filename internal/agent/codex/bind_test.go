@@ -169,3 +169,31 @@ func TestSessionIDFallsBackToPathWhenNoSessionMeta(t *testing.T) {
 		t.Fatalf("Session.ID = %q, want the rollout path as a fallback", sess.ID)
 	}
 }
+
+// TestAppServerDaemonNeverBinds: the `codex app-server daemon` manager
+// shares $HOME as cwd with a session started there, and as the only
+// contender it would otherwise bind "exact".
+func TestAppServerDaemonNeverBinds(t *testing.T) {
+	metaAt := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	rollouts := []Rollout{{Path: "/r/home.jsonl", CWD: "/Users/u", MetaAt: metaAt}}
+	daemon := domain.ProcSample{
+		PID:       83924,
+		Argv:      []string{"/Users/u/.codex/packages/standalone/current/bin/codex", "app-server", "daemon", "pid-update-loop"},
+		CWD:       "/Users/u",
+		StartTime: metaAt.Add(-18 * 24 * time.Hour),
+	}
+
+	got := bindAll(rollouts, []domain.ProcSample{daemon}, "")
+	if b := got["/r/home.jsonl"]; b.PID != nil || b.Conf != "unknown" {
+		t.Fatalf("binding = {pid %v, %q}, want unbound: the daemon owns no session", derefAll(map[string]*int{"pid": b.PID}), b.Conf)
+	}
+	if anyCodexCandidate([]domain.ProcSample{daemon}, "") {
+		t.Error("anyCodexCandidate = true for the daemon alone, want false")
+	}
+
+	session := codexProc(500, "/Users/u", metaAt.Add(-3*time.Second))
+	got = bindAll(rollouts, []domain.ProcSample{daemon, session}, "")
+	if b := got["/r/home.jsonl"]; b.PID == nil || *b.PID != 500 || b.Conf != "exact" {
+		t.Fatalf("with a real session beside the daemon: binding = %+v, want pid 500 exact", b)
+	}
+}

@@ -11,7 +11,7 @@ var helpEntries = []struct{ key, desc string }{
 	{"enter", "toggle detail view"},
 	{"t / T", "cycle theme forward / back"},
 	{"s", "cycle sort"},
-	{"f", "filter headless children"},
+	{"f", "hide subagent and workflow rows"},
 	{"a", "show all sessions (stale, unbound rows are hidden by default)"},
 	{"p", "pause"},
 	{"g", "toggle history graphs / full hardware meters"},

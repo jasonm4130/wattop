@@ -112,6 +112,7 @@
           },
           "live": true,
           "cost_usd": 0.42,
+          "cost_partial": false,
           "burn_usd_per_hr": 1.8
         },
         {
@@ -141,6 +142,7 @@
           },
           "live": true,
           "cost_usd": 0.1,
+          "cost_partial": false,
           "burn_usd_per_hr": 0.6
         },
         {
@@ -168,6 +170,7 @@
           },
           "live": false,
           "cost_usd": 0.05,
+          "cost_partial": false,
           "burn_usd_per_hr": 0
         },
         {
@@ -195,6 +198,7 @@
           },
           "live": false,
           "cost_usd": 0.2,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -222,6 +226,7 @@
           },
           "live": false,
           "cost_usd": 0.12,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -249,6 +254,7 @@
           },
           "live": false,
           "cost_usd": null,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -278,6 +284,7 @@
           },
           "live": false,
           "cost_usd": 0.8,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -307,6 +314,7 @@
           },
           "live": false,
           "cost_usd": 0.7,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -336,6 +344,7 @@
           },
           "live": false,
           "cost_usd": null,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -366,6 +375,7 @@
           },
           "live": true,
           "cost_usd": 1.21,
+          "cost_partial": false,
           "burn_usd_per_hr": 3.1
         },
         {
@@ -395,6 +405,7 @@
           },
           "live": true,
           "cost_usd": 0.5,
+          "cost_partial": false,
           "burn_usd_per_hr": 1.3
         }
       ],
