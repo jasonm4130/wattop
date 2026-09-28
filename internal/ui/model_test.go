@@ -616,3 +616,34 @@ func TestSelectedSessionOnWorkflowRow(t *testing.T) {
 		t.Errorf("headless flatRowCount = %d, want 2", got)
 	}
 }
+
+// A hex --theme is not an embedded palette name. The footer must name it,
+// not whichever palette sorts first, and cycling must be able to return to
+// it; a differently cased palette name must still select that palette.
+func TestNewThemeNameHexAndCase(t *testing.T) {
+	st := newTestModel(t).st
+
+	r, err := theme.Load("#ff79c6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(st, "#ff79c6", r)
+	if got := m.themeName(); got != "#ff79c6" {
+		t.Fatalf("themeName() = %q, want %q", got, "#ff79c6")
+	}
+	n := len(m.themeNames)
+	for range n {
+		m.cycleTheme(1)
+	}
+	if got := m.themeName(); got != "#ff79c6" || m.roles.Accent != "#ff79c6" {
+		t.Errorf("after a full cycle: themeName() = %q, accent %q; want #ff79c6 for both", got, m.roles.Accent)
+	}
+
+	nr, err := theme.Load("nord")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := New(st, "Nord", nr).themeName(); got != "nord" {
+		t.Errorf("New(\"Nord\").themeName() = %q, want nord", got)
+	}
+}

@@ -129,6 +129,7 @@ The top-level shape, trimmed (from `wattop --demo --json --once | jq`):
 
 - `sys` carries `soc_name`, `clusters`, `gpu`, `power`, `bandwidth`, `temps`, `fans`, `thermal_state`, `throttled`, `memory`, `net`, `disk` and `missing`, the list of channels that did not resolve.
 - Each entry in `sessions` also carries `id`, `bind_conf`, `name`, `cmdline`, `kind`, `status_since`, `usage`, `priced`, `cost_partial`, `tools`, `tool_counts`, `subagents`, `workflows`, `last_usage_at`, `rate_limits` and its bound `proc` (pid, `argv`, `cwd`, RSS, CPU, disk and GPU figures).
+- Each subagent and workflow carries its own `cost_usd` and `cost_partial`; `cost_partial` is `true` when that cost leaves out usage under a model the pricing table cannot price, and the TUI prefixes such a cost with `~`, as it does a partial session cost.
 - Measured fields wattop has no source for are generally `null` rather than `0`, and named in `sys.missing` (fan `rpm` is the exception; see [limitations](/docs/limitations/#fan-rpm-can-read-a-stuck-0-for-a-processs-whole-lifetime)).
 - `--json` lists every session, including the dormant ones the TUI hides by default, and every workflow agent in full.
 

@@ -289,3 +289,35 @@ func TestSubagentCostPricesEachRequestAtItsOwnTier(t *testing.T) {
 		t.Fatalf("child CostUSD = %.6f, want %.6f (sum of per-request costs)", got, want)
 	}
 }
+
+// TestPartlyPricedChildMarksItsWorkflowPartial: a workflow agent whose ledger
+// mixes a priced model with an unpriced one has a cost, but that cost omits
+// spend, so the agent and its workflow are both partial, not just the
+// session.
+func TestPartlyPricedChildMarksItsWorkflowPartial(t *testing.T) {
+	st := newTestState(t, time.Minute)
+
+	mixed := domain.UsageLedger{}
+	mixed.Add("claude-opus-5", 10_000, domain.Usage{Input: 10_000, Output: 100})
+	mixed.Add("mystery-model-x", 10_000, domain.Usage{Input: 10_000, Output: 100})
+
+	snap := st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{{
+		Agent: "claude", ID: "s1", Model: "claude-opus-5", Usage: domain.Usage{Input: 1_000},
+		Subagents: []domain.Subagent{
+			{ID: "a1", WorkflowID: "wf_1", Model: "mystery-model-x", Usage: domain.Usage{Input: 20_000, Output: 200}, Ledger: mixed},
+		},
+		Workflows: []domain.Workflow{{ID: "wf_1", Agents: 1}},
+	}}})
+
+	s := findSession(t, snap, "claude", "s1")
+	sa, wf := s.Subagents[0], s.Workflows[0]
+	if sa.CostUSD == nil || !sa.CostPartial {
+		t.Fatalf("child CostUSD=%v CostPartial=%v, want a partial cost", sa.CostUSD, sa.CostPartial)
+	}
+	if wf.CostUSD == nil || !wf.CostPartial {
+		t.Fatalf("workflow CostUSD=%v CostPartial=%v, want a partial cost", wf.CostUSD, wf.CostPartial)
+	}
+	if !s.CostPartial {
+		t.Fatalf("session CostPartial = false, want true")
+	}
+}

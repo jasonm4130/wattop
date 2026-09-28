@@ -482,7 +482,7 @@ func subagentRow(r theme.Roles, sa *domain.Subagent, depth int, opts Options, co
 		label, padLine("", cols.PID), padLine(agent, cols.Agent),
 		padLine(truncate(sa.Model, cols.Model), cols.Model), padLine(truncate(desc, cols.CWD), cols.CWD),
 		padLine("", cols.Ctx), tokenRateCell(sa.TokenRate, cols.Rate),
-		padLine(truncate(childCost(sa.CostUSD, false), cols.Cost), cols.Cost),
+		padLine(truncate(childCost(sa.CostUSD, sa.CostPartial), cols.Cost), cols.Cost),
 		padLine(truncate(childBurn(sa.BurnUSDPerHr), cols.Burn), cols.Burn),
 	}
 	return strings.Join(append(parts, childTailCells(cols)...), " ")

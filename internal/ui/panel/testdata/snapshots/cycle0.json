@@ -325,6 +325,7 @@
           },
           "live": false,
           "cost_usd": 0.1685,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -352,6 +353,7 @@
           },
           "live": false,
           "cost_usd": 0.08360000000000001,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         },
         {
@@ -379,6 +381,7 @@
           },
           "live": true,
           "cost_usd": 0.022,
+          "cost_partial": false,
           "burn_usd_per_hr": null
         }
       ],

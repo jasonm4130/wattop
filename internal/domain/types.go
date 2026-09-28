@@ -260,6 +260,7 @@ type Subagent struct {
 	Ledger       UsageLedger `json:"-"`
 	Live         bool        `json:"live"` // Status == SubagentRunning
 	CostUSD      *float64    `json:"cost_usd"`
+	CostPartial  bool        `json:"cost_partial"` // CostUSD omits usage under an unpriced model
 	BurnUSDPerHr *float64    `json:"burn_usd_per_hr"`
 }
 
