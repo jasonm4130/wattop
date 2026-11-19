@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>jasonm4130/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Carried over from Dependabot: skip golden 0.1.0.",
+      "matchPackageNames": [
+        "github.com/charmbracelet/x/exp/golden"
+      ],
+      "allowedVersions": "!/^0\\.1\\.0$/"
+    },
+    {
+      "description": "site/ deploys through Cloudflare Workers Builds on merge, so its updates wait for review.",
+      "matchFileNames": [
+        "site/**"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "needs-review"
+      ]
+    }
+  ]
+}
