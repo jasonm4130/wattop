@@ -14,7 +14,7 @@ type Sampler interface {
 }
 
 type ProcSource interface {
-	Scan(ctx context.Context) ([]ProcSample, error)
+	Scan(ctx context.Context, systemGPUActivePct *float64) ([]ProcSample, error)
 	Close() error
 }
 

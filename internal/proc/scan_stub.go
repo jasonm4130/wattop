@@ -17,9 +17,7 @@ var _ domain.ProcSource = (*Scanner)(nil)
 
 func NewScanner() *Scanner { return &Scanner{} }
 
-func (s *Scanner) SetSystemGPUActivePct(pct *float64) {}
-
-func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
+func (s *Scanner) Scan(ctx context.Context, systemGPUActivePct *float64) ([]domain.ProcSample, error) {
 	return nil, ErrUnsupportedPlatform
 }
 

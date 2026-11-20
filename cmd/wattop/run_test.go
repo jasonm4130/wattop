@@ -400,13 +400,15 @@ func TestPricingHealthPredicate(t *testing.T) {
 }
 
 type countingProcSource struct {
-	inner domain.ProcSource
-	scans int
+	inner            domain.ProcSource
+	scans            int
+	lastGPUActivePct *float64
 }
 
-func (p *countingProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
+func (p *countingProcSource) Scan(ctx context.Context, systemGPUActivePct *float64) ([]domain.ProcSample, error) {
 	p.scans++
-	return p.inner.Scan(ctx)
+	p.lastGPUActivePct = systemGPUActivePct
+	return p.inner.Scan(ctx, systemGPUActivePct)
 }
 
 func (p *countingProcSource) Close() error { return p.inner.Close() }
@@ -511,5 +513,26 @@ func TestDoctorIOReportGroupsSection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCycleHandsScanThisCyclesGPUActivePct(t *testing.T) {
+	src := replaySources(t)
+	counting := &countingProcSource{inner: src.Proc}
+	src.Proc = counting
+	loop := NewLoop(src, time.Second, testState(t), true)
+
+	in := loop.Cycle(context.Background())
+	if in.Sys.GPU.ActivePct == nil {
+		t.Fatalf("replay fixture sample has no gpu_active; the test needs one")
+	}
+	if counting.lastGPUActivePct == nil || *counting.lastGPUActivePct != *in.Sys.GPU.ActivePct {
+		t.Fatalf("Scan got systemGPUActivePct %v, want the sample's %v", counting.lastGPUActivePct, *in.Sys.GPU.ActivePct)
+	}
+
+	loop.Sources.Sys = &erroringSampler{}
+	loop.Cycle(context.Background())
+	if counting.lastGPUActivePct != nil {
+		t.Fatalf("Scan got systemGPUActivePct %v after a failed sample, want nil rather than the stale reading", *counting.lastGPUActivePct)
 	}
 }

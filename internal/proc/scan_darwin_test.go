@@ -12,7 +12,7 @@ import (
 
 func scanSelf(t *testing.T, s *Scanner) domain.ProcSample {
 	t.Helper()
-	procs, err := s.Scan(context.Background())
+	procs, err := s.Scan(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}

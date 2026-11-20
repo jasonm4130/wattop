@@ -56,7 +56,7 @@ func TestScanHardware(t *testing.T) {
 
 	ctx := context.Background()
 
-	first, err := s.Scan(ctx)
+	first, err := s.Scan(ctx, nil)
 	if err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestScanHardware(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	second, err := s.Scan(ctx)
+	second, err := s.Scan(ctx, nil)
 	if err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}

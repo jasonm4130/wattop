@@ -104,13 +104,15 @@ func (l *Loop) Cycle(ctx context.Context) state.Inputs {
 	}
 
 	sysOK := errSys == nil
+	var freshGPUActivePct *float64
 	if sysOK {
 		l.lastSys = sys
+		freshGPUActivePct = sys.GPU.ActivePct
 	} else {
 		sys = l.lastSys
 	}
 
-	procs, errProc := safeScan(ctx, l.Sources.Proc)
+	procs, errProc := safeScan(ctx, l.Sources.Proc, freshGPUActivePct)
 	procOK := errProc == nil
 
 	at := time.Now()
@@ -183,9 +185,9 @@ func safeSample(ctx context.Context, s domain.Sampler, interval time.Duration) (
 	return s.Sample(ctx, int(interval.Milliseconds()))
 }
 
-func safeScan(ctx context.Context, p domain.ProcSource) (out []domain.ProcSample, err error) {
+func safeScan(ctx context.Context, p domain.ProcSource, systemGPUActivePct *float64) (out []domain.ProcSample, err error) {
 	defer recoverToErr(&err)
-	return p.Scan(ctx)
+	return p.Scan(ctx, systemGPUActivePct)
 }
 
 func safePoll(ctx context.Context, a domain.AgentSource, now time.Time, procs []domain.ProcSample) (out []domain.Session, err error) {
