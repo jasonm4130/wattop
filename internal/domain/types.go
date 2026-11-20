@@ -246,12 +246,20 @@ type Workflow struct {
 	BurnUSDPerHr   *float64   `json:"burn_usd_per_hr"`
 }
 
+type BindConf string
+
+const (
+	BindExact    BindConf = "exact"
+	BindInferred BindConf = "inferred"
+	BindUnknown  BindConf = "unknown"
+)
+
 type Session struct {
 	TokenRate    *TokenRate     `json:"token_rate,omitempty"`
 	Agent        string         `json:"agent"`
 	ID           string         `json:"id"`
 	PID          *int           `json:"pid"`
-	BindConf     string         `json:"bind_conf"`
+	BindConf     BindConf       `json:"bind_conf"`
 	CWD          string         `json:"cwd"`
 	Name         string         `json:"name"`
 	Cmdline      string         `json:"cmdline"`

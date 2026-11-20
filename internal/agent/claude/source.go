@@ -220,7 +220,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 		Agent:        "claude",
 		ID:           f.SessionID,
 		PID:          &pid,
-		BindConf:     "exact",
+		BindConf:     domain.BindExact,
 		CWD:          f.CWD,
 		Name:         f.Name,
 		Kind:         f.Kind,

@@ -25,7 +25,7 @@ func buildChildrenFixture() *domain.Snapshot {
 
 	sessions := []domain.Session{
 		{
-			Agent: "claude", ID: "sess-children", PID: &pid, BindConf: "exact",
+			Agent: "claude", ID: "sess-children", PID: &pid, BindConf: domain.BindExact,
 			CWD: "/home/u/tree", Name: "tree", Kind: "interactive", Status: "busy",
 			StatusSince: ago(3 * time.Minute), Model: "claude-opus-5",
 			Usage:   domain.Usage{Input: 120000, Output: 9000, CacheRead: 800000},
@@ -114,7 +114,7 @@ func buildChildrenFixture() *domain.Snapshot {
 			}},
 		},
 		{
-			Agent: "codex", ID: "sess-plain", BindConf: "unknown", CWD: "/home/u/repo",
+			Agent: "codex", ID: "sess-plain", BindConf: domain.BindUnknown, CWD: "/home/u/repo",
 			Kind: "interactive", Status: "waiting", Model: "gpt-5.6-terra",
 			CostUSD: f(0.02), BurnUSDPerHr: f(0), Priced: true, ContextExact: true,
 			ContextUsed: 10000, ContextMax: 272000,

@@ -258,7 +258,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	burn = padLine(truncate(burn, cols.Burn), cols.Burn)
 
 	cpu, gpu, rss := "—", "—", "—"
-	if s.BindConf != "unknown" && s.Proc != nil {
+	if s.BindConf != domain.BindUnknown && s.Proc != nil {
 		cpu = fdash(s.Proc.CPUPct, "%.1f%%")
 		gpu = fdash(s.Proc.GPUMsPerSec, "%.1f")
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
@@ -288,7 +288,7 @@ func modelLabel(model string) string {
 
 func pidCell(s domain.Session, width int) string {
 	verbose := unknownPID
-	if s.BindConf != "unknown" {
+	if s.BindConf != domain.BindUnknown {
 		if s.PID != nil {
 			verbose = fmt.Sprintf("pid %d", *s.PID)
 		} else {
@@ -299,7 +299,7 @@ func pidCell(s domain.Session, width int) string {
 		return verbose
 	}
 	compact := "—"
-	if s.BindConf != "unknown" && s.PID != nil {
+	if s.BindConf != domain.BindUnknown && s.PID != nil {
 		compact = fmt.Sprintf("%d", *s.PID)
 	}
 	return truncate(compact, width)

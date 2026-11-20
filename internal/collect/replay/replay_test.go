@@ -309,7 +309,7 @@ func TestAgentSourceScriptedSessions(t *testing.T) {
 	}
 
 	unbound := byID(poll1, "sess-unbound-rollout")
-	if unbound == nil || unbound.PID != nil || unbound.BindConf != "unknown" {
+	if unbound == nil || unbound.PID != nil || unbound.BindConf != domain.BindUnknown {
 		t.Errorf("expected an unbound rollout (PID nil, BindConf unknown) in poll 1, got %+v", unbound)
 	}
 

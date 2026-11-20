@@ -215,7 +215,7 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 	s := domain.Session{
 		Agent:    "codex",
 		ID:       "sess-stale-binding",
-		BindConf: "unknown",
+		BindConf: domain.BindUnknown,
 		Status:   "unknown",
 		Proc: &domain.ProcSample{
 			PID:         999,
@@ -234,7 +234,7 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 		t.Errorf("BindConf==unknown row rendered live Proc data instead of dashes:\n%s", out)
 	}
 
-	fixtureRow := domain.Session{Agent: "codex", ID: "sess-unbound-rollout", BindConf: "unknown", Status: "unknown"}
+	fixtureRow := domain.Session{Agent: "codex", ID: "sess-unbound-rollout", BindConf: domain.BindUnknown, Status: "unknown"}
 	fixtureOut := SessionsRender([]domain.Session{fixtureRow}, r, 120, 3, -1, time.Time{}, Options{})
 	if !strings.Contains(fixtureOut, unknownPID) {
 		t.Errorf("expected %q for a nil-Proc unbound row too, got:\n%s", unknownPID, fixtureOut)
@@ -562,7 +562,7 @@ func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
 func TestUnknownModelRendersDash(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := SessionsRender([]domain.Session{
-		{Agent: "claude", ID: "sess-1", Status: "busy", BindConf: "exact", CWD: "/repo/x"},
+		{Agent: "claude", ID: "sess-1", Status: "busy", BindConf: domain.BindExact, CWD: "/repo/x"},
 	}, r, 120, 3, -1, time.Time{}, Options{NoColor: true})
 
 	row := strings.Split(out, "\n")[1]

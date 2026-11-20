@@ -18,7 +18,7 @@ func Bind(rollouts []Rollout, procs []domain.ProcSample) map[string]*int {
 
 type binding struct {
 	PID  *int
-	Conf string
+	Conf domain.BindConf
 }
 
 type candidate struct {
@@ -29,7 +29,7 @@ type candidate struct {
 func bindAll(rollouts []Rollout, procs []domain.ProcSample, resolvedCodexPath string) map[string]binding {
 	result := make(map[string]binding, len(rollouts))
 	for _, r := range rollouts {
-		result[r.Path] = binding{PID: nil, Conf: "unknown"}
+		result[r.Path] = binding{PID: nil, Conf: domain.BindUnknown}
 	}
 
 	byCWD := make(map[string][]candidate)
@@ -76,7 +76,7 @@ type binder struct {
 	result        map[string]binding
 }
 
-func (b *binder) bind(idx, pid int, conf string) {
+func (b *binder) bind(idx, pid int, conf domain.BindConf) {
 	b.result[b.rollouts[idx].Path] = binding{PID: &pid, Conf: conf}
 	b.used[pid] = true
 }
@@ -88,10 +88,10 @@ func (b *binder) bindSingleRolloutCWDs(cwds []string) {
 		switch len(contenders) {
 		case 0:
 		case 1:
-			b.bind(idx, contenders[0].pid, "exact")
+			b.bind(idx, contenders[0].pid, domain.BindExact)
 		default:
 			if pid, ok := nearestNotBefore(contenders, b.rollouts[idx].MetaAt); ok {
-				b.bind(idx, pid, "inferred")
+				b.bind(idx, pid, domain.BindInferred)
 			}
 		}
 	}
@@ -101,7 +101,7 @@ func (b *binder) bindSharedCWDs(cwds []string) {
 	for _, cwd := range cwds {
 		for _, idx := range b.rolloutsByCWD[cwd] {
 			if pid, ok := nearestNotBefore(unusedContenders(b.byCWD[cwd], b.used), b.rollouts[idx].MetaAt); ok {
-				b.bind(idx, pid, "inferred")
+				b.bind(idx, pid, domain.BindInferred)
 			}
 		}
 	}

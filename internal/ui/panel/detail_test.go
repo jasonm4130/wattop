@@ -30,7 +30,7 @@ func sessionWithHistogram() domain.Session {
 	return domain.Session{
 		Agent:        "claude",
 		ID:           "sess-detail",
-		BindConf:     "exact",
+		BindConf:     domain.BindExact,
 		CWD:          "/home/u/project",
 		Model:        "claude-opus-5",
 		Priced:       true,
@@ -94,7 +94,7 @@ func TestDetailHistogramCovers12Entries(t *testing.T) {
 func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{
-		Agent: "claude", ID: "sess-busy", BindConf: "exact",
+		Agent: "claude", ID: "sess-busy", BindConf: domain.BindExact,
 		ToolCounts: map[string]int{
 			"Bash":                        521,
 			"mcp__tavily__tavily_extract": 3,
@@ -146,7 +146,7 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 	r := loadDarkRoles(t)
 
 	bound := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
-	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}, r, 120, 40, time.Time{}, Options{})
+	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: domain.BindUnknown}, r, 120, 40, time.Time{}, Options{})
 
 	for name, out := range map[string]string{"bound": bound, "unbound": unbound} {
 		if !strings.Contains(out, "disk (cumulative)") {
@@ -164,7 +164,7 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 
 func TestDetailUnboundShowsPidUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
-	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}
+	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: domain.BindUnknown}
 	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "(pid unknown)") {
 		t.Errorf("expected %q in the render, got:\n%s", "(pid unknown)", out)
@@ -343,7 +343,7 @@ func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
 
 func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
-	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})
+	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: domain.BindExact, CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "Model    —") {
 		t.Errorf("an unresolved model must render as a dash, got:\n%s", out)
 	}

@@ -184,7 +184,7 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		}
 
 		status := inferStatus(c.Status, c.ModTime, now, s.idleThreshold)
-		sess := sessionFromRollout(c, binding{Conf: "unknown"}, status, procs)
+		sess := sessionFromRollout(c, binding{Conf: domain.BindUnknown}, status, procs)
 		sess.Kind = "subagent"
 		sess.ID = dedupSessionID(c, sess.ID, usedThreadIDs)
 		sess.TokenRate = c.tokens.Rate(now)

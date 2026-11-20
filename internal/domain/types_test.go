@@ -93,7 +93,7 @@ func fullSubagent() Subagent {
 func fullSession() Session {
 	pid := 407
 	return Session{
-		Agent: "claude", ID: "sess-1", PID: &pid, BindConf: "exact", CWD: "/repo",
+		Agent: "claude", ID: "sess-1", PID: &pid, BindConf: BindExact, CWD: "/repo",
 		Name: "wattop work", Cmdline: "claude --resume", Kind: "interactive",
 		Status: "busy", StatusSince: fixedTime(3), Model: "claude-opus-5",
 		Usage: fullUsage(), CostUSD: fp(1.23), BurnUSDPerHr: fp(4.56), Priced: true,
@@ -255,5 +255,25 @@ func TestSnapshotJSONKeys(t *testing.T) {
 	}
 	if _, ok := bandwidth["dram_read_gbs"]; !ok {
 		t.Error("missing \"sys.bandwidth.dram_read_gbs\"")
+	}
+}
+
+func TestEnumsMarshalToWireStrings(t *testing.T) {
+	cases := []struct {
+		v    any
+		want string
+	}{
+		{BindExact, `"exact"`},
+		{BindInferred, `"inferred"`},
+		{BindUnknown, `"unknown"`},
+	}
+	for _, c := range cases {
+		got, err := json.Marshal(c.v)
+		if err != nil {
+			t.Fatalf("json.Marshal(%v): %v", c.v, err)
+		}
+		if string(got) != c.want {
+			t.Errorf("json.Marshal(%#v) = %s, want %s", c.v, got, c.want)
+		}
 	}
 }

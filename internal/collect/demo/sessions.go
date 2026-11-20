@@ -261,7 +261,7 @@ func (s *session) render(w *World, at time.Time) domain.Session {
 		Agent:        sp.agent,
 		ID:           sp.id,
 		PID:          &pid,
-		BindConf:     "exact",
+		BindConf:     domain.BindExact,
 		CWD:          sp.cwd,
 		Name:         sp.name,
 		Kind:         sp.kind,

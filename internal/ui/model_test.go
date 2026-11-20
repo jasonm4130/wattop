@@ -351,11 +351,11 @@ func pidOf(p int) *int { return &p }
 
 func dormantCorpus() []domain.Session {
 	return []domain.Session{
-		{Agent: "codex", ID: "rollout-old-1", Status: "stale", BindConf: "unknown"},
-		{Agent: "claude", ID: "live-1", Status: "busy", BindConf: "exact", PID: pidOf(101)},
-		{Agent: "codex", ID: "rollout-old-2", Status: "stale", BindConf: "unknown"},
-		{Agent: "claude", ID: "live-2", Status: "waiting", BindConf: "exact", PID: pidOf(102)},
-		{Agent: "codex", ID: "stale-but-bound", Status: "stale", BindConf: "exact", PID: pidOf(103)},
+		{Agent: "codex", ID: "rollout-old-1", Status: "stale", BindConf: domain.BindUnknown},
+		{Agent: "claude", ID: "live-1", Status: "busy", BindConf: domain.BindExact, PID: pidOf(101)},
+		{Agent: "codex", ID: "rollout-old-2", Status: "stale", BindConf: domain.BindUnknown},
+		{Agent: "claude", ID: "live-2", Status: "waiting", BindConf: domain.BindExact, PID: pidOf(102)},
+		{Agent: "codex", ID: "stale-but-bound", Status: "stale", BindConf: domain.BindExact, PID: pidOf(103)},
 	}
 }
 
@@ -368,8 +368,8 @@ func dormantCycle(at time.Time) CycleMsg {
 func TestCrashedClaudeSessionIsDormant(t *testing.T) {
 	m := newTestModel(t)
 	msg := cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
-		{Agent: "claude", ID: "crashed", Status: "stale", BindConf: "exact", PID: pidOf(104)},
-		{Agent: "claude", ID: "idle-alive", Status: "stale", BindConf: "exact", PID: pidOf(105)},
+		{Agent: "claude", ID: "crashed", Status: "stale", BindConf: domain.BindExact, PID: pidOf(104)},
+		{Agent: "claude", ID: "idle-alive", Status: "stale", BindConf: domain.BindExact, PID: pidOf(105)},
 	})
 	msg.Inputs.Procs = []domain.ProcSample{{PID: 105}}
 	mi, _ := m.Update(msg)
@@ -439,8 +439,8 @@ func TestLiveSessionsSortFirst(t *testing.T) {
 	expensive := 500.0
 	cheap := 1.0
 	sessions := []domain.Session{
-		{Agent: "codex", ID: "dormant-expensive", Status: "stale", BindConf: "unknown", CostUSD: &expensive, Priced: true},
-		{Agent: "claude", ID: "live-cheap", Status: "busy", BindConf: "exact", PID: pidOf(1), CostUSD: &cheap, Priced: true},
+		{Agent: "codex", ID: "dormant-expensive", Status: "stale", BindConf: domain.BindUnknown, CostUSD: &expensive, Priced: true},
+		{Agent: "claude", ID: "live-cheap", Status: "busy", BindConf: domain.BindExact, PID: pidOf(1), CostUSD: &cheap, Priced: true},
 	}
 	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), sessions))
 	m = mi.(Model)
