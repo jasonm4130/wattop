@@ -7,12 +7,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/pricing"
 	"github.com/jasonm4130/wattop/internal/soc"
 )
 
 func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Duration, book *pricing.Book, themeName string, groups bool) {
-	_, _ = safeScan(ctx, src.Proc)
+	primeProcBaseline(ctx, src.Proc)
 	sys, errSys := safeSample(ctx, src.Sys, interval)
 	procs, errProc := safeScan(ctx, src.Proc)
 	now := time.Now()
@@ -100,6 +101,10 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "theme: %s\n", themeName)
+}
+
+func primeProcBaseline(ctx context.Context, p domain.ProcSource) {
+	_, _ = safeScan(ctx, p)
 }
 
 func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error)) {
