@@ -18,8 +18,8 @@ var pricingClient = &http.Client{Timeout: 10 * time.Second}
 
 const maxPricingBody = 20 << 20
 
-func (b *Book) Refresh(ctx context.Context) {
-	go b.refreshAndRecord(ctx)
+func (b *Book) Refresh(ctx context.Context, logger *log.Logger) {
+	go b.refreshAndRecord(ctx, logger)
 }
 
 func (b *Book) RefreshErr() error {
@@ -28,17 +28,17 @@ func (b *Book) RefreshErr() error {
 	return b.refreshErr
 }
 
-func (b *Book) refreshAndRecord(ctx context.Context) {
-	err := b.refresh(ctx)
+func (b *Book) refreshAndRecord(ctx context.Context, logger *log.Logger) {
+	err := b.refresh(ctx, logger)
 	b.mu.Lock()
 	b.refreshErr = err
 	b.mu.Unlock()
 	if err != nil {
-		log.Printf("pricing: %v", err)
+		logger.Printf("pricing: %v", err)
 	}
 }
 
-func (b *Book) refresh(ctx context.Context) error {
+func (b *Book) refresh(ctx context.Context, logger *log.Logger) error {
 	path := cacheFilePath()
 
 	if fi, err := os.Stat(path); err == nil && time.Since(fi.ModTime()) < refreshTTL {
@@ -58,7 +58,7 @@ func (b *Book) refresh(ctx context.Context) error {
 	if data, err := json.Marshal(snap); err == nil {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
 			if err := os.WriteFile(path, data, 0o644); err != nil {
-				log.Printf("pricing: could not write cache %s: %v", path, err)
+				logger.Printf("pricing: could not write cache %s: %v", path, err)
 			}
 		}
 	}

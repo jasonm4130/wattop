@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,7 +59,7 @@ func TestRefreshRecordsFailureAndKeepsTable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	b.refreshAndRecord(ctx)
+	b.refreshAndRecord(ctx, log.New(io.Discard, "", 0))
 
 	if err := b.RefreshErr(); err == nil {
 		t.Fatal("RefreshErr() = nil after a failed fetch, want the fetch error")
@@ -83,7 +85,7 @@ func TestRefreshFromFreshCacheClearsError(t *testing.T) {
 	b := bookFrom(modelTable{"m": {}})
 	b.refreshErr = errors.New("earlier failure")
 
-	b.refreshAndRecord(context.Background())
+	b.refreshAndRecord(context.Background(), log.New(io.Discard, "", 0))
 
 	if err := b.RefreshErr(); err != nil {
 		t.Fatalf("RefreshErr() = %v after loading a fresh cache, want nil", err)

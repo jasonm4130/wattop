@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
-	"log"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -201,15 +199,7 @@ func recoverToErr(err *error) {
 	}
 }
 
-func discardStdLog() (restore func()) {
-	prev := log.Writer()
-	log.SetOutput(io.Discard)
-	return func() { log.SetOutput(prev) }
-}
-
 func runInteractive(ctx context.Context, loop *Loop, model ui.Model) error {
-	defer discardStdLog()()
-
 	p := tea.NewProgram(model, tea.WithContext(ctx))
 
 	loop.Send = func(in state.Inputs) {
