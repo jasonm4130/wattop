@@ -129,9 +129,10 @@ func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Op
 			isSel = row == selected
 			o := plainIfSelected(opts, isSel)
 			var line string
-			if c.Workflow != nil {
+			switch c := c.(type) {
+			case WorkflowRow:
 				line = workflowRow(r, c.Workflow, o, cols)
-			} else {
+			case SubagentRow:
 				line = subagentRow(r, c.Subagent, c.Depth, o, cols)
 			}
 			lines = append(lines, styleSelected(line, isSel, r, opts))
