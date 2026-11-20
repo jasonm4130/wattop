@@ -1,10 +1,3 @@
-// Package codex implements domain.AgentSource for the Codex CLI.
-//
-// This is the least-certain surface in the project: there is no per-pid
-// session file the way Claude Code has one, so status is inferred from a
-// task_started/task_complete histogram and the pid bind is a best-effort
-// join on cwd and process start time. See bind.go and parse.go for the
-// specifics, and the plan's Task 9 section for the evidence behind them.
 package codex
 
 import (
@@ -23,9 +16,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// inodeOf returns fi's inode number, or 0 if the platform's os.FileInfo.Sys()
-// does not carry one (this project targets darwin and linux CI only; both
-// expose *syscall.Stat_t).
 func inodeOf(fi os.FileInfo) uint64 {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -34,73 +24,46 @@ func inodeOf(fi os.FileInfo) uint64 {
 	return uint64(st.Ino)
 }
 
-// Rollout is one shortlisted rollout file plus everything parsed out of it.
 type Rollout struct {
 	tokens      tokenrate.Window
 	hasUsage    bool
 	lastUsageAt time.Time
 	Path        string
-	ModTime     time.Time // file mtime; drives the stale inference (idle threshold) and the mtime shortlist
+	ModTime     time.Time
 
-	SessionID string    // from session_meta.payload.session_id; "" if session_meta never arrived (e.g. rate-limits.jsonl)
-	MetaAt    time.Time // session_meta's own record timestamp, parsed as UTC; zero if session_meta never arrived.
-	// A zero MetaAt makes this rollout unmatched in bind.go's time
-	// tiebreaker, exactly like a candidate's zero StartTime — there is no
-	// session-start instant to compare a pid's start time against.
-	CWD   string // most recently seen cwd, from session_meta or turn_context
-	Model string // most recently seen turn_context.payload.model — read per turn, never a config default
+	SessionID string
+	MetaAt    time.Time
+	CWD       string
+	Model     string
 
-	// ThreadID is session_meta.payload.id: the unique thread id. Unlike
-	// SessionID, it is never shared between a parent and its children.
-	ThreadID string
-	// ParentThreadID is session_meta.payload.parent_thread_id, falling back
-	// to source.subagent.thread_spawn.parent_thread_id; "" for a top-level
-	// (non-child) rollout.
+	ThreadID       string
 	ParentThreadID string
-	// SpawnDepth is source.subagent.thread_spawn.depth, or 1 for a guardian
-	// thread (which carries no depth field of its own).
-	SpawnDepth int
-	// AgentType is thread_spawn.agent_role if non-null, else "spawn" for a
-	// thread_spawn child, or "guardian" for a guardian thread. "" for a
-	// top-level rollout.
-	AgentType string
-	Nickname  string // source.subagent.thread_spawn.agent_nickname / payload.agent_nickname
-	AgentPath string // source.subagent.thread_spawn.agent_path / payload.agent_path
+	SpawnDepth     int
+	AgentType      string
+	Nickname       string
+	AgentPath      string
 
-	Status        string // "busy" | "waiting" | "stale", inferred from the task_started/task_complete histogram; see parse.go
-	TaskCompleted bool   // true once at least one task_complete has been seen
+	Status        string
+	TaskCompleted bool
 
-	Usage domain.Usage
-	// Ledger is Usage broken down per token_count by model and prompt size,
-	// for per-request pricing; it always sums to Usage (see fileLedger).
+	Usage        domain.Usage
 	Ledger       domain.UsageLedger
-	ContextUsed  int64 // total_tokens from the most recent token_count event
-	ContextMax   int64 // info.model_context_window, falling back to task_started's top-level model_context_window
-	ContextExact bool  // true once both ContextUsed and ContextMax are known from the transcript
+	ContextUsed  int64
+	ContextMax   int64
+	ContextExact bool
 	RateLimits   []domain.RateLimit
 
-	// ToolCalls and CurrentTool come from response_item function_call /
-	// function_call_output records: ToolCalls counts every function_call
-	// seen, CurrentTool is the newest one still awaiting its output.
 	ToolCalls    int
 	CurrentTool  string
 	pendingCalls []pendingCall
 }
 
-// tailState is the offset-tailer shape shared with Task 8's Claude tailer:
-// {path, inode, offset}. Open, Seek(offset), read complete lines only,
-// advance the offset, close. Reset to offset 0 when the size shrinks or the
-// inode changes. A trailing partial line is buffered, not parsed, and is
-// retried on the next poll.
 type tailState struct {
 	path   string
 	inode  uint64
 	offset int64
 }
 
-// readNewLines opens path, seeks to the tailer's offset (resetting first if
-// the file shrank or its inode changed), and returns every complete line
-// appended since the last call. It never re-reads a whole multi-MB file.
 func (t *tailState) readNewLines() ([][]byte, error) {
 	f, err := os.Open(t.path)
 	if err != nil {
@@ -126,15 +89,12 @@ func (t *tailState) readNewLines() ([][]byte, error) {
 		return nil, err
 	}
 
-	// A trailing partial line is never advanced past: t.offset stops right
-	// before it, so the next call's Seek naturally re-reads those same bytes
-	// once more has been appended — no separate buffer needed.
 	r := bufio.NewReader(f)
 	var lines [][]byte
 	for {
 		chunk, readErr := r.ReadBytes('\n')
 		if readErr != nil {
-			break // trailing partial line (or EOF with nothing pending): stop, retry next poll.
+			break
 		}
 		t.offset += int64(len(chunk))
 		line := strings.TrimRight(string(chunk), "\r\n")
@@ -146,12 +106,6 @@ func (t *tailState) readNewLines() ([][]byte, error) {
 	return lines, nil
 }
 
-// ShortlistRollouts walks the whole of root (normally ~/.codex/sessions)
-// looking for rollout-<ts>-<uuid>.jsonl files, and returns those modified
-// within the last maxAge. It is the stateless form of rolloutIndex's full
-// walk; Source.Poll goes through a rolloutIndex so it does not re-walk the
-// tree on every poll.
-//
 // Selection is by mtime, never by the YYYY/MM/DD folder or the filename's
 // embedded timestamp. Codex writes a rollout into the folder of the day the
 // session STARTED and keeps appending to it, so a resumed or multi-day
@@ -164,11 +118,6 @@ func ShortlistRollouts(root string, now time.Time, maxAge time.Duration) ([]stri
 	return matches, err
 }
 
-// walkRollouts stats every rollout file under root and returns, sorted, the
-// paths whose mtime is not before cutoff, plus the set of directories that
-// held at least one of them. It opens no file. A missing root is not an
-// error: Codex may simply never have run on this machine. An unreadable
-// subdirectory is skipped rather than failing the whole walk.
 func walkRollouts(root string, cutoff time.Time) ([]string, map[string]bool, error) {
 	var matches []string
 	dirs := make(map[string]bool)
@@ -203,8 +152,6 @@ func walkRollouts(root string, cutoff time.Time) ([]string, map[string]bool, err
 	return matches, dirs, nil
 }
 
-// scanRolloutDir is walkRollouts for a single directory: one ReadDir plus
-// one lstat per rollout file in it. A missing directory yields nothing.
 func scanRolloutDir(dir string, cutoff time.Time) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -231,30 +178,12 @@ func isRolloutName(name string) bool {
 	return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
 }
 
-// rewalkInterval is how often rolloutIndex re-walks the whole sessions tree.
-// Between walks, a rollout in a day folder that held nothing recent at the
-// last walk (an old session just resumed) is not seen; this bounds that
-// delay. New sessions are not delayed: today's and yesterday's folders are
-// listed on every poll.
 const rewalkInterval = 30 * time.Second
 
-// rolloutIndex is the cached discovery behind Source.Poll.
-//
-// Cost: a full walk is one ReadDir per directory and one lstat per rollout
-// file in the tree — it opens no file. Codex never deletes rollouts, so the
-// tree grows forever (hundreds to low thousands of files after months of
-// use); a full walk is therefore done only every rewalkInterval, when the
-// root directory's mtime changes, or when the caller widens the cutoff past
-// the last walk's. Every other poll lists only the "hot" day folders the
-// last walk found a recent rollout in, plus today's and yesterday's
-// folders, so a steady-state poll is a handful of ReadDirs and lstats of
-// the files in those few folders — which also re-stats every cached
-// candidate each poll, so a cached rollout that goes idle drops out without
-// waiting for a walk.
 type rolloutIndex struct {
 	root       string
-	walkedAt   time.Time // zero until the first full walk
-	walkCutoff time.Time // the cutoff that full walk used
+	walkedAt   time.Time
+	walkCutoff time.Time
 	rootMtime  time.Time
 	hotDirs    map[string]bool
 }
@@ -263,9 +192,6 @@ func newRolloutIndex(root string) *rolloutIndex {
 	return &rolloutIndex{root: root}
 }
 
-// shortlist returns every rollout under the index's root whose mtime is not
-// before cutoff, sorted, walking the full tree only when the cache cannot
-// answer (see rolloutIndex).
 func (x *rolloutIndex) shortlist(now, cutoff time.Time) ([]string, error) {
 	fi, err := os.Stat(x.root)
 	if err != nil {
@@ -279,7 +205,7 @@ func (x *rolloutIndex) shortlist(now, cutoff time.Time) ([]string, error) {
 
 	needWalk := x.walkedAt.IsZero() ||
 		now.Sub(x.walkedAt) >= rewalkInterval ||
-		now.Before(x.walkedAt) || // the clock went backwards
+		now.Before(x.walkedAt) ||
 		cutoff.Before(x.walkCutoff) ||
 		!fi.ModTime().Equal(x.rootMtime)
 
@@ -307,7 +233,7 @@ func (x *rolloutIndex) shortlist(now, cutoff time.Time) ([]string, error) {
 	for dir := range dirs {
 		m, err := scanRolloutDir(dir, cutoff)
 		if err != nil {
-			continue // an unreadable folder is skipped, as in a full walk.
+			continue
 		}
 		matches = append(matches, m...)
 	}
@@ -315,10 +241,6 @@ func (x *rolloutIndex) shortlist(now, cutoff time.Time) ([]string, error) {
 	return matches, nil
 }
 
-// readAllLines reads path and splits it into complete lines, dropping a
-// trailing partial line the way the tailer would buffer-and-retry it (a
-// non-incremental read has no next poll to retry on, so it drops rather than
-// blocks).
 func readAllLines(path string) ([][]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -335,8 +257,6 @@ func readAllLines(path string) ([][]byte, error) {
 			start = i + 1
 		}
 	}
-	// A trailing partial line (no terminating newline) is dropped, matching
-	// what a real tailer would buffer rather than parse.
 	return lines, nil
 }
 

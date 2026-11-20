@@ -2,8 +2,6 @@ package domain
 
 import "time"
 
-// SysSample is one point-in-time reading of the SoC. GPU is anonymous in the
-// spec sketch — it stays that way here; it has no identity outside SysSample.
 type SysSample struct {
 	At       time.Time `json:"at"`
 	SoCName  string    `json:"soc_name"`
@@ -18,27 +16,23 @@ type SysSample struct {
 	Temps        map[string]float64 `json:"temps"`
 	Fans         []Fan              `json:"fans"`
 	ThermalState int                `json:"thermal_state"`
-	// Throttled is true when the OS reports thermal pressure above Nominal
-	// (ThermalState >= 1), i.e. it is applying thermal mitigation.
-	Throttled bool         `json:"throttled"`
-	Memory    MemorySample `json:"memory"`
-	Net       NetSample    `json:"net"`
-	Disk      DiskSample   `json:"disk"`
-	Missing   []string     `json:"missing"`
+	Throttled    bool               `json:"throttled"`
+	Memory       MemorySample       `json:"memory"`
+	Net          NetSample          `json:"net"`
+	Disk         DiskSample         `json:"disk"`
+	Missing      []string           `json:"missing"`
 }
 
 // Snapshot is the full state of one refresh tick — the headless JSON contract.
 type Snapshot struct {
-	TokenRate    *TokenRate `json:"token_rate,omitempty"`
-	At           time.Time  `json:"at"`
-	Sys          SysSample  `json:"sys"`
-	Sessions     []Session  `json:"sessions"`
-	TotalCostUSD float64    `json:"total_cost_usd"`
-	// TotalCostPartial marks TotalCostUSD as omitting an unpriced session or
-	// subagent; UnpricedModels names the models responsible.
-	TotalCostPartial  bool     `json:"total_cost_partial"`
-	TotalBurnUSDPerHr float64  `json:"total_burn_usd_per_hr"`
-	UnpricedModels    []string `json:"unpriced_models"`
-	Degraded          []string `json:"degraded"`
-	SelfCPUPct        float64  `json:"self_cpu_pct"`
+	TokenRate         *TokenRate `json:"token_rate,omitempty"`
+	At                time.Time  `json:"at"`
+	Sys               SysSample  `json:"sys"`
+	Sessions          []Session  `json:"sessions"`
+	TotalCostUSD      float64    `json:"total_cost_usd"`
+	TotalCostPartial  bool       `json:"total_cost_partial"`
+	TotalBurnUSDPerHr float64    `json:"total_burn_usd_per_hr"`
+	UnpricedModels    []string   `json:"unpriced_models"`
+	Degraded          []string   `json:"degraded"`
+	SelfCPUPct        float64    `json:"self_cpu_pct"`
 }

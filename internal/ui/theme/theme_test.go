@@ -2,11 +2,6 @@ package theme
 
 import "testing"
 
-// TestAllFourPalettesLoad loads each of the four v0.1 themes by name and
-// asserts every Roles field is set (a Palette missing a semantic key would
-// otherwise leave a zero-value hex string, which renders as no color at
-// all -- silently, since lipgloss treats an empty Color as no styling).
-// -v names all four as subtests.
 func TestAllFourPalettesLoad(t *testing.T) {
 	want := []string{"wattop-dark", "wattop-light", "catppuccin-mocha", "nord"}
 
@@ -46,9 +41,6 @@ func TestAllFourPalettesLoad(t *testing.T) {
 	}
 }
 
-// TestBareHexAccent asserts a bare hex string ("#rrggbb" and "rrggbb") loads
-// as an accent override on top of wattop-dark, rather than as an unknown
-// theme name.
 func TestBareHexAccent(t *testing.T) {
 	base, err := Load("wattop-dark")
 	if err != nil {
@@ -71,8 +63,6 @@ func TestBareHexAccent(t *testing.T) {
 	}
 }
 
-// TestUnknownThemeErrors asserts an unrecognised, non-hex theme name is
-// reported as an error rather than silently zero-valued.
 func TestUnknownThemeErrors(t *testing.T) {
 	if _, err := Load("not-a-real-theme"); err == nil {
 		t.Fatal("Load(\"not-a-real-theme\"): expected an error, got nil")

@@ -10,10 +10,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// sessionWithHistogram builds a synthetic session carrying a 12-entry
-// tool-call histogram, a bind confidence, cache-tier tokens and a Codex
-// rate limit -- one place to build all the detail-view inputs so the
-// golden test and the targeted assertions below don't drift apart.
 func sessionWithHistogram() domain.Session {
 	counts := map[string]int{}
 	names := []string{
@@ -63,18 +59,12 @@ func sessionWithHistogram() domain.Session {
 
 func floatPtr(v float64) *float64 { return &v }
 
-// TestDetailGolden renders the 12-entry-histogram session at a fixed
-// 120x40 and golden-compares it. Run with -update to regenerate.
 func TestDetailGolden(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
 	requireGoldenText(t, "detail_histogram", out)
 }
 
-// TestDetailHonoursNoColor asserts DetailRender styles through the theme
-// when NoColor is false (an ANSI escape appears) and emits plain text when
-// NoColor is true (the --no-color / NO_COLOR contract every other panel
-// already honours via the shared styled() helper).
 func TestDetailHonoursNoColor(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
@@ -90,8 +80,6 @@ func TestDetailHonoursNoColor(t *testing.T) {
 	}
 }
 
-// TestDetailHistogramCovers12Entries asserts every one of the 12 tool
-// names appears in the rendered histogram.
 func TestDetailHistogramCovers12Entries(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
@@ -103,12 +91,6 @@ func TestDetailHistogramCovers12Entries(t *testing.T) {
 	}
 }
 
-// TestDetailHistogramBarFitsWidthWithBusySession asserts a session with a
-// large call count (521 Bash calls) still renders every line within the
-// panel width -- unscaled, a 521-block bar filled the entire 120-column
-// line and pushed the count off-screen. It also covers a long MCP-style
-// tool name ("mcp__tavily__tavily_extract", 27 chars), which must not
-// break the fixed label column the bar and count are aligned against.
 func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{
@@ -130,9 +112,6 @@ func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 	}
 }
 
-// TestDetailShowsSubagentTreeAndRateLimits asserts the subagent tree names
-// both live and finished children with their resolved models, and that
-// Codex rate limits render including a rejection-learned window.
 func TestDetailShowsSubagentTreeAndRateLimits(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
@@ -150,9 +129,6 @@ func TestDetailShowsSubagentTreeAndRateLimits(t *testing.T) {
 	}
 }
 
-// TestDetailShowsBindConfidenceAndDiskIO asserts the bind confidence and
-// the cumulative disk read/write bytes render -- this is the only place in
-// v0.1 DiskReadB/DiskWriteB surface.
 func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := sessionWithHistogram()
@@ -166,13 +142,6 @@ func TestDetailShowsBindConfidenceAndDiskIO(t *testing.T) {
 	}
 }
 
-// TestDetailDiskIOLabelledCumulativeNotRate pins the unit on the disk
-// figures. ProcSample.DiskReadB/DiskWriteB are proc_pid_rusage counters
-// accumulated since the process started -- internal/proc keeps no delta
-// tracker for them -- so a "B/s" suffix would sell a lifetime total as a
-// per-second rate, wrong by however long the process has been alive. The
-// negative assertion is on "B/s" and not on "/s", because "gpu ... ms/s"
-// on the same line legitimately is a rate.
 func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 	r := loadDarkRoles(t)
 
@@ -193,9 +162,6 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 	}
 }
 
-// TestDetailUnboundShowsPidUnknown asserts the process section falls back
-// to "(pid unknown)" for a session whose bind confidence is unknown, never
-// a crash or a zeroed process line.
 func TestDetailUnboundShowsPidUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}
@@ -205,10 +171,6 @@ func TestDetailUnboundShowsPidUnknown(t *testing.T) {
 	}
 }
 
-// TestFooterCarriesEstimateCaveat asserts the footer always renders the
-// standing "estimates ... ignore subscription plans" caveat -- permanent
-// UI, not a README line -- alongside total SoC watts next to total $/hr,
-// wattop's own CPU cost, the unpriced-model count and any Degraded badges.
 func TestFooterCarriesEstimateCaveat(t *testing.T) {
 	r := loadDarkRoles(t)
 	watts := 45.2
@@ -243,12 +205,6 @@ func TestFooterCarriesEstimateCaveat(t *testing.T) {
 	}
 }
 
-// TestFooterCaveatSurvivesAtProductionHeight pins the shape Model.View()
-// actually renders (footerH == 4, no Degraded badge competing for space):
-// the status line added for sort/theme/paused must not evict the standing
-// estimate caveat when there is only an unpriced-model line alongside it.
-// The both-unpriced-and-Degraded shape still overflows footerH == 4 and is
-// a pre-existing gap this task does not attempt to close.
 func TestFooterCaveatSurvivesAtProductionHeight(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{UnpricedModels: []string{"claude-nightly-experimental"}}
@@ -258,9 +214,6 @@ func TestFooterCaveatSurvivesAtProductionHeight(t *testing.T) {
 	}
 }
 
-// TestFooterOmitsUnpricedAndDegradedWhenClean asserts the footer drops
-// both the unpriced-model line and the Degraded badge when there is
-// nothing to report -- the caveat itself is the only permanent line.
 func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
@@ -273,11 +226,6 @@ func TestFooterOmitsUnpricedAndDegradedWhenClean(t *testing.T) {
 	}
 }
 
-// TestFooterBurnGoesHotAboveThreshold pins the $/hr severity colour. The
-// e2e golden used to be the only thing covering it, through a fixture whose
-// burn rate rendered $455.88/hr; the burn fix now baselines that corpus's
-// backfilled spend to $0.00/hr and the golden no longer exercises the hot
-// branch at all. Assert it here, where the threshold lives, instead.
 func TestFooterBurnGoesHotAboveThreshold(t *testing.T) {
 	r := loadDarkRoles(t)
 	hot := FooterRender(&domain.Snapshot{TotalBurnUSDPerHr: 9.5}, r, 120, 4, "cost", "dark", false, 0, Options{})
@@ -294,9 +242,6 @@ func TestFooterBurnGoesHotAboveThreshold(t *testing.T) {
 	}
 }
 
-// TestFooterBurnHotThresholdIsConfigurable: config.toml's
-// burn_hot_usd_per_hr reaches the footer through Options, moving the line
-// the default $5/hr would draw.
 func TestFooterBurnHotThresholdIsConfigurable(t *testing.T) {
 	r := loadDarkRoles(t)
 	opts := Options{BurnHotUSDPerHr: 10}
@@ -311,9 +256,6 @@ func TestFooterBurnHotThresholdIsConfigurable(t *testing.T) {
 	}
 }
 
-// TestFooterStatusLineAdvertisesKeymap asserts the footer names the active
-// sort key and theme and points at the `?` help overlay -- otherwise s and
-// t leave no trace on screen at all.
 func TestFooterStatusLineAdvertisesKeymap(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
@@ -333,8 +275,6 @@ func TestFooterStatusLineAdvertisesKeymap(t *testing.T) {
 	}
 }
 
-// TestFooterShowsPaused asserts pausing renders a [PAUSED] marker -- the
-// one state a monitoring tool must never leave silent.
 func TestFooterShowsPaused(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{}
@@ -345,13 +285,6 @@ func TestFooterShowsPaused(t *testing.T) {
 	}
 }
 
-// TestFooterStatusLineSurvivesTruncation asserts the sort/theme/paused
-// status line is placed early enough in the footer that it still renders
-// even when height is too short for every line the footer can produce --
-// e.g. wattop's own on-screen footer height of 3, with both an unpriced
-// count and a Degraded badge present, which alone already fill 3 lines
-// before the caveat. The status line must not be the one line to lose that
-// race.
 func TestFooterStatusLineSurvivesTruncation(t *testing.T) {
 	r := loadDarkRoles(t)
 	snap := &domain.Snapshot{
@@ -368,12 +301,6 @@ func TestFooterStatusLineSurvivesTruncation(t *testing.T) {
 	}
 }
 
-// TestFooterFitsAt80Columns is the QA defect of 2026-09-06: the Machine
-// line is a plain Sprintf of four segments, frame() pads short lines but
-// never truncates long ones, and at 80 columns the line ran 15 cells past
-// the terminal and wrapped over the row below it. Segments are dropped
-// whole rather than truncated -- a "$335.19 session total" cut mid-number
-// reads as a smaller, wrong figure.
 func TestFooterFitsAt80Columns(t *testing.T) {
 	r := loadDarkRoles(t)
 	watts := 8.4
@@ -398,8 +325,6 @@ func TestFooterFitsAt80Columns(t *testing.T) {
 	}
 }
 
-// TestFooterKeepsEverySegmentWhenItFits guards the drop rule from the
-// other side: at 120 columns nothing is dropped.
 func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
 	r := loadDarkRoles(t)
 	watts := 8.4
@@ -416,9 +341,6 @@ func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
 	}
 }
 
-// TestDetailSaysWhyTheModelIsUnknown: a session with no transcript on disk
-// (a headless `claude -p` run writes none) renders a dash and a reason,
-// never a blank field that reads as a rendering bug.
 func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})

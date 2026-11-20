@@ -1,7 +1,3 @@
-// Command wattop-scrub redacts a recorded fixture transcript: this
-// machine's real home path, username, and human prose, replaced with
-// deterministic placeholders via internal/fixture.Scrub, one JSON record at
-// a time.
 package main
 
 import (
@@ -17,11 +13,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
-// allowedFile is the positive allowlist of file names wattop-scrub will
-// ever read. Anything else under -src is skipped, never opened — this is
-// the tool that gets pointed at directories under ~/.claude and ~/.codex,
-// which also hold files (session lock keys, credential caches) that must
-// never be walked, redacted, or copied anywhere.
 var allowedFile = regexp.MustCompile(`\.(jsonl|json)$`)
 
 func main() {
@@ -57,7 +48,7 @@ func main() {
 			return nil
 		}
 		if !allowedFile.MatchString(d.Name()) {
-			return nil // not on the allowlist: never opened
+			return nil
 		}
 
 		rel, err := filepath.Rel(*src, path)
@@ -71,19 +62,6 @@ func main() {
 	}
 }
 
-// scrubFile redacts src and writes the result to dst.
-//
-// A ".json" file is a single JSON document, possibly formatted across
-// several physical lines (mactop's "--count 1" array framing prints the
-// opening "[", the object, and the closing "]" as separate lines, for
-// instance) — so it is read and scrubbed whole.
-//
-// A ".jsonl" file is one JSON record per line and goes through
-// fixture.ScrubStream, which scrubs it line by line — copying a line that
-// fails to scrub (most commonly a partial JSON object left by a mid-write
-// tail) through unchanged with a warning instead of aborting the whole
-// file — and reproduces each line's terminator exactly, so a file whose
-// final line is unterminated stays unterminated.
 func scrubFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err

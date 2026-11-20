@@ -13,24 +13,15 @@ import (
 	"time"
 )
 
-// SourceURL is the upstream LiteLLM pricing table both scripts/pricing.sh
-// and refresh.go fetch, pinned in one place so the two never drift.
 const SourceURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
 //go:embed table.json.gz
 var embeddedTable []byte
 
-// modelEntry is one model's raw pricing record from the upstream table,
-// kept as a loose map because tiered cost keys (e.g. *_above_272k_tokens)
-// vary by model and are discovered from the entry's own keys, never
-// declared as fields — see parseRateCard, which parses them once per model.
 type modelEntry map[string]any
 
-// modelTable maps a bare model key, as published upstream, to its entry.
 type modelTable map[string]modelEntry
 
-// snapshot is the envelope stored in table.json.gz and in the refresh cache
-// file: the model table plus enough provenance to answer (*Book).Source().
 type snapshot struct {
 	SourceURL   string     `json:"source_url"`
 	SourceSHA   string     `json:"source_sha256"`
@@ -38,20 +29,12 @@ type snapshot struct {
 	Models      modelTable `json:"models"`
 }
 
-// Book is the resolved pricing table plus provenance. It is safe for
-// concurrent use: (*Book).Refresh may swap the table underneath readers.
 type Book struct {
-	mu   sync.RWMutex
-	snap snapshot
-	// cards caches each table key's parsed rateCard (key: the resolved
-	// model string), so the tier-key regex runs once per model rather than
-	// on every Cost call. swap clears it.
+	mu    sync.RWMutex
+	snap  snapshot
 	cards sync.Map
 }
 
-// Load returns the embedded snapshot. It never touches the network and
-// never blocks: table.json.gz is compiled into the binary, so first run is
-// correct offline and instant.
 func Load() (*Book, error) {
 	snap, err := decodeSnapshot(embeddedTable)
 	if err != nil {
@@ -60,16 +43,12 @@ func Load() (*Book, error) {
 	return &Book{snap: snap}, nil
 }
 
-// Entries reports how many models the current table carries, for `doctor`.
 func (b *Book) Entries() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.snap.Models)
 }
 
-// Source reports where the current table came from: the upstream URL, the
-// SHA-256 of the exact upstream bytes it was built from, and when that
-// snapshot was generated (embed time, or the last successful refresh).
 func (b *Book) Source() (url string, sha256hex string, fetchedAt time.Time) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

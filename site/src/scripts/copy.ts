@@ -1,4 +1,3 @@
-// Copy-to-clipboard for install commands.
 document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((b) => {
   b.addEventListener('click', async () => {
     const text = b.dataset.copy || '';

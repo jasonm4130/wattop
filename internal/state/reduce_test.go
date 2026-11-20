@@ -10,10 +10,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/pricing"
 )
 
-// newTestState returns a State backed by the real embedded pricing table
-// (Load never touches the network or disk) and a burn tracker whose window
-// is short enough that idle-decays-to-zero assertions don't need to wait
-// out a production-sized window.
 func newTestState(t *testing.T, window time.Duration) *State {
 	t.Helper()
 	book, err := pricing.Load()
@@ -47,9 +43,6 @@ func hasSession(snap *domain.Snapshot, agent, id string) bool {
 	return false
 }
 
-// TestBurnDecaysToZeroWhenIdle: a session goes busy (cost climbing) then
-// idle (cost flat) and its burn rate decays to exactly zero once the
-// tracker's window has elapsed since the last real cost change.
 func TestBurnDecaysToZeroWhenIdle(t *testing.T) {
 	st := newTestState(t, 5*time.Second)
 
@@ -75,15 +68,12 @@ func TestBurnDecaysToZeroWhenIdle(t *testing.T) {
 		t.Fatalf("after cost increase: BurnUSDPerHr = %v, want > 0", s.BurnUSDPerHr)
 	}
 
-	// Idle: usage (and so cost) stops changing. Reduce must not keep
-	// refreshing the tracker's clock on an unchanged total.
 	snap = st.Reduce(Inputs{At: at(2), Sessions: []domain.Session{mk(2000)}})
 	s = findSession(t, snap, "claude", "s1")
 	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr <= 0 {
 		t.Fatalf("still within window: BurnUSDPerHr = %v, want > 0", s.BurnUSDPerHr)
 	}
 
-	// Past the window since the last real cost change (at(1)).
 	snap = st.Reduce(Inputs{At: at(10), Sessions: []domain.Session{mk(2000)}})
 	s = findSession(t, snap, "claude", "s1")
 	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr != 0 {
@@ -91,9 +81,6 @@ func TestBurnDecaysToZeroWhenIdle(t *testing.T) {
 	}
 }
 
-// TestPidDisappearsRowSurvives: a pid vanishes from the process table
-// mid-run and the session's Proc becomes nil without the row itself
-// vanishing from the snapshot.
 func TestPidDisappearsRowSurvives(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	pid := 4242
@@ -114,7 +101,7 @@ func TestPidDisappearsRowSurvives(t *testing.T) {
 		t.Fatalf("Proc = %+v, want bound to pid %d", s.Proc, pid)
 	}
 
-	snap = st.Reduce(Inputs{At: at(1), Sessions: []domain.Session{session}}) // no Procs at all now
+	snap = st.Reduce(Inputs{At: at(1), Sessions: []domain.Session{session}})
 	s = findSession(t, snap, "claude", "s1")
 	if s.Proc != nil {
 		t.Fatalf("Proc = %+v, want nil once the pid is gone from the process table", s.Proc)
@@ -124,9 +111,6 @@ func TestPidDisappearsRowSurvives(t *testing.T) {
 	}
 }
 
-// TestUnpricedContributesZeroAndIsFlagged: a model the pricing table does
-// not carry contributes 0 to TotalCostUSD, renders as unpriced ($— via a
-// nil CostUSD) and is named in UnpricedModels.
 func TestUnpricedContributesZeroAndIsFlagged(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -168,13 +152,6 @@ func TestUnpricedContributesZeroAndIsFlagged(t *testing.T) {
 	}
 }
 
-// TestCostTierKeysOnLastPromptNotCumulativeUsage: a session whose
-// cumulative Usage has crossed claude-sonnet-4-5's 200k-token tier
-// threshold, but whose last request (ContextUsed) was well under it, must
-// still price at the base rate — tier selection keys on the per-request
-// prompt size, never on the lifetime sum. Pricing this at the long-context
-// tier because the running total happens to exceed 200k would overcharge
-// essentially every real multi-turn session within a handful of turns.
 func TestCostTierKeysOnLastPromptNotCumulativeUsage(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -195,8 +172,6 @@ func TestCostTierKeysOnLastPromptNotCumulativeUsage(t *testing.T) {
 		t.Fatalf("CostUSD is nil, want a value")
 	}
 
-	// Base-rate cost computed directly from the sonnet-4-5 base per-token
-	// rates, independent of reduce.go's own tier logic.
 	const (
 		inputRate     = 3e-06
 		outputRate    = 1.5e-05
@@ -208,9 +183,6 @@ func TestCostTierKeysOnLastPromptNotCumulativeUsage(t *testing.T) {
 	}
 }
 
-// TestSubagentCostSurvivesAfterItFinishes: a subagent's cost is folded into
-// the session total, and stays there once the subagent drops out of the
-// live set (Live: false) on a later cycle — it is never re-subtracted.
 func TestSubagentCostSurvivesAfterItFinishes(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -246,8 +218,6 @@ func TestSubagentCostSurvivesAfterItFinishes(t *testing.T) {
 	}
 }
 
-// TestHistoryRingCaps: pushing more than historyCap samples into a ring
-// keeps exactly historyCap of them, dropping the oldest first.
 func TestHistoryRingCaps(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -264,8 +234,6 @@ func TestHistoryRingCaps(t *testing.T) {
 	if len(watts) != historyCap {
 		t.Fatalf("len(History(\"watts\")) = %d, want %d", len(watts), historyCap)
 	}
-	// Oldest surviving sample is from i=50 (0..49 dropped), newest is
-	// i=historyCap+49.
 	if watts[0] != 50 {
 		t.Fatalf("watts[0] = %v, want 50 (oldest 50 samples dropped)", watts[0])
 	}
@@ -274,11 +242,6 @@ func TestHistoryRingCaps(t *testing.T) {
 	}
 }
 
-// TestVanishedSessionGoesStaleThenDrops covers the whole "stale then
-// drops" lifecycle: retained at +1s and +29s, dropped at +31s; a session
-// that reappears inside the TTL comes back with its source-supplied
-// status; a Codex session already "stale" from its own source keeps its
-// own StatusSince rather than being restamped.
 func TestVanishedSessionGoesStaleThenDrops(t *testing.T) {
 	t.Run("stale then drops at sessionTTL", func(t *testing.T) {
 		st := newTestState(t, 60*time.Second)
@@ -286,7 +249,7 @@ func TestVanishedSessionGoesStaleThenDrops(t *testing.T) {
 
 		st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{busy}})
 
-		snap := st.Reduce(Inputs{At: at(1)}) // vanished
+		snap := st.Reduce(Inputs{At: at(1)})
 		s := findSession(t, snap, "claude", "s1")
 		if s.Status != "stale" {
 			t.Fatalf("Status = %q, want stale immediately after vanishing", s.Status)
@@ -312,7 +275,7 @@ func TestVanishedSessionGoesStaleThenDrops(t *testing.T) {
 		busy := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5"}
 
 		st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{busy}})
-		st.Reduce(Inputs{At: at(1)}) // vanished, goes stale
+		st.Reduce(Inputs{At: at(1)})
 
 		waiting := domain.Session{Agent: "claude", ID: "s1", Status: "waiting", Model: "claude-opus-5"}
 		snap := st.Reduce(Inputs{At: at(5), Sessions: []domain.Session{waiting}})
@@ -337,10 +300,6 @@ func TestVanishedSessionGoesStaleThenDrops(t *testing.T) {
 	})
 }
 
-// TestFailedPollPreservesRows: while a source reports unhealthy, its rows
-// are retained exactly as last seen — no stale transition, no TTL
-// countdown — and only once the poll succeeds again (even with the session
-// still absent) does the ordinary stale-then-drop lifecycle resume.
 func TestFailedPollPreservesRows(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -352,8 +311,6 @@ func TestFailedPollPreservesRows(t *testing.T) {
 		t.Fatalf("cycle 1: expected both sessions present")
 	}
 
-	// Cycles 2-5 (0..40s): claude's poll is failing, no claude sessions
-	// reported; codex stays healthy and keeps reporting its row.
 	times := []int{10, 20, 30, 40}
 	for _, sec := range times {
 		snap = st.Reduce(Inputs{
@@ -379,8 +336,6 @@ func TestFailedPollPreservesRows(t *testing.T) {
 		}
 	}
 
-	// Cycle 6 (+50s): claude reports healthy again, session still absent —
-	// only now does the stale transition happen.
 	snap = st.Reduce(Inputs{
 		At:       at(50),
 		Sessions: []domain.Session{codexWaiting},
@@ -394,12 +349,6 @@ func TestFailedPollPreservesRows(t *testing.T) {
 		t.Fatalf("StatusSince = %v, want %v (the first healthy cycle that omitted it)", s.StatusSince, at(50))
 	}
 
-	// The TTL countdown is anchored at cycle 6 (+50s), not at the last
-	// unhealthy cycle (+40s). +75s is inside the window those two anchors
-	// disagree about: 25s past cycle 6 (retained) but 35s past +40s
-	// (would already be dropped). Jumping straight from +50s to +81s
-	// cannot tell the two apart, which is how the wrong anchor survived a
-	// previous round of this test.
 	snap = st.Reduce(Inputs{
 		At:       at(75),
 		Sessions: []domain.Session{codexWaiting},
@@ -410,7 +359,6 @@ func TestFailedPollPreservesRows(t *testing.T) {
 		t.Fatalf("at +75s: Status=%q StatusSince=%v, want stale/%v — the countdown runs from the first healthy cycle that omitted the row, not from the outage", s.Status, s.StatusSince, at(50))
 	}
 
-	// sessionTTL after cycle 6's stamp, the row drops.
 	snap = st.Reduce(Inputs{
 		At:       at(50 + 31),
 		Sessions: []domain.Session{codexWaiting},
@@ -421,25 +369,17 @@ func TestFailedPollPreservesRows(t *testing.T) {
 	}
 }
 
-// TestResightingAfterOutageReanchorsTTL: the outage-recovery re-anchor is
-// armed by an outage and disarmed by a real sighting. A session seen again
-// after its source recovers must go back to the ordinary lifecycle —
-// dropping sessionTTL after that sighting — rather than carrying the
-// outage's "start the countdown at the stale stamp" behaviour forward.
 func TestResightingAfterOutageReanchorsTTL(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	busy := domain.Session{Agent: "claude", ID: "c1", Status: "busy", Model: "claude-opus-5"}
 
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{busy}})
 
-	// Outage: the row is held, and the TTL anchor moves off lastSeenAt.
 	st.Reduce(Inputs{
 		At:     at(10),
 		Health: []SourceHealth{{Name: "claude", OK: false, Err: "sessions dir unreadable"}},
 	})
 
-	// Recovery with the session actually reported again: this is a real
-	// sighting, so the anchor returns to lastSeenAt and stays there.
 	snap := st.Reduce(Inputs{
 		At:       at(20),
 		Sessions: []domain.Session{busy},
@@ -456,24 +396,17 @@ func TestResightingAfterOutageReanchorsTTL(t *testing.T) {
 		t.Fatalf("at +21s: Status=%q StatusSince=%v, want stale/%v", s.Status, s.StatusSince, at(21))
 	}
 
-	// Anchored at the +20s sighting: retained at exactly sessionTTL...
 	snap = st.Reduce(Inputs{At: at(50), Health: []SourceHealth{{Name: "claude", OK: true}}})
 	if !hasSession(snap, "claude", "c1") {
 		t.Fatalf("at +50s: row dropped, want it retained until sessionTTL after the +20s sighting")
 	}
 
-	// ...and gone one second past it. This is the assertion that bites if
-	// the outage re-anchor leaks past a real sighting: anchored at the
-	// +21s stale stamp instead, the row would still be here.
 	snap = st.Reduce(Inputs{At: at(51), Health: []SourceHealth{{Name: "claude", OK: true}}})
 	if hasSession(snap, "claude", "c1") {
 		t.Fatalf("at +51s: row still present, want it dropped sessionTTL after the +20s sighting — the outage re-anchor must not survive a real sighting")
 	}
 }
 
-// TestHealthSetsAndClearsDegraded: an unhealthy source produces a Degraded
-// badge naming it without disturbing session rows; the badge disappears the
-// moment that source reports healthy again — never carried forward.
 func TestHealthSetsAndClearsDegraded(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	session := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5"}
@@ -500,10 +433,6 @@ func TestHealthSetsAndClearsDegraded(t *testing.T) {
 	}
 }
 
-// TestSnapshotAtIsTheCycleStamp: Inputs.At is copied onto both Snapshot.At
-// and Snapshot.Sys.At, overwriting whatever the sampler put in Sys.At —
-// this is the assertion that the sys and proc halves of a snapshot describe
-// one instant.
 func TestSnapshotAtIsTheCycleStamp(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	cycleAt := at(5)
@@ -524,10 +453,6 @@ func TestSnapshotAtIsTheCycleStamp(t *testing.T) {
 
 func floatp(f float64) *float64 { return &f }
 
-// TestReduceFromJSONFixture: Inputs.Sys and Inputs.Sessions decode straight
-// off disk, through the same domain JSON tags the headless --json contract
-// uses, and Reduce still stamps Inputs.At over both Snapshot.At and
-// Snapshot.Sys.At even though the fixture's own sys.at is different.
 func TestReduceFromJSONFixture(t *testing.T) {
 	raw, err := os.ReadFile("testdata/cycle1.json")
 	if err != nil {
@@ -555,16 +480,9 @@ func TestReduceFromJSONFixture(t *testing.T) {
 	}
 }
 
-// TestBackfilledHistoryDoesNotBurn: at launch the tailers read hours of
-// transcript in the first cycle or two, so a session's cost jumps by tens of
-// dollars between two cycles a second apart. That is spend wattop was not
-// running for; it must not appear as $/hr. Only a delta whose usage records
-// are stamped inside the tracker's window counts.
 func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
-	// Tool-call timestamps stand in for the usage records' own timestamps:
-	// they come off the same assistant lines (internal/agent/claude/parse.go).
 	mk := func(usage int64, toolAt time.Time) domain.Session {
 		return domain.Session{
 			Agent:  "claude",
@@ -576,7 +494,6 @@ func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 		}
 	}
 
-	// Cycle 0 baselines a session already holding hours of spend.
 	old := at(0).Add(-2 * time.Hour)
 	snap := st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{mk(20_000_000, old)}})
 	s := findSession(t, snap, "claude", "s1")
@@ -587,8 +504,6 @@ func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 		t.Fatalf("first sighting of existing spend: BurnUSDPerHr = %v, want 0", s.BurnUSDPerHr)
 	}
 
-	// Cycle 1, 1.3s later: the tailer finishes the backlog and cost leaps,
-	// but every usage record behind the leap is two hours old.
 	backfillAt := at(0).Add(1300 * time.Millisecond)
 	snap = st.Reduce(Inputs{At: backfillAt, Sessions: []domain.Session{mk(40_000_000, old.Add(time.Minute))}})
 	s = findSession(t, snap, "claude", "s1")
@@ -599,8 +514,6 @@ func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 		t.Fatalf("TotalBurnUSDPerHr = %v after a backfill-only cycle, want 0", snap.TotalBurnUSDPerHr)
 	}
 
-	// Live spend afterwards still reports: a small delta whose usage is
-	// stamped now is a real, plausible rate.
 	liveAt := at(0).Add(10 * time.Second)
 	snap = st.Reduce(Inputs{At: liveAt, Sessions: []domain.Session{mk(40_100_000, liveAt)}})
 	s = findSession(t, snap, "claude", "s1")
@@ -612,11 +525,6 @@ func TestBackfilledHistoryDoesNotBurn(t *testing.T) {
 	}
 }
 
-// TestExpiredSessionIsForgottenByTheBurnTracker: dropping a row past
-// sessionTTL must forget its burn state too. Otherwise the tracker keeps one
-// entry per session for the life of the process, and an id that comes back
-// is diffed against a cumulative cost from before it left — the backfill
-// spike in miniature.
 func TestExpiredSessionIsForgottenByTheBurnTracker(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 
@@ -634,12 +542,10 @@ func TestExpiredSessionIsForgottenByTheBurnTracker(t *testing.T) {
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{mk(1_000_000)}})
 	st.Reduce(Inputs{At: at(1), Sessions: []domain.Session{mk(2_000_000)}})
 
-	// Vanish, then past sessionTTL: the row drops.
 	if snap := st.Reduce(Inputs{At: at(40)}); hasSession(snap, "claude", "s1") {
 		t.Fatalf("session still present past sessionTTL, want it dropped")
 	}
 
-	// The same id returns, having spent a great deal while it was gone.
 	back := mk(40_000_000)
 	back.Tools = []domain.ToolCall{{Name: "Bash", ID: "t2", At: at(41)}}
 	snap := st.Reduce(Inputs{At: at(41), Sessions: []domain.Session{back}})

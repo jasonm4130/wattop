@@ -1,8 +1,3 @@
-// Ties the landing-page dashboard to the product so a schema change fails CI:
-//  1. every field src/lib/dash.ts reads exists in the committed demo data,
-//     with the type dash.ts expects;
-//  2. every raw `--json` field scripts/demo-schema.mjs reads is still a JSON
-//     tag in internal/domain/*.go (a rename there fails here).
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,10 +11,10 @@ type Spec =
   | 'number'
   | 'string'
   | 'boolean'
-  | 'number?' // number or null
-  | 'string?' // string, null or absent
-  | 'boolean?' // boolean or absent
-  | Spec[] // tuple
+  | 'number?'
+  | 'string?'
+  | 'boolean?'
+  | Spec[]
   | { array: Spec }
   | { [k: string]: Spec };
 
@@ -33,7 +28,6 @@ const child: Spec = {
 const subagent: Spec = { ...child, type: 'string', desc: 'string', model: 'string?', tool: 'string?', depth: 'number', bg: 'boolean' };
 const workflow: Spec = { ...child, id: 'string', phase: 'string', agents: 'number', running: 'number', done: 'number', failed: 'number', partial: 'boolean' };
 
-// Mirrors the Frame / Session / Child types in src/lib/dash.ts.
 const frameSpec: Spec = {
   out: 'number',
   in: 'number',
@@ -165,7 +159,6 @@ describe('demo trimmer vs the Go --json schema', () => {
   });
 
   it.each(SOURCE_FIELDS as string[])('%s is a JSON tag path in internal/domain', (path) => {
-    // "{}" introduces a Go map key (sys.temps{}cpu); only the part before it is tags.
     const [tagged] = path.split('{}');
     const missing = tagged
       .split('.')

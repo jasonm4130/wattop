@@ -14,10 +14,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// knownOptionalChannels are the mactop soc_metrics keys (and the one
-// top-level key, "fans") that are known to disappear on a version-drifted
-// or degraded capture. Presence of each is tracked per decoded record for
-// both SysSample.Missing and Channels() ("doctor").
 var knownOptionalChannels = []string{
 	"ane_active",
 	"dram_read_bw_gbs",
@@ -29,17 +25,8 @@ var knownOptionalChannels = []string{
 	"fans",
 }
 
-// zeroIsUnresolved are the bandwidth keys for which an exact 0 in a mactop
-// headless-JSON capture cannot be told apart from "no channel behind it".
-//
-// The live sampler can tell them apart: internal/soc tracks which branch of
-// ioreport.m produced the bytes (DRAMBWSource) and publishes a measured 0.0
-// as a reading. mactop's headless JSON carries no such flag -- it writes a
-// plain 0 whether a channel counted zero or never resolved -- so this path
-// treats a 0 as unresolved: the field is nil, the key is named in
-// SysSample.Missing, and Channels() reports it unresolved. Guessing the
-// other way would make every replay frame claim "DRAM R 0.0 GB/s" on a
-// corpus captured where no DRAM byte counter ever produced data.
+// mactop's headless JSON writes these keys as a plain 0 both when the
+// channel counted zero and when it never resolved, so a 0 is unresolved.
 var zeroIsUnresolved = map[string]bool{
 	"dram_read_bw_gbs":     true,
 	"dram_write_bw_gbs":    true,
@@ -49,11 +36,6 @@ var zeroIsUnresolved = map[string]bool{
 	"ane_bw_combined_gbs":  true,
 }
 
-// SysSampler implements domain.Sampler by replaying mactop headless JSON
-// captures committed under testdata/soc/. It reads every *.jsonl and *.json
-// file in dir, peeking each file's first non-whitespace byte to choose NDJSON
-// ('{') or JSON-array ('[') framing, and walks the concatenated sequence of
-// decoded records, looping once exhausted.
 type SysSampler struct {
 	samples  []domain.SysSample
 	channels []map[string]bool
@@ -62,8 +44,6 @@ type SysSampler struct {
 	lastThermalState int
 }
 
-// NewSysSampler builds a SysSampler over every recorded fixture in dir
-// (typically filepath.Join(fixture.CorpusDir(), "soc")).
 func NewSysSampler(dir string) (*SysSampler, error) {
 	var paths []string
 	for _, pattern := range []string{"*.jsonl", "*.json"} {
@@ -103,8 +83,6 @@ func NewSysSampler(dir string) (*SysSampler, error) {
 	return s, nil
 }
 
-// splitRecords peeks the first non-whitespace byte of raw to choose framing:
-// '{' means NDJSON (one object per non-empty line), '[' means a JSON array.
 func splitRecords(raw []byte) ([][]byte, error) {
 	trimmed := bytes.TrimLeft(raw, " \t\r\n")
 	if len(trimmed) == 0 {
@@ -161,9 +139,6 @@ func getFloatPtr(m map[string]json.RawMessage, key string) *float64 {
 	return &f
 }
 
-// getResolvedBW reads a bandwidth key, returning nil for both an absent key
-// and an exact 0 -- see zeroIsUnresolved for why the two are the same thing
-// in a headless-JSON capture.
 func getResolvedBW(m map[string]json.RawMessage, key string) *float64 {
 	f := getFloatPtr(m, key)
 	if f == nil || *f == 0 {
@@ -191,10 +166,6 @@ func getString(m map[string]json.RawMessage, key string) string {
 	return s
 }
 
-// thermalStates maps mactop's headless thermal_state string onto the
-// OSThermalPressureLevel scale the live sampler reports (see
-// internal/soc/mactop/sys_info.go's thermalStateString). The
-// NSProcessInfoThermalState names are kept as aliases for older captures.
 var thermalStates = map[string]int{
 	"Nominal":  0,
 	"Moderate": 1,
@@ -358,9 +329,6 @@ func decodeSysRecord(rec []byte) (domain.SysSample, map[string]bool, error) {
 	return sample, channels, nil
 }
 
-// buildClusters iterates whatever cluster core counts system_info actually
-// reports rather than hardcoding a P/E pair — this machine has no E cores
-// (system_info carries no e_core_count key), so no E cluster is emitted.
 func buildClusters(systemInfo, socMetrics map[string]json.RawMessage) []domain.Cluster {
 	var clusters []domain.Cluster
 	for _, spec := range []struct {
@@ -387,11 +355,8 @@ func buildClusters(systemInfo, socMetrics map[string]json.RawMessage) []domain.C
 	return clusters
 }
 
-// Init satisfies domain.Sampler; replay has nothing to initialise.
 func (s *SysSampler) Init() error { return nil }
 
-// Sample returns the next recorded SysSample, looping once the sequence is
-// exhausted. intervalMs is accepted for interface compatibility and ignored.
 func (s *SysSampler) Sample(ctx context.Context, intervalMs int) (domain.SysSample, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.SysSample{}, err
@@ -404,13 +369,10 @@ func (s *SysSampler) Sample(ctx context.Context, intervalMs int) (domain.SysSamp
 	return sample, nil
 }
 
-// ThermalState returns the thermal state from the most recent Sample call.
 func (s *SysSampler) ThermalState() int {
 	return s.lastThermalState
 }
 
-// Channels reports which known optional channels were present in the most
-// recently sampled record.
 func (s *SysSampler) Channels() map[string]bool {
 	if len(s.channels) == 0 {
 		return map[string]bool{}
@@ -422,5 +384,4 @@ func (s *SysSampler) Channels() map[string]bool {
 	return s.channels[idx%len(s.channels)]
 }
 
-// Close satisfies domain.Sampler; replay holds no resources to release.
 func (s *SysSampler) Close() error { return nil }

@@ -1,8 +1,3 @@
-// Accessibility check: axe-core (WCAG 2.x A/AA rules) against the built site
-// served by `astro preview`, at 390 and 1440 px wide, in dark and light.
-// Run after `pnpm build`:  pnpm test:a11y
-// Exits non-zero on any violation. Set BASE_URL to test an already-running
-// server instead of starting a preview.
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';

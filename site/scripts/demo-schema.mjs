@@ -1,19 +1,3 @@
-// The one place that maps a raw `wattop --demo --json` Snapshot onto the
-// trimmed frame src/lib/dash.ts renders. scripts/trim-demo.mjs runs it, and
-// src/lib/demo-schema.test.ts checks both ends: SOURCE_FIELDS against the Go
-// JSON tags in internal/domain/*.go, and the committed src/data/demo.json
-// against the fields dash.ts reads.
-//
-// Row rules mirror internal/ui/panel/children.go (ChildRows): subagents that
-// belong to a workflow get no row of their own, depth counts parent_id hops,
-// and workflow rows follow the plain subagents.
-
-/**
- * Every raw Snapshot field trimFrame reads, as a JSON path ("[]" marks an
- * array element). Keys of Go maps (sys.temps.cpu etc.) are listed after a
- * "{}" segment: they are map keys, not struct tags. Keep this list in step
- * with trimFrame below; the test fails if a name here stops being a JSON tag.
- */
 export const SOURCE_FIELDS = [
   'token_rate.output_per_sec',
   'token_rate.input_per_sec',
@@ -96,10 +80,8 @@ export const SOURCE_FIELDS = [
 
 const r = (n, d = 1) => (n == null ? null : Math.round(n * 10 ** d) / 10 ** d);
 
-/** childStatus's fallback: an empty status reads from `live`. */
 const childSt = (status, live) => status || (live ? 'running' : 'done');
 
-/** subagentDepth: parent_id hops to a root within the session's subagents. */
 function depthOf(subs, i) {
   const byID = new Map(subs.map((s, j) => [s.id, j]));
   let depth = 0;
@@ -197,7 +179,6 @@ export function trimFrame(f) {
       partial: !!x.cost_partial,
       burn: r(x.burn_usd_per_hr, 2),
       tl: (x.tools || []).length,
-      // SA column: running/total over every subagent, workflow agents included.
       sa: [(x.subagents || []).filter((a) => childSt(a.status, a.live) === 'running').length, (x.subagents || []).length],
       cpu: r(x.proc?.cpu_pct),
       gpu: x.proc?.gpu_ms_per_sec ?? null,

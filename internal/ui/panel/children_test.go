@@ -14,17 +14,8 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// childrenFixturePath is the hand-built child-tracking snapshot. It is not
-// derived from the replay corpus through Reduce (as cycle0.json is): it
-// pins every child shape the table and detail panel must render -- a
-// nested child, a background child, idle and failed children, an unpriced
-// child, a workflow with its agents, a partial-cost session and a
-// partial-cost snapshot total -- independent of any source or reducer.
 var childrenFixturePath = filepath.Join("testdata", "snapshots", "children.json")
 
-// buildChildrenFixture is the source of children.json. Tree order in
-// Subagents: a1, its nested child a2, then a3..a6, with the workflow's
-// agents after them.
 func buildChildrenFixture() *domain.Snapshot {
 	at := fixtureAt
 	ago := func(d time.Duration) time.Time { return at.Add(-d) }
@@ -139,8 +130,6 @@ func buildChildrenFixture() *domain.Snapshot {
 	}
 }
 
-// TestGenerateChildrenFixture writes children.json with -update and
-// otherwise asserts the committed file still matches buildChildrenFixture.
 func TestGenerateChildrenFixture(t *testing.T) {
 	got, err := json.MarshalIndent(buildChildrenFixture(), "", "  ")
 	if err != nil {
@@ -203,7 +192,6 @@ func TestChildRowsOrderAndDepth(t *testing.T) {
 			t.Errorf("row %d = %+v, want subagent %s depth %d", i, r, w.id, w.depth)
 		}
 	}
-	// Rows point into the session, not at copies.
 	if rows[0].Subagent != &s.Subagents[0] || rows[6].Workflow != &s.Workflows[0] {
 		t.Errorf("ChildRows must point into s.Subagents / s.Workflows")
 	}
@@ -223,7 +211,6 @@ func TestChildRowsUnresolvableParentAndCycle(t *testing.T) {
 	if rows[0].Depth != 0 {
 		t.Errorf("unresolvable parent: depth = %d, want 0", rows[0].Depth)
 	}
-	// A cycle must terminate; its depth is bounded by the slice length.
 	for _, r := range rows {
 		if r.Depth > len(s.Subagents) {
 			t.Errorf("depth %d exceeds bound for %s", r.Depth, r.Subagent.ID)
@@ -234,8 +221,6 @@ func TestChildRowsUnresolvableParentAndCycle(t *testing.T) {
 	}
 }
 
-// TestSessionRowsMatchChildRows pins the row count every caller relies on:
-// one parent row plus len(ChildRows) per session.
 func TestSessionRowsMatchChildRows(t *testing.T) {
 	r := loadDarkRoles(t)
 	for _, snap := range []*domain.Snapshot{loadSnapshotFixture(t), loadChildrenFixture(t)} {
@@ -253,28 +238,24 @@ func TestSessionRowsMatchChildRows(t *testing.T) {
 func TestChildRowsRenderInTable(t *testing.T) {
 	snap := loadChildrenFixture(t)
 	r := loadDarkRoles(t)
-	// 200 columns gives CWD its full +40 bonus, room for the whole
-	// workflow summary.
 	out := SessionsRender(snap.Sessions, r, 200, 30, -1, snap.At, Options{NoColor: true})
 
 	for _, want := range []string{
-		"● run", "idle", "done", "fail", // every child status
-		"▸ Grep · map the repo", // current tool on a running child
-		"gene…⇢",                // background marker, cut to the agent column
+		"● run", "idle", "done", "fail",
+		"▸ Grep · map the repo",
+		"gene…⇢",
 		"wf ● run", "wf_7f3a9c2 · implement · 2 run 2/5 done 1 fail",
-		"~$3.21",  // partial workflow cost
-		"~$12.34", // partial session cost
-		"4/11",    // SA: running/total over every subagent, workflow agents included
+		"~$3.21",
+		"~$12.34",
+		"4/11",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in table, got:\n%s", want, out)
 		}
 	}
-	// Workflow agents never get rows of their own.
 	if strings.Contains(out, "review api layer") {
 		t.Errorf("workflow agent rendered as its own row:\n%s", out)
 	}
-	// The nested child is indented two more columns than its parent.
 	lines := strings.Split(out, "\n")
 	indentOf := func(sub string) int {
 		for _, l := range lines {
@@ -290,9 +271,6 @@ func TestChildRowsRenderInTable(t *testing.T) {
 	}
 }
 
-// TestChildrenFitWidth renders the table, detail and footer for the child
-// fixture at 80, 120 and 160 columns and asserts no line is wider than the
-// frame.
 func TestChildrenFitWidth(t *testing.T) {
 	snap := loadChildrenFixture(t)
 	r := loadDarkRoles(t)
@@ -307,10 +285,6 @@ func TestChildrenFitWidth(t *testing.T) {
 			for name, out := range renders {
 				lines := strings.Split(out, "\n")
 				if name == "detail" {
-					// Only the child tree is new here. The detail view's
-					// pre-existing lines (the token line) still overrun 80
-					// columns: a known defect pinned by e2e's
-					// TestDetailViewOverflowsAt80Columns.
 					lines = childTreeSection(lines)
 				}
 				for i, line := range lines {
@@ -374,11 +348,11 @@ func TestDetailChildTree(t *testing.T) {
 	for _, want := range []string{
 		"Subagents (11 · 4 running)",
 		"├─ ● run Explore",
-		"│  └─ ● run worker", // nested under a1 with a continuation bar
+		"│  └─ ● run worker",
 		"general-pu…⇢",
-		"└─ done  worker", // last root
+		"└─ done  worker",
 		"▸ Grep",
-		"10m", // a1 elapsed: now - StartedAt while running
+		"10m",
 		"$0.42 $1.80/h",
 		"Workflow wf_7f3a9c21e5b4  ● run  phase implement  2 run 2/5 done 1 fail  ~$3.21 $4.40/h",
 		"    ├─ done  review",
@@ -392,8 +366,6 @@ func TestDetailChildTree(t *testing.T) {
 	}
 }
 
-// TestChildrenGolden pins the NoColor table at 120 columns and the detail
-// panel for the child fixture. Run with -update to regenerate.
 func TestChildrenGolden(t *testing.T) {
 	snap := loadChildrenFixture(t)
 	r := loadDarkRoles(t)
@@ -402,8 +374,6 @@ func TestChildrenGolden(t *testing.T) {
 	requireGoldenText(t, "detail_children", DetailRender(snap.Sessions[0], r, 120, 40, snap.At, opts))
 }
 
-// childTreeSection returns the detail lines from the "Subagents" header up
-// to the next blank line.
 func childTreeSection(lines []string) []string {
 	start := -1
 	for i, l := range lines {

@@ -32,8 +32,6 @@ func goldenUpdate() bool {
 	return f != nil && f.Value.String() == "true"
 }
 
-// requireGoldenText compares got against testdata/golden/<name>.txt,
-// writing it when run with -update.
 func requireGoldenText(t *testing.T, name, got string) {
 	t.Helper()
 	path := filepath.Join("testdata", "golden", name+".txt")
@@ -54,14 +52,8 @@ func requireGoldenText(t *testing.T, name, got string) {
 	}
 }
 
-// fixtureAt is the single, fixed cycle timestamp every committed snapshot
-// fixture is built from, so a regeneration always reproduces the same
-// bytes given the same internal/state behaviour.
 var fixtureAt = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
-// loadReplayCycle reads cycle index idx (0-based) of Task 4's
-// testdata/replay/sessions.json -- a JSON array of per-cycle session
-// lists, each already shaped exactly like domain.Session's own JSON tags.
 func loadReplayCycle(t *testing.T, idx int) []domain.Session {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(fixture.CorpusDir(), "replay", "sessions.json"))
@@ -78,10 +70,6 @@ func loadReplayCycle(t *testing.T, idx int) []domain.Session {
 	return cycles[idx]
 }
 
-// procsFromSessions extracts the ProcSample rows embedded in a replay
-// cycle's sessions, deduplicated by pid, so they can be fed back in as
-// Inputs.Procs -- Reduce joins a session to its process by pid through the
-// Procs list, not through whatever Proc the raw session already carries.
 func procsFromSessions(sessions []domain.Session) []domain.ProcSample {
 	byPID := make(map[int]domain.ProcSample)
 	for _, s := range sessions {
@@ -96,17 +84,6 @@ func procsFromSessions(sessions []domain.Session) []domain.ProcSample {
 	return procs
 }
 
-// TestGenerateSnapshotFixture (re)builds testdata/snapshots/cycle0.json:
-// one state.Inputs at the fixed fixtureAt, sourced from Task 4's
-// testdata/replay/sessions.json cycle 0, run through exactly one
-// state.New(book, burn).Reduce(in) call against the real embedded pricing
-// table, then committed. Run with
-// `go test ./internal/ui/panel/ -run TestGenerateSnapshotFixture -update`
-// to regenerate after a change to internal/state's enrichment or pricing
-// behaviour; every other run re-derives the same Inputs and asserts the
-// committed file still matches byte-for-byte, so a silent Reduce change is
-// caught here instead of surfacing as an unexplained diff in a golden test
-// three files away.
 func TestGenerateSnapshotFixture(t *testing.T) {
 	sessions := loadReplayCycle(t, 0)
 	in := state.Inputs{
@@ -148,8 +125,6 @@ func TestGenerateSnapshotFixture(t *testing.T) {
 	}
 }
 
-// loadSnapshotFixture reads the committed cycle0.json Snapshot every other
-// test in this file renders from.
 func loadSnapshotFixture(t *testing.T) *domain.Snapshot {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "snapshots", "cycle0.json"))
@@ -172,10 +147,6 @@ func loadDarkRoles(t *testing.T) theme.Roles {
 	return r
 }
 
-// TestSessionsGolden renders the whole cycle0 fixture -- a busy Claude
-// session, a waiting Codex session, an unbound rollout, an unpriced model
-// and a three-subagent session with one live child -- at a fixed 120x40
-// and golden-compares it. Run with -update to regenerate.
 func TestSessionsGolden(t *testing.T) {
 	snap := loadSnapshotFixture(t)
 	r := loadDarkRoles(t)
@@ -184,10 +155,6 @@ func TestSessionsGolden(t *testing.T) {
 	requireGoldenText(t, "sessions_basic", out)
 }
 
-// TestClaudeApproxMarkerCodexExact renders the fixture's Claude row (busy,
-// ContextExact == false) and Codex row (waiting, ContextExact == true) side
-// by side and asserts the "~" approximation marker appears on exactly the
-// Claude row.
 func TestClaudeApproxMarkerCodexExact(t *testing.T) {
 	snap := loadSnapshotFixture(t)
 	r := loadDarkRoles(t)
@@ -216,8 +183,6 @@ func TestClaudeApproxMarkerCodexExact(t *testing.T) {
 	}
 }
 
-// TestUnpricedRendersDash asserts the fixture's unpriced-model session
-// renders its cost cell as "$—", never "$0.00".
 func TestUnpricedRendersDash(t *testing.T) {
 	snap := loadSnapshotFixture(t)
 	r := loadDarkRoles(t)
@@ -244,14 +209,6 @@ func TestUnpricedRendersDash(t *testing.T) {
 	}
 }
 
-// TestUnboundPidRendersDashes pins the spec's exact rule: the "(pid
-// unknown)" cell and dashed CPU/GPU/RSS columns are keyed on
-// Session.BindConf == "unknown", never on Proc == nil. A session can in
-// principle carry BindConf == "unknown" with a populated Proc (a stale
-// binding whose process happens to still resolve), and this must still
-// render as unbound -- so this test builds that case directly rather than
-// relying on the fixture's coincidence that its unbound row also has a nil
-// Proc.
 func TestUnboundPidRendersDashes(t *testing.T) {
 	r := loadDarkRoles(t)
 	gpu := 40.0
@@ -277,8 +234,6 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 		t.Errorf("BindConf==unknown row rendered live Proc data instead of dashes:\n%s", out)
 	}
 
-	// The fixture's own unbound row (Proc == nil too) still renders the
-	// same way, as a sanity check that the two paths agree.
 	fixtureRow := domain.Session{Agent: "codex", ID: "sess-unbound-rollout", BindConf: "unknown", Status: "unknown"}
 	fixtureOut := SessionsRender([]domain.Session{fixtureRow}, r, 120, 3, -1, time.Time{}, Options{})
 	if !strings.Contains(fixtureOut, unknownPID) {
@@ -286,11 +241,6 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 	}
 }
 
-// TestAllFiveStatusesRender builds one synthetic session per Status value
-// the spec names (the committed fixture has no rate-limited row) plus a
-// sixth, unrecognised status, and asserts each renders a distinct,
-// non-blank label -- an unrecognised status must fall through to Muted and
-// the literal string, never a blank cell.
 func TestAllFiveStatusesRender(t *testing.T) {
 	r := loadDarkRoles(t)
 	since := fixtureAt.Add(-90 * time.Second)
@@ -318,10 +268,6 @@ func TestAllFiveStatusesRender(t *testing.T) {
 	}
 }
 
-// TestBackgroundSessionStyledDifferently asserts a non-interactive
-// (background) session's row differs from an otherwise-identical
-// interactive one -- a Nightshift run burning $9/hr must not look like the
-// session a person is typing into.
 func TestBackgroundSessionStyledDifferently(t *testing.T) {
 	r := loadDarkRoles(t)
 	mk := func(kind string) domain.Session {
@@ -334,16 +280,6 @@ func TestBackgroundSessionStyledDifferently(t *testing.T) {
 	}
 }
 
-// TestSelectedRowHighlightSpansWholeLine asserts the selected row's
-// selection styling wraps the entire assembled line exactly once --
-// opening before the gutter and closing only at the very end -- rather
-// than collapsing at the first embedded reset from an inner styled cell
-// (the STATUS column renders in its own color even on a selected row, via
-// r.Busy/r.Waiting/etc). A hand-rolled \x1b[7m...\x1b[0m wrapper, or a
-// lipgloss style applied over already-colored cells, both hit that
-// collapse; forcing the row's own cells plain before the outer wrap (see
-// plainIfSelected) is what avoids it -- so a selected row must carry
-// exactly one selection SGR and no other escape sequence at all.
 func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{Agent: "claude", ID: "s1", Status: "busy", Model: "claude-opus-5", CWD: "/home/u/project"}
@@ -366,9 +302,6 @@ func TestSelectedRowHighlightSpansWholeLine(t *testing.T) {
 	}
 }
 
-// TestSelectionGutterSurvivesNoColor asserts the selected row is still
-// visibly marked (via the "▸" gutter) when NO_COLOR/--no-color drops all
-// ANSI styling, and that no other row carries the marker.
 func TestSelectionGutterSurvivesNoColor(t *testing.T) {
 	r := loadDarkRoles(t)
 	sessions := []domain.Session{
@@ -392,10 +325,6 @@ func TestSelectionGutterSurvivesNoColor(t *testing.T) {
 	}
 }
 
-// TestFilterHeadlessHidesSubagentRows exercises the subagent-tree render
-// path (a three-subagent session, one live) and confirms the child rows
-// disappear once callers filter them out, mirroring model.go's 'f'
-// keybinding.
 func TestSubagentRowsRenderIndented(t *testing.T) {
 	snap := loadSnapshotFixture(t)
 	r := loadDarkRoles(t)
@@ -426,10 +355,6 @@ func TestSubagentRowsRenderIndented(t *testing.T) {
 	}
 }
 
-// TestHumanCountScalesToMAndG pins formatTokens/humanCount past the "k"
-// ceiling: a raw session's token counters routinely clear a million, and
-// stopping at "k" rendered a real session as "1431.2k" or "286059.5k" --
-// the widest, least readable cell in the table.
 func TestHumanCountScalesToMAndG(t *testing.T) {
 	cases := []struct {
 		n    int64
@@ -439,7 +364,7 @@ func TestHumanCountScalesToMAndG(t *testing.T) {
 		{999, "999"},
 		{1000, "1.0k"},
 		{1_431_200, "1.4M"},
-		{286_059_500, "286.1M"}, // %.1f rounding of 286.0595
+		{286_059_500, "286.1M"},
 		{1_000_000_000, "1.0G"},
 		{-1500, "-1.5k"},
 	}
@@ -450,9 +375,6 @@ func TestHumanCountScalesToMAndG(t *testing.T) {
 	}
 }
 
-// TestHumanBytesScalesToMAndG pins the byte-counter formatter used for the
-// detail view's disk (cumulative) r/w figures, which otherwise render as
-// raw 8-9 digit integers (e.g. 580444160 B).
 func TestHumanBytesScalesToMAndG(t *testing.T) {
 	cases := []struct {
 		n    uint64
@@ -471,9 +393,6 @@ func TestHumanBytesScalesToMAndG(t *testing.T) {
 	}
 }
 
-// manySessions builds n one-row synthetic sessions ("s0".."s(n-1)"), each a
-// distinct, greppable status label so a test can assert on which rows
-// actually made it into a truncated/windowed render.
 func manySessions(n int) []domain.Session {
 	out := make([]domain.Session, n)
 	for i := range out {
@@ -482,15 +401,11 @@ func manySessions(n int) []domain.Session {
 	return out
 }
 
-// TestSessionsScrollKeepsSelectionOnScreen pins the scrolling fix: with far
-// more rows than fit, a selection deep in the list (well past the frame's
-// data height) must still appear -- in reverse video -- rather than
-// silently walking off-screen the way an unwindowed render used to.
 func TestSessionsScrollKeepsSelectionOnScreen(t *testing.T) {
 	r := loadDarkRoles(t)
 	sessions := manySessions(30)
 
-	out := SessionsRender(sessions, r, 120, 18, 25, time.Time{}, Options{}) // 17 data rows, row 25 selected
+	out := SessionsRender(sessions, r, 120, 18, 25, time.Time{}, Options{})
 
 	var selectedLine string
 	for _, line := range strings.Split(out, "\n") {
@@ -507,14 +422,11 @@ func TestSessionsScrollKeepsSelectionOnScreen(t *testing.T) {
 	}
 }
 
-// TestSessionsScrollShowsMoreMarkers asserts a windowed render marks both
-// hidden regions -- rows above and rows below the visible slice -- so a
-// truncated table is never silently indistinguishable from a complete one.
 func TestSessionsScrollShowsMoreMarkers(t *testing.T) {
 	r := loadDarkRoles(t)
 	sessions := manySessions(30)
 
-	out := SessionsRender(sessions, r, 120, 18, 15, time.Time{}, Options{}) // selection mid-list: hidden above and below
+	out := SessionsRender(sessions, r, 120, 18, 15, time.Time{}, Options{})
 	if !strings.Contains(out, "▲") {
 		t.Errorf("expected a \"▲ N more\" marker for rows hidden above the window, got:\n%s", out)
 	}
@@ -523,10 +435,6 @@ func TestSessionsScrollShowsMoreMarkers(t *testing.T) {
 	}
 }
 
-// TestSessionsScrollNoMarkersWhenEverythingFits guards against markers
-// appearing when the row count already fits the frame -- the common case,
-// and every pre-existing golden/behavioural test in this file depends on
-// it rendering exactly as before.
 func TestSessionsScrollNoMarkersWhenEverythingFits(t *testing.T) {
 	r := loadDarkRoles(t)
 	sessions := manySessions(5)
@@ -542,10 +450,6 @@ func TestSessionsScrollNoMarkersWhenEverythingFits(t *testing.T) {
 	}
 }
 
-// TestWindowRowsNeverHidesTheSelectedRowBehindAMarker exercises windowRows
-// directly across every window position for a small visible size, where a
-// naive centred window can otherwise land the selection on the exact line
-// a "N more" marker would overwrite.
 func TestWindowRowsNeverHidesTheSelectedRowBehindAMarker(t *testing.T) {
 	const n = 10
 	rows := make([]string, n)
@@ -571,12 +475,6 @@ func TestWindowRowsNeverHidesTheSelectedRowBehindAMarker(t *testing.T) {
 	}
 }
 
-// TestCtxGaugeOverBudgetRendersLiteralOverflow exercises ctxGauge directly.
-// A session within its context window still renders the plain "NNN%"
-// number; one over its window (ContextUsed > ContextMax, e.g. a Codex row
-// whose reported total overruns model_context_window) must render the
-// literal ">100%" rather than an unclamped three-digit percentage that
-// disagrees with Bar()'s own 100%-clamped fill.
 func TestCtxGaugeOverBudgetRendersLiteralOverflow(t *testing.T) {
 	r := loadDarkRoles(t)
 
@@ -595,16 +493,7 @@ func TestCtxGaugeOverBudgetRendersLiteralOverflow(t *testing.T) {
 	}
 }
 
-// TestComputeSessionColsNeverOverflowsWidth is the invariant the whole
-// responsive layout rests on: whatever computeSessionCols decides to show
-// or shrink, the columns it hands back (plus the fixed 2-column selection
-// gutter every row carries) must never sum past the width it was given --
-// a computed layout that overflows its own budget is exactly the "wraps in
-// a real terminal" bug this fix exists to remove.
 func TestComputeSessionColsNeverOverflowsWidth(t *testing.T) {
-	// 80 is the documented floor (manual-QA item 12 tests exactly 80x24);
-	// computeSessionCols does not promise anything below its flexible
-	// columns' floor, which a narrower width than that can undercut.
 	for _, w := range []int{80, 100, 120, 140, 160, 200, 300} {
 		c := computeSessionCols(w)
 		fields := []int{c.Status, c.PID, c.Agent, c.Model, c.CWD, c.Ctx, c.Rate, c.Cost, c.Burn, c.CPU, c.RSS}
@@ -621,23 +510,17 @@ func TestComputeSessionColsNeverOverflowsWidth(t *testing.T) {
 			fields = append(fields, 6)
 			n++
 		}
-		sum := 2 // selection gutter
+		sum := 2
 		for _, f := range fields {
 			sum += f
 		}
-		sum += n - 1 // separators
+		sum += n - 1
 		if sum > w {
 			t.Errorf("computeSessionCols(%d) = %+v sums to %d columns, want at most %d", w, c, sum, w)
 		}
 	}
 }
 
-// TestSessionsNarrow80ColsShowsCostAndCPU pins the finding's headline
-// symptom: at 80x24 -- the terminal size manual-QA item 12 exercises -- $
-// and CPU%, the figures this tool exists to show, must still be on
-// screen, and no rendered line may be wider than the terminal (the
-// "wraps/corrupts" failure mode, since frame() pads short lines but never
-// truncates long ones).
 func TestSessionsNarrow80ColsShowsCostAndCPU(t *testing.T) {
 	snap := loadSnapshotFixture(t)
 	r := loadDarkRoles(t)
@@ -656,10 +539,6 @@ func TestSessionsNarrow80ColsShowsCostAndCPU(t *testing.T) {
 	}
 }
 
-// TestSessionsWide200ColsWidensCWDAndModel pins the finding's other
-// symptom: at 200x60 the extra room over the base layout must go to CWD
-// then MODEL rather than sitting as dead trailing space, and every line
-// should use the full width it was given.
 func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
 	cols200 := computeSessionCols(200)
 	cols120 := computeSessionCols(120)
@@ -680,10 +559,6 @@ func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
 	}
 }
 
-// TestUnknownModelRendersDash: the honesty rule applied to the MODEL
-// column. Two live Claude sessions on the 2026-09-06 QA machine rendered a
-// blank model cell, which reads as a broken renderer rather than as a
-// session whose transcript could not be found.
 func TestUnknownModelRendersDash(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := SessionsRender([]domain.Session{

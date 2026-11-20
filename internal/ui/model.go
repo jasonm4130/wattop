@@ -1,6 +1,3 @@
-// Package ui is wattop's Bubble Tea program: the Model in model.go, its
-// keybindings in keys.go, and the widgets it composes from internal/ui/panel
-// and internal/ui/theme.
 package ui
 
 import (
@@ -16,18 +13,10 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// CycleMsg carries one coordinated sampling cycle. Task 13's supervisor
-// sends exactly one of these per cycle -- never three separate messages for
-// Sys/Procs/Sessions -- so that Reduce always sees one instant's worth of
-// data at once.
 type CycleMsg struct {
 	Inputs state.Inputs
 }
 
-// Model is wattop's Bubble Tea model. It holds a *state.State constructed
-// by cmd/wattop (Task 13) and passed in here, never built by the model
-// itself: the pricing book and burn tracker State wraps must outlive any
-// single frame, and Update must never construct anything that does I/O.
 type Model struct {
 	st   *state.State
 	snap *domain.Snapshot
@@ -38,37 +27,20 @@ type Model struct {
 
 	sortIdx        int
 	filterHeadless bool
-	// showAll disables the dormant-row filter (the `a` key). Off by
-	// default: a machine that ran Codex earlier in the day carries a dozen
-	// dead rollouts that would otherwise bury every live session.
-	showAll    bool
-	metersOnly bool
-	paused     bool
-	showDetail bool
-	showHelp   bool
-	selected   int
+	showAll        bool
+	metersOnly     bool
+	paused         bool
+	showDetail     bool
+	showHelp       bool
+	selected       int
 
-	// noColor drops every ANSI escape from the rendered panels. cmd/wattop
-	// (Task 13) owns the --no-color flag and NO_COLOR; internal/ui reads
-	// neither, so the resolved answer arrives through WithNoColor.
 	noColor bool
 
-	// burnHot is config.toml's burn_hot_usd_per_hr, arriving through
-	// WithBurnHot for the same reason noColor arrives through WithNoColor.
-	// Zero means unset; the panel applies its default.
 	burnHot float64
 
 	width, height int
 }
 
-// New constructs a Model. st is owned by the caller for the life of the
-// program; roles is the initially selected theme (resolved by cmd/wattop
-// from --theme/WATTOP_THEME before this is called, since internal/ui does
-// not read flags or the environment).
-//
-// A themeName that is not an embedded palette (a hex accent such as
-// "#ff79c6") joins the cycle ahead of them, so the footer names what is
-// actually on screen and t/T can come back to it.
 func New(st *state.State, themeName string, roles theme.Roles) Model {
 	names := theme.Names()
 	idx := -1
@@ -94,38 +66,24 @@ func New(st *state.State, themeName string, roles theme.Roles) Model {
 	}
 }
 
-// WithNoColor returns m with colour suppression set. It is a setter rather
-// than a New parameter so Task 13 can wire --no-color without every other
-// caller of New changing shape.
 func (m Model) WithNoColor(v bool) Model {
 	m.noColor = v
 	return m
 }
 
-// WithBurnHot returns m with the $/hr hot-burn threshold set (config.toml's
-// burn_hot_usd_per_hr). Zero or negative keeps the panel default.
 func (m Model) WithBurnHot(usdPerHr float64) Model {
 	m.burnHot = usdPerHr
 	return m
 }
 
-// renderOpts is the one place the model's display flags become panel
-// options, so a new flag reaches every panel by being added here once.
 func (m Model) renderOpts() panel.Options {
 	return panel.Options{NoColor: m.noColor, BurnHotUSDPerHr: m.burnHot}
 }
 
-// Init starts the program with no initial command: the sampling cycle that
-// drives CycleMsg lives entirely in Task 13's supervisor, outside this
-// model.
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles exactly one message per call and returns immediately.
-// Nothing that blocks may run here: a CycleMsg triggers one Reduce call
-// (pure, per internal/state's own contract) and a keypress only mutates
-// the model's own display state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case CycleMsg:
@@ -137,9 +95,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		// The frame is drawn to whatever the terminal currently is, so a
-		// resize re-lays out on the next View rather than corrupting the
-		// old width's padding. New's 120x40 is only the pre-resize default.
 		if msg.Width > 0 && msg.Height > 0 {
 			m.width, m.height = msg.Width, msg.Height
 		}
@@ -187,9 +142,6 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// themeName returns the active palette's name for the footer status line,
-// or "—" when New was never given any themes to choose from (cycleTheme
-// guards the same empty case).
 func (m Model) themeName() string {
 	if len(m.themeNames) == 0 {
 		return "—"
@@ -207,28 +159,10 @@ func (m *Model) cycleTheme(dir int) {
 	}
 }
 
-// dormant reports whether a session is both stale and bound to no live
-// process — a rollout or session file left behind by something that has
-// finished. Stale alone is not enough (a live process can idle past the
-// threshold) and unbound alone is not enough (a recent rollout whose pid
-// join failed is still worth showing); only the pair means nothing about
-// the row can be current.
-//
-// "Bound to no live process" is read from Proc, which the reducer attaches
-// only when the session's pid is in this cycle's process table (and leaves
-// nil when PID is nil). A PID alone is not liveness: Claude sessions always
-// bind "exact" from their session file, so a crashed Claude session keeps
-// its PID and BindConf forever and would otherwise never go dormant.
 func dormant(s domain.Session) bool {
 	return s.Status == "stale" && (s.Proc == nil || s.BindConf == "unknown")
 }
 
-// visibleSessions applies the dormant-row filter, the current sort and the
-// child-row filter. filterHeadless (the `f` key) hides every session's
-// subagent and workflow rows; top-level sessions are never hidden by it.
-//
-// It never mutates m.snap: the footer's machine totals, and --json, still
-// count every session including the ones hidden here.
 func (m Model) visibleSessions() []domain.Session {
 	if m.snap == nil {
 		return nil
@@ -248,10 +182,6 @@ func (m Model) visibleSessions() []domain.Session {
 		}
 	}
 
-	// Liveness is the primary key under every sort: a dormant row (shown
-	// only under `a`) never sits above a session that is running right
-	// now, whatever its cost or CPU. The metric is the secondary key, so
-	// the sort the user chose still orders the rows they came for.
 	metric := func(i, j int) bool { return false }
 	switch sortKeys[m.sortIdx] {
 	case "cost":
@@ -261,8 +191,6 @@ func (m Model) visibleSessions() []domain.Session {
 	case "cpu":
 		metric = func(i, j int) bool { return cpuOrZero(out[i]) > cpuOrZero(out[j]) }
 	case "status":
-		// No numeric metric: "status" leaves each liveness group in
-		// whatever order Reduce and the sources produced.
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if di, dj := dormant(out[i]), dormant(out[j]); di != dj {
@@ -273,9 +201,6 @@ func (m Model) visibleSessions() []domain.Session {
 	return out
 }
 
-// hiddenSessions is how many top-level sessions the dormant filter is
-// currently keeping off screen — the count the footer advertises, so a
-// hidden row is never silently hidden.
 func (m Model) hiddenSessions() int {
 	if m.snap == nil || m.showAll {
 		return 0
@@ -310,9 +235,6 @@ func cpuOrZero(s domain.Session) float64 {
 	return s.Proc.CPUPct
 }
 
-// flatRowCount is how many selectable rows visibleSessions renders: one
-// per session plus one per panel.ChildRows entry (non-workflow subagents
-// and collapsed workflows), exactly as the table flattens them.
 func (m Model) flatRowCount() int {
 	n := 0
 	for _, s := range m.visibleSessions() {
@@ -330,9 +252,6 @@ func (m *Model) clampSelection() {
 	}
 }
 
-// selectedSession returns the top-level session owning the currently
-// selected flattened row (a subagent row's parent), or false when there is
-// nothing to select.
 func (m Model) selectedSession() (domain.Session, bool) {
 	row := 0
 	for _, s := range m.visibleSessions() {
@@ -350,9 +269,6 @@ func (m Model) selectedSession() (domain.Session, bool) {
 	return domain.Session{}, false
 }
 
-// View renders only from the stored Snapshot -- never a collector, never
-// the clock -- and returns a tea.View per the v2 Model interface (v1's
-// View() string no longer satisfies it).
 func (m Model) View() tea.View {
 	if m.snap == nil {
 		return tea.NewView("wattop: waiting for the first sample...")
@@ -368,8 +284,6 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	// Give each section an explicit height, including the table's title.
-	// Short terminals shrink the hardware region before the footer.
 	footerH := min(4, max(0, m.height))
 	socH := min(panel.HardwareHeight(m.snap.Sys, m.width), max(0, m.height-footerH))
 	graphH := 0
@@ -400,11 +314,6 @@ func (m Model) View() tea.View {
 	}
 	footer := panel.FooterRender(m.snap, m.roles, m.width, footerH, sortKeys[m.sortIdx], m.themeName(), m.paused, m.hiddenSessions(), m.renderOpts())
 
-	// A section given 0 height still contributes an empty string, and
-	// joining with a bare "+ \"\\n\" +" would insert a spurious blank line
-	// for it (two adjacent separators around nothing). Skipping zero-height
-	// sections keeps socH+tableH+footerH == the exact line count of the
-	// joined frame.
 	parts := make([]string, 0, 3)
 	if graphH > 0 {
 		hardware := strings.SplitN(soc, "\n", 2)

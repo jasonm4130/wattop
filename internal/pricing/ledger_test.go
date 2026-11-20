@@ -9,9 +9,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// regexTieredRate is the pre-cache tier selection, kept here as the
-// reference the cached rate card must agree with: scan every key of the
-// entry through tierKeyRe on every call.
 func regexTieredRate(e modelEntry, base string, promptTokens int64) float64 {
 	type tier struct {
 		threshold int64
@@ -43,9 +40,6 @@ func regexTieredRate(e modelEntry, base string, promptTokens int64) float64 {
 	return baseRate
 }
 
-// TestRateCardMatchesRegexScan: the parsed-once card selects exactly the
-// rate the per-call regex scan did, for every base and around every
-// threshold, including a multi-tier entry.
 func TestRateCardMatchesRegexScan(t *testing.T) {
 	entries := map[string]modelEntry{}
 	for k, e := range frozenBook(t).snap.Models {
@@ -70,8 +64,6 @@ func TestRateCardMatchesRegexScan(t *testing.T) {
 	}
 }
 
-// TestRateCardIsCachedPerModel: resolving a model twice reuses one parsed
-// card, and swapping in a new table drops it so new rates apply.
 func TestRateCardIsCachedPerModel(t *testing.T) {
 	b := bookFrom(modelTable{"m": {"input_cost_per_token": 1e-06}})
 	r1, _ := b.Resolve("m")
@@ -90,9 +82,6 @@ func TestRateCardIsCachedPerModel(t *testing.T) {
 	}
 }
 
-// TestCostLedgerPricesEachBucketAtItsOwnTier: a ledger with a short and a
-// long request prices each at its own tier, and the threshold boundary is
-// exact (272000 tokens is not above 272k; 272001 is).
 func TestCostLedgerPricesEachBucketAtItsOwnTier(t *testing.T) {
 	b := frozenBook(t)
 	const model = "gpt-5.6-terra"
@@ -122,7 +111,6 @@ func TestCostLedgerPricesEachBucketAtItsOwnTier(t *testing.T) {
 	if lifetime := cost(short.Plus(long).Plus(edge).Plus(over), 300_000); almostEqual(got, lifetime, 1e-9) {
 		t.Fatalf("CostLedger priced the lifetime at the long tier (%.6f)", lifetime)
 	}
-	// The boundary itself: 272000 prices at base, 272001 at the long tier.
 	if e, o := cost(domain.Usage{Input: 1_000_000}, 272_000), cost(domain.Usage{Input: 1_000_000}, 273_000); almostEqual(e, o, 1e-12) {
 		t.Fatalf("272000 and 273000 priced alike; the test does not exercise the boundary")
 	}
@@ -138,9 +126,6 @@ func TestCostLedgerPricesEachBucketAtItsOwnTier(t *testing.T) {
 	}
 }
 
-// TestCostLedgerReportsUnpricedModels: a bucket whose model does not
-// resolve is left out of the total and named; an unresolved bucket with no
-// tokens names nothing.
 func TestCostLedgerReportsUnpricedModels(t *testing.T) {
 	b := frozenBook(t)
 	l := domain.UsageLedger{}

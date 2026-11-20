@@ -11,26 +11,10 @@ import (
 	"testing"
 )
 
-// homeUserGuardRe bans any "/Users/<name>" home path other than the
-// redacted placeholder "/Users/u" would produce — but Scrub's placeholder is
-// "/home/u", so any surviving "/Users/<name>" at all is a leak. It is
-// intentionally broader than homeUserRe in scrub.go: the rule and the guard
-// must not be the same literal, or neither can catch the other's gap (a
-// fixture recorded under a different account, or after a username change,
-// would pass the old exact-string guard even though the redaction rule
-// missed it too).
 var homeUserGuardRe = regexp.MustCompile(`/Users/[^/"]+`)
 
-// TestNoRealPathsInCommittedFixtures is redaction as a test, not a promise:
-// it walks every committed testdata corpus in the repo — not just
-// testdata/agent/, which is only one of several places a real path could
-// leak (testdata/soc/ is recorded from mactop and can carry account-derived
-// strings; golden/snapshot frames under internal/*/testdata render cwd
-// strings) — and fails if any real identifier leaked through, using a
-// regex that is broader than scrub.go's own redaction pattern so the guard
-// does not share blind spots with the rule it is checking.
 func TestNoRealPathsInCommittedFixtures(t *testing.T) {
-	root := filepath.Dir(CorpusDir()) // repo root
+	root := filepath.Dir(CorpusDir())
 	bannedLiterals := []string{"jasonm4130", "jasonm4130@gmail.com"}
 	skipDirs := map[string]bool{".git": true, "docs": true, "dist": true}
 
@@ -48,9 +32,6 @@ func TestNoRealPathsInCommittedFixtures(t *testing.T) {
 			return nil
 		}
 		if strings.EqualFold(filepath.Ext(path), ".md") {
-			// Documentation describing the redaction pattern (e.g.
-			// testdata/README.md) legitimately mentions "/Users/<name>"
-			// as prose, not as a leaked real path.
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -186,11 +167,6 @@ func TestScrubRejectsTruncatedJSON(t *testing.T) {
 	}
 }
 
-// TestScrubStreamPreservesMissingFinalNewline is the tailer's invariant:
-// a .jsonl file recorded from a live transcript ends mid-write, so its last
-// line carries no terminator, and the scrubbed copy must not grow one. A
-// line-splitter that strips terminators and re-appends '\n' passes every
-// other test here and fails this one.
 func TestScrubStreamPreservesMissingFinalNewline(t *testing.T) {
 	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"first"}]}}` + "\n" +
 		`{"type":"user","message":{"content":[{"type":"text","text":"café — naïve 日本語"}]}}`)
@@ -212,9 +188,6 @@ func TestScrubStreamPreservesMissingFinalNewline(t *testing.T) {
 	}
 }
 
-// TestScrubStreamPreservesTrailingNewline is the other half: a terminated
-// final line stays terminated, with exactly one newline and no extra blank
-// line appended.
 func TestScrubStreamPreservesTrailingNewline(t *testing.T) {
 	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"first"}]}}` + "\n" +
 		`{"type":"user","message":{"content":[{"type":"text","text":"second"}]}}` + "\n")
@@ -236,10 +209,6 @@ func TestScrubStreamPreservesTrailingNewline(t *testing.T) {
 	}
 }
 
-// TestScrubStreamCopiesTruncatedFinalLineThrough covers the error branch,
-// which is the path testdata/agent/claude/truncated-final-line.jsonl
-// actually takes: the partial record cannot be parsed, so it is written out
-// byte-for-byte — still partial, still unterminated.
 func TestScrubStreamCopiesTruncatedFinalLineThrough(t *testing.T) {
 	partial := `{"type":"user","message":{"content":[{"type":"text","text":"Half of th`
 	in := []byte(`{"type":"user","message":{"content":[{"type":"text","text":"whole"}]}}` + "\n" + partial)
@@ -255,11 +224,6 @@ func TestScrubStreamCopiesTruncatedFinalLineThrough(t *testing.T) {
 	}
 }
 
-// TestScrubStreamPreservesCorpusLineFraming re-scrubs every committed
-// .jsonl fixture and asserts the framing survives: same number of lines,
-// same trailing-terminator state. Byte equality is deliberately not
-// asserted — Scrub rewrites identifiers by hashing them, so re-scrubbing an
-// already-scrubbed uuid yields a different (equally valid) uuid.
 func TestScrubStreamPreservesCorpusLineFraming(t *testing.T) {
 	root := filepath.Join(CorpusDir(), "agent")
 

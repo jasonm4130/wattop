@@ -2,8 +2,6 @@ package demo
 
 import "github.com/jasonm4130/wattop/internal/domain"
 
-// Models are ids the embedded pricing table prices exactly, so every demo
-// cost renders as a figure rather than "$—".
 const (
 	modelOpus   = "claude-opus-5"
 	modelSonnet = "claude-sonnet-5"
@@ -17,9 +15,6 @@ var (
 	codexTools  = []string{"shell", "apply_patch", "shell", "update_plan"}
 )
 
-// sessionSpecs is the demo's cast: four Claude Code sessions and two Codex
-// sessions in fictional projects. Paths are written with a literal "~" so
-// no real home directory can ever appear in a screenshot.
 func sessionSpecs() []sessionSpec {
 	claudeArgv := []string{"claude"}
 	return []sessionSpec{

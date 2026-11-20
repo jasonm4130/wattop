@@ -19,8 +19,6 @@ func turnContextLine(at time.Time, model string) string {
 	return string(b)
 }
 
-// cumulativeTokenCount is a token_count whose total is the running sum and
-// whose last_token_usage is this request alone.
 func cumulativeTokenCount(at time.Time, total, last domain.Usage) string {
 	usage := func(u domain.Usage) map[string]any {
 		return map[string]any{
@@ -44,11 +42,6 @@ func cumulativeTokenCount(at time.Time, total, last domain.Usage) string {
 	return string(b)
 }
 
-// TestRolloutLedgerFilesEachTurnAtItsOwnPromptAndModel: each token_count's
-// delta over the running total is filed under the model and prompt size
-// (last_token_usage.input_tokens) of the request that produced it — never
-// the cumulative total under the latest ones — and a replayed or repeated
-// token_count files nothing.
 func TestRolloutLedgerFilesEachTurnAtItsOwnPromptAndModel(t *testing.T) {
 	t0 := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
 	turn1 := domain.Usage{Input: 100_000, CachedInput: 50_000, Output: 1_000}
@@ -59,9 +52,9 @@ func TestRolloutLedgerFilesEachTurnAtItsOwnPromptAndModel(t *testing.T) {
 	for _, line := range []string{
 		turnContextLine(t0, "gpt-5.6-terra"),
 		cumulativeTokenCount(t0.Add(time.Second), turn1, turn1),
-		cumulativeTokenCount(t0.Add(2*time.Second), turn1, turn1), // repeated count: no new usage
+		cumulativeTokenCount(t0.Add(2*time.Second), turn1, turn1),
 		cumulativeTokenCount(t0.Add(3*time.Second), turn1.Plus(turn2), turn2),
-		cumulativeTokenCount(t0, turn1, turn1), // replayed prefix: older than the last usage
+		cumulativeTokenCount(t0, turn1, turn1),
 		turnContextLine(t0.Add(4*time.Second), "gpt-5.6-sol"),
 		cumulativeTokenCount(t0.Add(5*time.Second), turn1.Plus(turn2).Plus(turn3), turn3),
 	} {
@@ -87,9 +80,6 @@ func TestRolloutLedgerFilesEachTurnAtItsOwnPromptAndModel(t *testing.T) {
 	}
 }
 
-// TestRolloutLedgerRestartsWithTheCounter: when the cumulative counter goes
-// backwards (a reset), Usage becomes the new total and the ledger restarts
-// from it, so the two never diverge.
 func TestRolloutLedgerRestartsWithTheCounter(t *testing.T) {
 	t0 := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
 	big := domain.Usage{Input: 500_000, Output: 5_000}
@@ -111,8 +101,6 @@ func TestRolloutLedgerRestartsWithTheCounter(t *testing.T) {
 	}
 }
 
-// TestPollCarriesLedgersForRootAndChild: the ledger reaches both the root
-// session and its folded child, as an independent copy.
 func TestPollCarriesLedgersForRootAndChild(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)

@@ -29,8 +29,6 @@ func TestDemoFlagParses(t *testing.T) {
 	}
 }
 
-// demoSnapshot runs what `wattop --demo --json --once` runs and returns
-// the printed line and its decoded Snapshot.
 func demoSnapshot(t *testing.T) (string, domain.Snapshot) {
 	t.Helper()
 	src, book, world, err := buildDemoSources(time.Second)

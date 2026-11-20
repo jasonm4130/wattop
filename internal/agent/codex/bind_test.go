@@ -16,18 +16,14 @@ func codexProc(pid int, cwd string, start time.Time) domain.ProcSample {
 	}
 }
 
-// TestBindRefusesDoubleBind: two candidate pids share one cwd, and only one
-// rollout has that cwd. The time tiebreaker (nearest session_meta timestamp
-// to, and not before, the pid's start time) must pick exactly one of them —
-// never both.
 func TestBindRefusesDoubleBind(t *testing.T) {
 	metaAt := time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)
 	rollouts := []Rollout{
 		{Path: "/r/one.jsonl", CWD: "/home/u/proj", MetaAt: metaAt},
 	}
 
-	nearStart := metaAt.Add(-5 * time.Second) // pid 100 started 5s before session_meta
-	farStart := metaAt.Add(-2 * time.Minute)  // pid 200 started 2m before session_meta
+	nearStart := metaAt.Add(-5 * time.Second)
+	farStart := metaAt.Add(-2 * time.Minute)
 	procs := []domain.ProcSample{
 		codexProc(100, "/home/u/proj", nearStart),
 		codexProc(200, "/home/u/proj", farStart),
@@ -48,9 +44,6 @@ func TestBindRefusesDoubleBind(t *testing.T) {
 		t.Fatalf("BindConf = %q, want inferred (the time tiebreaker decided)", b.Conf)
 	}
 
-	// The losing pid must not silently also claim this rollout, and no
-	// second rollout exists for it to claim instead — Bind's exported
-	// projection should agree with bindAll.
 	pidMap := Bind(rollouts, procs)
 	if pidMap["/r/one.jsonl"] == nil || *pidMap["/r/one.jsonl"] != 100 {
 		t.Fatalf("Bind() = %v, want {/r/one.jsonl: 100}", derefAll(pidMap))
@@ -69,9 +62,6 @@ func derefAll(m map[string]*int) map[string]any {
 	return out
 }
 
-// TestExactBindWhenCWDUnique: exactly one rollout and one candidate share a
-// cwd — BindConf must be "exact", not "inferred", since no tiebreak was
-// needed.
 func TestExactBindWhenCWDUnique(t *testing.T) {
 	rollouts := []Rollout{
 		{Path: "/r/one.jsonl", CWD: "/home/u/proj", MetaAt: time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)},
@@ -90,15 +80,12 @@ func TestExactBindWhenCWDUnique(t *testing.T) {
 	}
 }
 
-// TestZeroStartTimeUnmatched: a candidate whose StartTime is the zero
-// time.Time (Task 6's guard for an underivable start) is left unmatched,
-// exactly like an empty Argv or CWD.
 func TestZeroStartTimeUnmatched(t *testing.T) {
 	rollouts := []Rollout{
 		{Path: "/r/one.jsonl", CWD: "/home/u/proj", MetaAt: time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)},
 	}
 	procs := []domain.ProcSample{
-		codexProc(100, "/home/u/proj", time.Time{}), // zero StartTime
+		codexProc(100, "/home/u/proj", time.Time{}),
 	}
 
 	got := bindAll(rollouts, procs, "")
@@ -117,8 +104,8 @@ func TestEmptyCWDOrArgvUnmatched(t *testing.T) {
 	}
 	start := time.Date(2026, 9, 6, 9, 59, 0, 0, time.UTC)
 	procs := []domain.ProcSample{
-		{PID: 100, Argv: []string{"codex"}, CWD: "", StartTime: start}, // empty cwd
-		{PID: 200, Argv: nil, CWD: "/home/u/proj", StartTime: start},   // empty argv
+		{PID: 100, Argv: []string{"codex"}, CWD: "", StartTime: start},
+		{PID: 200, Argv: nil, CWD: "/home/u/proj", StartTime: start},
 	}
 
 	got := bindAll(rollouts, procs, "")
@@ -128,9 +115,6 @@ func TestEmptyCWDOrArgvUnmatched(t *testing.T) {
 	}
 }
 
-// TestUnboundRolloutStillRendered: a rollout with no candidate pid renders
-// as a domain.Session with PID == nil and BindConf == "unknown" — dropped
-// rows read as "nothing is running", which is worse than an honest gap.
 func TestUnboundRolloutStillRendered(t *testing.T) {
 	r := Rollout{
 		Path:      "/r/unbound.jsonl",
@@ -159,9 +143,6 @@ func TestUnboundRolloutStillRendered(t *testing.T) {
 	}
 }
 
-// TestSessionIDFallsBackToPathWhenNoSessionMeta: a rollout whose
-// session_meta never arrived (rate-limits.jsonl's shape) still renders as a
-// session, identified by its file path rather than an empty id.
 func TestSessionIDFallsBackToPathWhenNoSessionMeta(t *testing.T) {
 	r := Rollout{Path: "/r/no-meta.jsonl", CWD: "/home/u/proj"}
 	sess := sessionFromRollout(r, binding{Conf: "unknown"}, "waiting", nil)
@@ -170,9 +151,6 @@ func TestSessionIDFallsBackToPathWhenNoSessionMeta(t *testing.T) {
 	}
 }
 
-// TestAppServerDaemonNeverBinds: the `codex app-server daemon` manager
-// shares $HOME as cwd with a session started there, and as the only
-// contender it would otherwise bind "exact".
 func TestAppServerDaemonNeverBinds(t *testing.T) {
 	metaAt := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
 	rollouts := []Rollout{{Path: "/r/home.jsonl", CWD: "/Users/u", MetaAt: metaAt}}

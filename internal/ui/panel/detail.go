@@ -14,27 +14,8 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// recentToolLogLen is how many of the session's most recent tool calls the
-// detail view lists, oldest of the kept ones first. Kept short (rather than
-// the whole transcript) so a session with a wide tool-name histogram still
-// fits the fixed 120x40 the golden tests render at.
 const recentToolLogLen = 5
 
-// DetailRender draws the selected session's detail pane: the tool-call
-// histogram by name, a recent tool log, the subagent tree with resolved
-// model ids and live/finished state, the token breakdown by cache tier,
-// per-session cost and burn, Codex rate limits where present, and the bind
-// confidence. This is the only place DiskReadB/DiskWriteB surface in v0.1,
-// and they surface as cumulative byte counters, labelled as such.
-//
-// Each section header carries its own one-line summary rather than a
-// separate header-then-data pair, so a 12-entry tool-call histogram (the
-// widest section) still leaves room for every other section inside a
-// fixed 40-line frame.
-//
-// at is the snapshot's own At: a running subagent's elapsed time is
-// measured against it (never the wall clock), so Render stays
-// deterministic given its inputs.
 func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Time, opts Options) string {
 	var lines []string
 
@@ -43,11 +24,6 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 	lines = append(lines, fmt.Sprintf("Session  %s (%s)  bind=%s", s.ID, s.Agent, s.BindConf))
 	lines = append(lines, fmt.Sprintf("Model    %s   cwd %s", modelLabel(s.Model), s.CWD))
 	if s.Model == "" {
-		// An unresolved model says why on its own line rather than leaving
-		// the field blank: no transcript on disk means no model, no tokens
-		// and no cost for this session, and all three otherwise read as a
-		// genuine zero. Its own line, not a suffix on the one above, so the
-		// note cannot push the Model line past a narrow terminal's width.
 		lines = append(lines, "         no transcript on disk: tokens and cost unavailable")
 	}
 	lines = append(lines, "")
@@ -112,24 +88,10 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 	return frame(lines, width, height)
 }
 
-// toolHistogramLabelW is the fixed column width the tool name is padded or
-// elided to, so a long MCP tool name (e.g. "mcp__tavily__tavily_extract",
-// 27 chars) can't push the bar and count out of alignment.
 const toolHistogramLabelW = 20
 
-// toolHistogramCountW is the fixed column width reserved for the trailing
-// count, right-aligned so a three-digit session (521 calls) still lines up
-// with single-digit ones instead of stretching the row.
 const toolHistogramCountW = 6
 
-// toolHistogramLines renders one bar per tool name, sorted by descending
-// count then name, so a 12-entry histogram is stable across renders. The
-// bar is scaled to the panel width and the largest count rather than drawn
-// one block per call: unscaled, a busy session (hundreds of Bash calls)
-// fills the whole line with blocks, pushes its own count off-screen, and
-// conveys nothing -- padLine only pads a short line, it never truncates a
-// long one, so an unscaled bar would also break DetailRender's
-// exactly-width-columns contract for every line below it.
 func toolHistogramLines(r theme.Roles, opts Options, counts map[string]int, width int) []string {
 	if len(counts) == 0 {
 		return []string{"  (no tool calls)"}
@@ -149,7 +111,6 @@ func toolHistogramLines(r theme.Roles, opts Options, counts map[string]int, widt
 		return names[i] < names[j]
 	})
 
-	// "  " indent + label + " " + bar + " " + count.
 	barW := width - 2 - toolHistogramLabelW - 1 - 1 - toolHistogramCountW
 	if barW < 1 {
 		barW = 1
@@ -175,11 +136,6 @@ func toolHistogramLines(r theme.Roles, opts Options, counts map[string]int, widt
 	return out
 }
 
-// elideName truncates a tool name to w columns (measured with
-// lipgloss.Width so multi-byte glyphs count correctly), replacing the last
-// character with "…" when it doesn't fit, so a long name like
-// "mcp__tavily__tavily_extract" can't break the fixed label column the bar
-// and count are aligned against.
 func elideName(name string, w int) string {
 	if lipgloss.Width(name) <= w {
 		return name
@@ -212,10 +168,6 @@ func recentToolLogLines(tools []domain.ToolCall) []string {
 	return out
 }
 
-// subagentTreeLines renders the session's children: the non-workflow
-// subagents as a box-drawn tree (children under their ParentID, in
-// s.Subagents order), then each workflow as a header line followed by its
-// agents one level in. Every line is cut to width rather than wrapped.
 func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int, at time.Time) []string {
 	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
 		return []string{"  (none)"}
@@ -262,8 +214,6 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 	for k, i := range roots {
 		walk(i, "", k == len(roots)-1)
 	}
-	// A ParentID cycle has no root to reach its members from; list them
-	// flat rather than drop them.
 	for i := range s.Subagents {
 		if s.Subagents[i].WorkflowID == "" && !seen[i] {
 			walk(i, "", true)
@@ -298,16 +248,8 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 	return out
 }
 
-// workflowDoneShown is how many finished agents a workflow lists: its most
-// recently active ones. A single run can hold a hundred agents, and listing
-// every one would push the rest of the panel off screen.
 const workflowDoneShown = 3
 
-// workflowAgentsShown returns the indexes of w's agents to list, in
-// s.Subagents order, and how many finished agents it left out. Every
-// unfinished or failed agent is listed; of the done ones, only the
-// workflowDoneShown most recently active, and none once the whole workflow
-// is done.
 func workflowAgentsShown(subs []domain.Subagent, w *domain.Workflow) ([]int, int) {
 	var done []int
 	keep := make(map[int]bool)
@@ -344,15 +286,9 @@ func workflowAgentsShown(subs []domain.Subagent, w *domain.Workflow) ([]int, int
 	return shown, len(done) - len(recent)
 }
 
-// subagentDetailLine is one child's detail line after its tree prefix:
-// status, agent type (or phase, for a workflow agent), description, model,
-// elapsed, tool count, the tool a running child is waiting on, cost and
-// burn.
 func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.Subagent, inWorkflow bool, at time.Time) string {
 	color, state := childStatus(r, sa.Status, sa.Live)
 	running := childRunning(sa.Status, sa.Live)
-	// The kind column gives up whatever the tree prefix grew past a root's
-	// ("  ├─ ", 5 columns), so every column after it lines up at any depth.
 	kindW := max(4, 12-(lipgloss.Width(prefix)-5))
 	kind := truncate(sa.AgentType, kindW)
 	if sa.Background {
@@ -381,14 +317,6 @@ func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.S
 	return line
 }
 
-// processLines renders the selected session's process detail. The disk
-// figures are labelled "(cumulative)" and carry a plain B unit because
-// that is exactly what they are: proc_pid_rusage's
-// ri_diskio_bytesread/byteswritten, counted since the process started and
-// passed through internal/proc with no delta tracker behind them. A "/s"
-// suffix here would read as a rate and be wrong by however long the
-// process has been alive -- on the one screen in v0.1 where these two
-// fields surface at all.
 func processLines(s domain.Session) []string {
 	if s.BindConf == "unknown" || s.Proc == nil {
 		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}

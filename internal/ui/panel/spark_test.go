@@ -9,9 +9,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// TestSparkline asserts a known series produces a non-empty string of the
-// requested width, and that an empty series returns width spaces rather
-// than panicking.
 func TestSparkline(t *testing.T) {
 	r, err := theme.Load("wattop-dark")
 	if err != nil {

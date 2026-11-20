@@ -1,17 +1,5 @@
 //go:build darwin && arm64 && cgo
 
-// ioreport_groups_darwin.go answers `wattop doctor --ioreport-groups`: it
-// asks IOReport itself which channel groups this machine exposes and how
-// many channels sit in each. It is deliberately a package-level function
-// rather than a method on Sampler or a re-export through shim.go --
-// doctor reports on the machine, not on a sampler instance, and the
-// replay Sampler has no IOReport to enumerate.
-//
-// It calls IOReportCopyChannelsInGroup directly rather than going through
-// internal/soc/mactop so that scripts/vendor-diff.sh keeps reporting a
-// clean vendored tree; the extern declarations mirror the ones in
-// mactop/ioreport.go, and the dictionary walk mirrors debugIOReport's in
-// mactop/ioreport.m.
 package soc
 
 /*
@@ -124,34 +112,15 @@ import (
 	"sort"
 )
 
-// Group is one IOReport channel group and the number of channels it
-// publishes. A DRAM channel that gets renamed under a future macOS shows
-// up here as a changed count on "AMC Stats" (or as a new group name),
-// which is the whole reason doctor enumerates this.
 type Group struct {
 	Name     string
 	Channels int
 }
 
-// maxIOReportGroups caps the C-side tally. This machine reports well under
-// a dozen groups; the cap exists so the buffer can be stack-sized rather
-// than negotiated in two calls.
 const maxIOReportGroups = 128
 
-// ErrNoIOReportGroups is returned when IOReport publishes no channel
-// groups at all -- both the wildcard copy and every named-group probe came
-// back empty.
 var ErrNoIOReportGroups = errors.New("soc: IOReport reported no channel groups")
 
-// IOReportGroups enumerates this machine's IOReport channel groups with
-// their channel counts, sorted by name. It needs no subscription, no prior
-// Init and no elevated privileges.
-//
-// complete reports whether the listing is everything the machine publishes
-// (the wildcard channel copy) or only the named groups this file probes
-// (the fallback). On the fallback a channel renamed inside a known group
-// still shows up as a changed count, but a whole group renamed does not
-// show up at all -- doctor prints which of the two it got.
 func IOReportGroups() (groups []Group, complete bool, err error) {
 	buf := make([]C.wattop_ioreport_group_t, maxIOReportGroups)
 	var wildcard C.int

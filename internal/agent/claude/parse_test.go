@@ -57,9 +57,6 @@ func TestParseRecordBusyInteractiveHasToolUseNoResult(t *testing.T) {
 	}
 }
 
-// TestCacheTiersDistinct is the case the plan calls out by name: an
-// assistant record whose cache_creation carries a nonzero 1h tier and a
-// zero 5m tier must not collapse the two into one field.
 func TestCacheTiersDistinct(t *testing.T) {
 	lines := readFixtureLines(t, "agent", "claude", "cache-1h.jsonl")
 	if len(lines) != 1 {

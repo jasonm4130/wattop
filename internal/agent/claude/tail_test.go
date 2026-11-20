@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// TestTailerReadsOnlyDelta appends to a file across two Tail calls and
-// asserts the second call returns only the newly-appended line, never
-// re-reading the whole file — and that neither call reports a Reset.
 func TestTailerReadsOnlyDelta(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	writeFile(t, path, "line one\nline two\n")
@@ -44,11 +41,6 @@ func TestTailerReadsOnlyDelta(t *testing.T) {
 	}
 }
 
-// TestTruncatedFinalLineBuffered mirrors the corpus's
-// truncated-final-line.jsonl: two complete lines followed by a partial
-// record with no terminating newline. The partial line must not be
-// returned, and Offset must stop before it so the next call re-reads it in
-// full once the writer finishes it.
 func TestTruncatedFinalLineBuffered(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	writeFile(t, path, "line one\nline two\n{\"partial")
@@ -61,8 +53,6 @@ func TestTruncatedFinalLineBuffered(t *testing.T) {
 		t.Fatalf("got %d lines, want 2 (the partial line must be buffered, not returned): %q", len(res.Lines), res.Lines)
 	}
 
-	// Retry with no new data: still nothing new, offset unchanged, and an
-	// unfinished line is not mistaken for a truncation.
 	res2, err := Tail(res.State)
 	if err != nil {
 		t.Fatalf("Tail (retry): %v", err)
@@ -77,7 +67,6 @@ func TestTruncatedFinalLineBuffered(t *testing.T) {
 		t.Fatalf("a buffered partial line reported Reset = true")
 	}
 
-	// The writer finishes the line.
 	appendTo(t, path, "\": \"done\"}\n")
 
 	res3, err := Tail(res2.State)
@@ -102,7 +91,6 @@ func TestTailerResetsOnTruncation(t *testing.T) {
 		t.Fatalf("Tail: %v", err)
 	}
 
-	// Truncate and write something shorter than the old offset.
 	writeFile(t, path, "new one\n")
 
 	res2, err := Tail(res.State)
@@ -117,10 +105,6 @@ func TestTailerResetsOnTruncation(t *testing.T) {
 	}
 }
 
-// TestTailerReportsResetWhenRewriteIsLonger is the case an offset
-// comparison at the call site cannot see: the file is rewritten from byte
-// 0 with MORE content than the old offset, so the offset moves forward
-// exactly as an append would. Only the Reset flag distinguishes them.
 func TestTailerReportsResetWhenRewriteIsLonger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	writeFile(t, path, "a\nb\n")
@@ -131,8 +115,6 @@ func TestTailerReportsResetWhenRewriteIsLonger(t *testing.T) {
 	}
 	oldOffset := res.State.Offset
 
-	// Rewrite in place, longer than before. os.WriteFile truncates first,
-	// which is what makes this a reset rather than an append.
 	writeFile(t, path, "compacted one\ncompacted two\ncompacted three\n")
 
 	res2, err := Tail(res.State)
@@ -161,8 +143,6 @@ func TestTailerResetsOnInodeSwap(t *testing.T) {
 		t.Fatalf("Tail: %v", err)
 	}
 
-	// Create the replacement before renaming it over the old file. Removing
-	// first lets Linux reuse the inode, which would not test an inode swap.
 	replacement := filepath.Join(dir, "replacement.jsonl")
 	writeFile(t, replacement, "new content\n")
 	if err := os.Rename(replacement, path); err != nil {
@@ -181,11 +161,6 @@ func TestTailerResetsOnInodeSwap(t *testing.T) {
 	}
 }
 
-// TestTailerCapsReadPerCall builds a transcript larger than maxReadPerCall
-// and asserts a single Tail call never returns more than that many bytes
-// worth of lines — the large-first-poll / post-compaction spike the fix
-// targets — and that a second call picks up the remainder from the
-// advanced offset, exactly as it would for a plain append.
 func TestTailerCapsReadPerCall(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 
@@ -195,7 +170,7 @@ func TestTailerCapsReadPerCall(t *testing.T) {
 	}
 	lineWithNL := append(line, '\n')
 
-	linesPerCall := maxReadPerCall/len(lineWithNL) + 10 // spill past one cap
+	linesPerCall := maxReadPerCall/len(lineWithNL) + 10
 	var content []byte
 	for i := 0; i < linesPerCall; i++ {
 		content = append(content, lineWithNL...)

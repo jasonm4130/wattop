@@ -1,5 +1,3 @@
-// doctor.go implements the `doctor` subcommand: a plain-text report of what
-// actually resolved on this machine, printed without ever entering the TUI.
 package main
 
 import (
@@ -13,19 +11,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/soc"
 )
 
-// runDoctor samples one cycle's worth of data directly from src (no Loop,
-// no state.State -- doctor reports on the raw collector layer, not on a
-// priced, joined Snapshot) and prints what resolved. book and themeName are
-// reported as-is; groups additionally prints the --ioreport-groups section.
 func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Duration, book *pricing.Book, themeName string, groups bool) {
-	// Two scans, with the soc block between them. internal/proc reports
-	// deltas, never lifetime averages: a pid's first appearance only
-	// establishes its baseline, so it carries no CPU percentage and no GPU
-	// ms/sec at all. A single scan would therefore always report an empty
-	// GPU table on a machine whose GPU is busy -- a false negative in the
-	// one command whose job is to say what actually resolved. The
-	// throwaway scan is the baseline; soc.Sample's block supplies the
-	// interval between the two; the second scan is the one reported.
 	_, _ = safeScan(ctx, src.Proc)
 	sys, errSys := safeSample(ctx, src.Sys, interval)
 	procs, errProc := safeScan(ctx, src.Proc)
@@ -106,8 +92,6 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 	fmt.Fprintf(w, "  sha256: %s\n", sha)
 	fmt.Fprintf(w, "  entries: %d\n", book.Entries())
 	fmt.Fprintf(w, "  age: %s\n", formatAge(fetchedAt, now))
-	// The same predicate the cycle badges on, so doctor and the dashboard
-	// never disagree about whether the table is trustworthy.
 	if ok, err := pricingHealth(book.Entries(), fetchedAt, now); ok {
 		fmt.Fprintln(w, "  status: ok")
 	} else {
@@ -118,16 +102,6 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 	fmt.Fprintf(w, "theme: %s\n", themeName)
 }
 
-// printIOReportGroups renders the `--ioreport-groups` section: every
-// IOReport channel group this machine publishes, with the number of
-// channels in it. This is Apple's own grouping read straight off the
-// machine, not wattop's field-resolution map above, which is what makes a
-// renamed DRAM channel findable later -- it lands here as a changed count
-// on "AMC Stats" (or as a group name nobody has seen before).
-//
-// enumerate is a parameter so the test can drive both the empty and the
-// failed path without an Apple Silicon machine; production passes
-// soc.IOReportGroups.
 func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error)) {
 	fmt.Fprintln(w, "ioreport-groups:")
 	groups, complete, err := enumerate()
@@ -145,11 +119,6 @@ func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error
 		total += g.Channels
 	}
 	fmt.Fprintf(w, "  total: %d groups, %d channels\n", len(groups), total)
-	// Which of IOReport's two listing routes produced the above. It is not
-	// decoration: on the fallback the set of group *names* is fixed, so a
-	// group Apple renames wholesale would vanish from this listing rather
-	// than appear as a new one, and a reader hunting a moved counter needs
-	// to know that before concluding it is gone.
 	if complete {
 		fmt.Fprintln(w, "  listing: wildcard channel copy (every group this machine publishes)")
 	} else {
@@ -157,9 +126,6 @@ func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error
 	}
 }
 
-// countChannels reports how many of wattop's own SoC fields resolved on
-// this hardware. It is a count of wattop channels, never of IOReport group
-// members -- the ioreport-groups section reports those.
 func countChannels(channels map[string]bool) (resolved, unresolved int) {
 	for _, ok := range channels {
 		if ok {

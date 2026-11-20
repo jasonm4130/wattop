@@ -13,8 +13,6 @@ func codexFixture(t *testing.T, name string) string {
 	return filepath.Join(fixture.CorpusDir(), "agent", "codex", name)
 }
 
-// TestStatusFromTaskEvents: busy iff the most recent of task_started/
-// task_complete is task_started; waiting once task_complete has fired.
 func TestStatusFromTaskEvents(t *testing.T) {
 	lines, err := readAllLines(codexFixture(t, "full-turn.jsonl"))
 	if err != nil {
@@ -22,7 +20,6 @@ func TestStatusFromTaskEvents(t *testing.T) {
 	}
 
 	r := &Rollout{}
-	// Apply through task_started (ordinal 2, the third line) only: busy.
 	for i := 0; i < 3; i++ {
 		if err := r.Apply(lines[i]); err != nil {
 			t.Fatalf("Apply line %d: %v", i, err)
@@ -32,7 +29,6 @@ func TestStatusFromTaskEvents(t *testing.T) {
 		t.Fatalf("after task_started: Status = %q, want busy", r.Status)
 	}
 
-	// Apply the rest, through task_complete: waiting.
 	for i := 3; i < len(lines); i++ {
 		if err := r.Apply(lines[i]); err != nil {
 			t.Fatalf("Apply line %d: %v", i, err)
@@ -43,9 +39,6 @@ func TestStatusFromTaskEvents(t *testing.T) {
 	}
 }
 
-// TestModelReadPerTurn: the model comes from turn_context.payload.model on
-// this rollout, never a config default, and a different rollout with a
-// different turn_context.model yields that rollout's own model.
 func TestModelReadPerTurn(t *testing.T) {
 	full, err := LoadRollout(codexFixture(t, "full-turn.jsonl"))
 	if err != nil {
@@ -64,9 +57,6 @@ func TestModelReadPerTurn(t *testing.T) {
 	}
 }
 
-// TestContextWindowFromTranscript: ContextExact is true and the window
-// comes from the transcript's own token_count event, taking precedence over
-// task_started's top-level fallback when both are present.
 func TestContextWindowFromTranscript(t *testing.T) {
 	full, err := LoadRollout(codexFixture(t, "full-turn.jsonl"))
 	if err != nil {
@@ -82,8 +72,6 @@ func TestContextWindowFromTranscript(t *testing.T) {
 		t.Fatalf("full-turn: ContextUsed = %d, want 5380 (last_token_usage.total_tokens; this single-turn fixture has last == total)", full.ContextUsed)
 	}
 
-	// billable_input = input - cached_input, and both fields must be raw
-	// (never pre-subtracted here — Task 7's cost.go does that subtraction).
 	if full.Usage.Input != 5200 || full.Usage.CachedInput != 3100 {
 		t.Fatalf("full-turn Usage = %+v, want Input=5200 CachedInput=3100", full.Usage)
 	}
@@ -91,10 +79,6 @@ func TestContextWindowFromTranscript(t *testing.T) {
 		t.Fatalf("billable_input = %d, want 2100", billable)
 	}
 
-	// model-override.jsonl has no token_count event, only task_started's
-	// top-level model_context_window (128000): the fallback fires, but
-	// ContextExact stays false since there is no total_tokens numerator to
-	// pair it with.
 	override, err := LoadRollout(codexFixture(t, "model-override.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -107,11 +91,6 @@ func TestContextWindowFromTranscript(t *testing.T) {
 	}
 }
 
-// TestContextUsedIsLastTurnNotCumulative: on a multi-turn rollout,
-// total_token_usage.total_tokens sums every turn and can exceed
-// model_context_window many times over, while last_token_usage.total_tokens
-// (this turn's actual context occupancy) stays under it. ContextUsed must
-// track the latter or the gauge reads over 100% on a real long session.
 func TestContextUsedIsLastTurnNotCumulative(t *testing.T) {
 	r, err := LoadRollout(codexFixture(t, "multi-turn.jsonl"))
 	if err != nil {
@@ -120,16 +99,12 @@ func TestContextUsedIsLastTurnNotCumulative(t *testing.T) {
 	if r.ContextMax != 258400 {
 		t.Fatalf("ContextMax = %d, want 258400", r.ContextMax)
 	}
-	// The fixture's final token_count has total_token_usage.total_tokens =
-	// 261188 (> ContextMax) and last_token_usage.total_tokens = 62844 (well
-	// under it) — pinning the regression this fix closes.
 	if r.ContextUsed != 62844 {
 		t.Fatalf("ContextUsed = %d, want 62844 (last_token_usage.total_tokens, not the cumulative 261188)", r.ContextUsed)
 	}
 	if r.ContextUsed >= r.ContextMax {
 		t.Fatalf("ContextUsed = %d >= ContextMax = %d: gauge would read over 100%%", r.ContextUsed, r.ContextMax)
 	}
-	// Usage (cost) stays cumulative, sourced from total_token_usage.
 	if r.Usage.Input != 253000 {
 		t.Fatalf("Usage.Input = %d, want 253000 (cumulative total_token_usage.input_tokens)", r.Usage.Input)
 	}
@@ -160,11 +135,6 @@ func TestRateLimitsParse(t *testing.T) {
 	}
 }
 
-// TestSessionMetaMissingLeavesMetaAtZero: rate-limits.jsonl opens on
-// turn_context with no session_meta at all — there is no session id and no
-// session_meta timestamp for this rollout, and a zero MetaAt must make it
-// unmatched in bind.go's time tiebreaker exactly like a candidate's zero
-// StartTime.
 func TestSessionMetaMissingLeavesMetaAtZero(t *testing.T) {
 	r, err := LoadRollout(codexFixture(t, "rate-limits.jsonl"))
 	if err != nil {

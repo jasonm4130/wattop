@@ -8,10 +8,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// TestParentBlockedOnSubagentStillBurns: the parent's own last tool call is
-// the spawn, minutes old, while its subagent keeps spending. LastUsageAt
-// carries the child's newest usage timestamp, so the session's cost delta is
-// timed inside the window instead of being discarded as stale ($0.00/hr).
 func TestParentBlockedOnSubagentStillBurns(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	spawn := at(0).Add(-5 * time.Minute)
@@ -45,8 +41,6 @@ func TestParentBlockedOnSubagentStillBurns(t *testing.T) {
 	}
 }
 
-// TestNewChildIsSeededNotBaselined: a subagent that started moments ago has
-// no history to exclude, so its first sighting already reports a rate.
 func TestNewChildIsSeededNotBaselined(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{
@@ -63,7 +57,6 @@ func TestNewChildIsSeededNotBaselined(t *testing.T) {
 		t.Fatalf("new child: BurnUSDPerHr = %v, want > 0", sa.BurnUSDPerHr)
 	}
 
-	// An old child seen for the first time is history: baseline only.
 	old := sess
 	old.ID = "s2"
 	old.Subagents = []domain.Subagent{sess.Subagents[0]}
@@ -76,9 +69,6 @@ func TestNewChildIsSeededNotBaselined(t *testing.T) {
 	}
 }
 
-// TestUnpricedChildMakesTotalsPartial: one workflow agent on a model the book
-// cannot price leaves the session, its workflow and the snapshot total
-// flagged partial rather than presented as exact.
 func TestUnpricedChildMakesTotalsPartial(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{
@@ -88,7 +78,7 @@ func TestUnpricedChildMakesTotalsPartial(t *testing.T) {
 			{ID: "a1", WorkflowID: "wf_1", Model: "claude-opus-5", Usage: domain.Usage{Input: 2000, Output: 100}},
 			{ID: "a2", WorkflowID: "wf_1", Model: "wattop-nonexistent-model", Usage: domain.Usage{Input: 2000, Output: 100}},
 			{ID: "a3", WorkflowID: "wf_2", Model: "claude-opus-5", Usage: domain.Usage{Input: 3000, Output: 100}},
-			{ID: "a4", WorkflowID: "wf_2"}, // no transcript yet: omits nothing
+			{ID: "a4", WorkflowID: "wf_2"},
 		},
 		Workflows: []domain.Workflow{{ID: "wf_1", Agents: 2}, {ID: "wf_2", Agents: 2}},
 	}
@@ -112,8 +102,6 @@ func TestUnpricedChildMakesTotalsPartial(t *testing.T) {
 	}
 }
 
-// TestChildTiersOnItsOwnContext: a child whose last prompt crossed the
-// long-context threshold prices above the same usage at a small context.
 func TestChildTiersOnItsOwnContext(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	mk := func(id string, ctx int64) domain.Session {
@@ -133,8 +121,6 @@ func TestChildTiersOnItsOwnContext(t *testing.T) {
 	}
 }
 
-// TestDroppedSessionForgetsChildBurn: expiring a session forgets its
-// children's burn keys along with its own.
 func TestDroppedSessionForgetsChildBurn(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{
@@ -150,9 +136,6 @@ func TestDroppedSessionForgetsChildBurn(t *testing.T) {
 	}
 }
 
-// TestSiblingsWithoutIDsBurnSeparately: children without an ID (older
-// fixtures, replayed snapshots) must not share one burn key, or each
-// sibling's cost is diffed against the other's.
 func TestSiblingsWithoutIDsBurnSeparately(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{
@@ -172,8 +155,6 @@ func TestSiblingsWithoutIDsBurnSeparately(t *testing.T) {
 	}
 }
 
-// TestNewbornChildBurnIsBounded: a child one second old that spent a few
-// cents reports a rate spread over at least childSeedMinSpan.
 func TestNewbornChildBurnIsBounded(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{

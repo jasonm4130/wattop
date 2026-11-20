@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Refreshes internal/pricing/table.json.gz from LiteLLM's upstream pricing
-# table and regenerates docs/pricing-update.md with the commit/checksum that
-# produced it. Run via `make pricing`.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -19,12 +16,6 @@ RAW="$(mktemp -d)"
 trap 'rm -rf "$RAW"' EXIT
 KEYS_FILE="$RAW/keys.txt"
 
-# The ~60 keys that matter: the models actually seen on this machine
-# (claude-opus-5, claude-fable-5-1, claude-sonnet-5, claude-haiku-4-5,
-# gpt-5.6-terra, gpt-5-codex) plus their current and recent sibling
-# releases, so a version bump on either agent still resolves without a
-# refresh. Kept here (not a separate data file) so this script is the one
-# place that owns the curated set.
 cat >"$KEYS_FILE" <<'KEYS'
 claude-opus-5
 claude-sonnet-5

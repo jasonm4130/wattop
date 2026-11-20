@@ -17,22 +17,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// Golden-test determinism: lipgloss v2's Style.Render() never consults the
-// terminal or an environment variable -- confirmed by reading
-// charm.land/lipgloss/v2@v2.0.6/style.go, which has no os.Getenv or
-// colorprofile reference anywhere in Render(). Downsampling by detected
-// color profile only happens in the *print* helpers (lipgloss.Println,
-// lipgloss.Writer, ...), which this package never calls: Render returns a
-// plain string built from Style.Render() calls and is written to the
-// golden file (or a real terminal) unmodified. That is what makes the
-// identical output land in both an interactive macOS terminal (a real TTY,
-// which the auto-detecting print helpers would treat as TrueColor) and
-// under `CGO_ENABLED=0 go test ... > file` (a pipe, which they would treat
-// as NoTTY and strip): there is no detection step in this code path for the
-// two environments to disagree on. No TestMain profile pin is needed as a
-// result, since there is no profile to pin -- verified by running this
-// file's TestSoCGolden both ways (see the task's Acceptance section).
-
 func loadFixtureSample(t *testing.T, filename string) domain.SysSample {
 	t.Helper()
 	dir := t.TempDir()
@@ -56,8 +40,6 @@ func loadFixtureSample(t *testing.T, filename string) domain.SysSample {
 	return sample
 }
 
-// TestSoCGolden renders the replay sampler's decoded mactop-ndjson.jsonl at
-// a fixed 120x40 and golden-compares it. Run with -update to regenerate.
 func TestSoCGolden(t *testing.T) {
 	sample := loadFixtureSample(t, "mactop-ndjson.jsonl")
 	r, err := theme.Load("wattop-dark")
@@ -69,20 +51,6 @@ func TestSoCGolden(t *testing.T) {
 	golden.RequireEqual(t, []byte(out))
 }
 
-// TestDegradedRendersDash renders mactop-degraded.jsonl, which is missing the
-// dram_*_bw_gbs keys entirely, and asserts every bandwidth figure renders as
-// a dash.
-//
-// The ANE key IS present in that fixture and reads exactly 0, and it dashes
-// too. That is not the same rule the live sampler follows: internal/soc
-// tracks which ioreport.m branch produced DRAM bytes (DRAMBWSource) and can
-// therefore publish a measured 0.0 as a reading. mactop's headless JSON --
-// the only thing this fixture format carries -- has no such flag, so a 0 in
-// it is indistinguishable from an absent channel and
-// internal/collect/replay treats it as unresolved. Distinguishing the two
-// where the data allows it is what stopped live DRAM traffic hiding behind a
-// dash (QA 2026-09-06 §2); claiming to distinguish them where it does not
-// would be the same error in the other direction.
 func TestDegradedRendersDash(t *testing.T) {
 	sample := loadFixtureSample(t, "mactop-degraded.jsonl")
 	r, err := theme.Load("wattop-dark")
@@ -100,10 +68,6 @@ func TestDegradedRendersDash(t *testing.T) {
 	}
 }
 
-// TestBandwidthCombinedRendersAsEstimate covers the source that this M5 Max
-// actually falls back to: one DRAM figure derived from DRAM power. It must
-// render once, as a marked estimate, with both directions dashed -- never as
-// a read figure and a write figure carrying the same number.
 func TestBandwidthCombinedRendersAsEstimate(t *testing.T) {
 	combined := 32.8
 	line := bandwidthLine(domain.Bandwidth{DRAMCombinedGBs: &combined, DRAMEstimated: true})
@@ -114,12 +78,6 @@ func TestBandwidthCombinedRendersAsEstimate(t *testing.T) {
 	}
 }
 
-// TestBandwidthEstimatedZeroStaysAnEstimate is the edge the honesty rule is
-// easiest to lose: an estimate that happens to land on exactly zero. A
-// resolved zero is a measurement and must print as one -- marked ~, not
-// dashed, because dashing it would claim the channel was never read. QA
-// 2026-09-06 saw 8 consecutive samples in this state after the machine went
-// idle, and docs/manual-qa.md quotes this string.
 func TestBandwidthEstimatedZeroStaysAnEstimate(t *testing.T) {
 	zero := 0.0
 	line := bandwidthLine(domain.Bandwidth{DRAMCombinedGBs: &zero, DRAMEstimated: true})
@@ -130,8 +88,6 @@ func TestBandwidthEstimatedZeroStaysAnEstimate(t *testing.T) {
 	}
 }
 
-// TestBandwidthDirectionalRendersBothDirections is the counterpart: a source
-// that measured both directions prints both, unmarked, plus their total.
 func TestBandwidthDirectionalRendersBothDirections(t *testing.T) {
 	read, write, combined := 12.5, 7.5, 20.0
 	line := bandwidthLine(domain.Bandwidth{
@@ -146,10 +102,6 @@ func TestBandwidthDirectionalRendersBothDirections(t *testing.T) {
 	}
 }
 
-// TestTempLineIgnoresRawSensorKeys is the Temp-row regression. The live
-// sampler once put every raw SMC key into Temps -- 325 of them -- and this
-// row printed all of them, clipping the frame (QA 2026-09-06 §2). The row
-// renders the three keys it knows, in a fixed order, and nothing else.
 func TestTempLineIgnoresRawSensorKeys(t *testing.T) {
 	temps := map[string]float64{
 		"soc": 52.0, "gpu": 51.25, "cpu": 50.5,
@@ -163,8 +115,6 @@ func TestTempLineIgnoresRawSensorKeys(t *testing.T) {
 	}
 }
 
-// TestTempLineOmitsAbsentKey proves a key the sampler never published drops
-// out of the row rather than rendering a zero.
 func TestTempLineOmitsAbsentKey(t *testing.T) {
 	line := tempLine(map[string]float64{"cpu": 50.5})
 	want := "Temp   CPU 50.5°C"
@@ -178,9 +128,6 @@ func TestTempLineOmitsAbsentKey(t *testing.T) {
 
 var clusterLinePattern = regexp.MustCompile(`(?m)^\S+ \(\d+\)\s+\[`)
 
-// TestClustersFromTopologyNotConstants proves the panel iterates whatever
-// clusters domain.SysSample.Clusters reports, rather than assuming a
-// hardcoded E/P pair.
 func TestClustersFromTopologyNotConstants(t *testing.T) {
 	r, err := theme.Load("wattop-dark")
 	if err != nil {
@@ -231,8 +178,6 @@ func TestClustersFromTopologyNotConstants(t *testing.T) {
 	})
 }
 
-// TestNoColorDropsPalette asserts --no-color/NO_COLOR renders plain block
-// characters with no ANSI escape sequences at all.
 func TestNoColorDropsPalette(t *testing.T) {
 	sample := loadFixtureSample(t, "mactop-ndjson.jsonl")
 	r, err := theme.Load("wattop-dark")
@@ -246,8 +191,6 @@ func TestNoColorDropsPalette(t *testing.T) {
 	}
 }
 
-// TestNilOptionalNeverRendersZero guards the "nil renders as — never 0"
-// rule directly against a synthetic sample with every optional field nil.
 func TestNilOptionalNeverRendersZero(t *testing.T) {
 	r, err := theme.Load("wattop-dark")
 	if err != nil {
@@ -275,13 +218,6 @@ func TestNilOptionalNeverRendersZero(t *testing.T) {
 	}
 }
 
-// TestRenderNegativeOrTinyHeightNeverPanics guards frame() (and borderLine's
-// width handling) against a terminal short enough that the caller's
-// height-3/width arithmetic goes to zero or negative -- Model.View derives
-// the panel height as m.height-3 with only a >0 guard on m.height, so a 1-,
-// 2- or 3-row terminal passes 0 or a negative height straight through. Before
-// the fix, make([]string, height) with a negative length panicked with
-// "makeslice: len out of range".
 func TestRenderNegativeOrTinyHeightNeverPanics(t *testing.T) {
 	r, err := theme.Load("wattop-dark")
 	if err != nil {
@@ -319,8 +255,6 @@ func TestRenderNegativeOrTinyHeightNeverPanics(t *testing.T) {
 	}
 }
 
-// TestFrameNegativeWidthNeverPanics guards frame()/borderLine() directly
-// against a negative width, the same shape of bug as the height case.
 func TestFrameNegativeWidthNeverPanics(t *testing.T) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -328,19 +262,12 @@ func TestFrameNegativeWidthNeverPanics(t *testing.T) {
 		}
 	}()
 	out := frame([]string{"a", "b"}, -1, 2)
-	// A negative width clamps to 0 for padding/fill purposes; content lines
-	// already at or past that width are returned unpadded (padLine never
-	// truncates), so "a" and "b" pass through as-is with no panic.
 	want := "a\nb"
 	if out != want {
 		t.Errorf("frame with negative width: got %q, want %q", out, want)
 	}
 }
 
-// TestThermalLabelsMatchPressureScale pins the thermal row to the scale the
-// sampler actually reports: ioreport.m's getThermalState returns the
-// OSThermalPressureLevel scale (0=Nominal, 1=Moderate, 2=Heavy, 3=Trapping,
-// 4=Sleeping), not NSProcessInfoThermalState's Fair/Serious/Critical.
 func TestThermalLabelsMatchPressureScale(t *testing.T) {
 	want := map[int]string{
 		0: "Nominal", 1: "Moderate", 2: "Heavy", 3: "Trapping", 4: "Sleeping",
@@ -353,8 +280,6 @@ func TestThermalLabelsMatchPressureScale(t *testing.T) {
 	}
 }
 
-// TestThermalLineShowsThrottledBadge asserts a throttled sample carries a
-// THROTTLED badge on the thermal row, and an unthrottled one does not.
 func TestThermalLineShowsThrottledBadge(t *testing.T) {
 	r, err := theme.Load("wattop-dark")
 	if err != nil {

@@ -54,9 +54,6 @@ func TestStateHistoryUnknownKeyIsNil(t *testing.T) {
 	}
 }
 
-// TestStateHistoryPerSessionKeys: Reduce pushes machine-wide and
-// per-session rings on every cycle, readable back through History with the
-// "<agent>:<sessionID>:<metric>" key grammar.
 func TestStateHistoryPerSessionKeys(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	pid := 100
@@ -83,10 +80,6 @@ func TestStateHistoryPerSessionKeys(t *testing.T) {
 	}
 }
 
-// TestStateHistoryDroppedOnSessionTTLExpiry: a session's three per-session
-// rings must not outlive its tracked entry, or st.histories grows without
-// bound over a long run (mirroring the guard already in
-// internal/agent/codex/source.go).
 func TestStateHistoryDroppedOnSessionTTLExpiry(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	pid := 100
@@ -101,8 +94,6 @@ func TestStateHistoryDroppedOnSessionTTLExpiry(t *testing.T) {
 		t.Fatalf("History(\"claude:s1:cpu\") = nil after first sighting, want a populated ring")
 	}
 
-	// Vanish it past sessionTTL: at(0) then nothing until well past the
-	// 30s TTL drops the tracked entry.
 	st.Reduce(Inputs{At: at(31)})
 
 	if got := st.History("claude:s1:cpu"); got != nil {
@@ -119,9 +110,6 @@ func TestStateHistoryDroppedOnSessionTTLExpiry(t *testing.T) {
 	}
 }
 
-// TestStateHistoryPerSessionKeysDistinguishAgent: a Claude and a Codex
-// session sharing an ID must not collide in st.histories — dropping one's
-// rings on TTL expiry must not clobber the other's.
 func TestStateHistoryPerSessionKeysDistinguishAgent(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	claudePID, codexPID := 100, 200
@@ -141,8 +129,6 @@ func TestStateHistoryPerSessionKeysDistinguishAgent(t *testing.T) {
 		t.Fatalf("History(\"codex:dup:cpu\") = %v, want [22]", got)
 	}
 
-	// Claude's session vanishes and drops past TTL; Codex's ring under the
-	// same bare ID must survive untouched.
 	st.Reduce(Inputs{At: at(31), Sessions: []domain.Session{codex}, Procs: []domain.ProcSample{{PID: codexPID, CPUPct: 22}}})
 
 	if got := st.History("claude:dup:cpu"); got != nil {

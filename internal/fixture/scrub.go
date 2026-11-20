@@ -15,31 +15,14 @@ import (
 	"unicode/utf8"
 )
 
-// homeUserRe matches any macOS/Linux home-directory path for any account,
-// not just this machine's — "/Users/<name>" or "/home/<name>" — so a fixture
-// recorded on a different account, after a username change, or on a machine
-// with a different home path still gets its path redacted. It excludes '/'
-// and '"' from the captured name so it stops at the next path segment or a
-// JSON string boundary rather than swallowing the rest of the value.
 var homeUserRe = regexp.MustCompile(`/(?:Users|home)/[^/"]+`)
 
-// proseKeys are JSON object keys whose string value is human prose and must
-// be replaced with filler that preserves the value's UTF-8 byte length:
-// Claude content-block text ({"type":"text","text":"..."}), Claude subagent
-// descriptions, and Codex's last_agent_message / input_text / output_text
-// bodies (which also live under a "text" key).
 var proseKeys = map[string]bool{
 	"text":               true,
 	"description":        true,
 	"last_agent_message": true,
 }
 
-// uuidKeys are JSON object keys carrying an identifier that cross-references
-// another record (a Claude parentUuid pointing at another record's uuid, a
-// toolUseId pointing at a subagent's meta file, and so on). Each is rewritten
-// to a deterministic fixed-format UUID derived from its original value, so
-// the same original string always rewrites to the same output and
-// cross-record links survive redaction.
 var uuidKeys = map[string]bool{
 	"uuid":                  true,
 	"parentUuid":            true,
@@ -57,31 +40,6 @@ var uuidKeys = map[string]bool{
 	"ownerOrganizationUuid": true,
 }
 
-// Scrub rewrites a single JSON record (one line of a .jsonl file, or the
-// entire content of a standalone .json file) to remove this machine's real
-// paths and usernames and to replace human prose with byte-length-preserving
-// filler, while leaving every other field byte-for-byte identical to the
-// input.
-//
-// Every field is preserved exactly except:
-//   - any string containing a home-directory path for any account —
-//     "/Users/<name>" or "/home/<name>", this machine's included —
-//     (rewritten to "/home/u"), "jasonm4130@gmail.com", or "jasonm4130"
-//     (rewritten to a placeholder), wherever it appears, in a value or in an
-//     object key;
-//   - the keys in proseKeys, whose value is replaced with 'x' filler that
-//     preserves the original value's UTF-8 byte length exactly, so
-//     len(Scrub(line)) == len(line) on the raw line bytes whenever the only
-//     redaction present is prose filler (encoding/json's escaping of ", \,
-//     <, > and & on re-encode can change the count when the *original*
-//     prose itself already contained one of those bytes — keep corpus prose
-//     ASCII-safe and free of those characters to keep the invariant exact);
-//   - the keys in uuidKeys, whose value is rewritten to a deterministic
-//     fixed-format UUID derived from a hash of the original value.
-//
-// Numbers, booleans, null, and every other string are copied through
-// unchanged (via json.Number for numbers, so exact original formatting
-// survives) unless they contain one of the redacted substrings above.
 func Scrub(line []byte) ([]byte, error) {
 	trailingNL := bytes.HasSuffix(line, []byte("\n"))
 	body := line
@@ -104,23 +62,6 @@ func Scrub(line []byte) ([]byte, error) {
 	return out, nil
 }
 
-// ScrubStream scrubs a JSON-lines stream: it reads r one record per line,
-// applies Scrub to each, and writes the result to w. name labels the source
-// in the warning it logs when a line cannot be scrubbed.
-//
-// Line terminators are carried through exactly as they were read. That is
-// load-bearing rather than tidy: a .jsonl file recorded from a live
-// transcript ends mid-write, so its final line is both partial JSON and
-// unterminated, and that missing final newline is precisely what makes the
-// fixture exercise a byte-offset tailer's buffering path instead of its
-// parse-failure path. Splitting the stream with bufio.Scanner would strip
-// the terminators before Scrub ever saw them and silently append a newline
-// the source did not have, so this reads with bufio.Reader.ReadBytes and
-// hands Scrub the raw line, terminator included or not.
-//
-// A line that fails to scrub — the mid-write partial record above being the
-// common case — is copied through byte-for-byte with a warning, so one
-// truncated tail never aborts a whole file.
 func ScrubStream(r io.Reader, w io.Writer, name string) error {
 	br := bufio.NewReader(r)
 	lineNum := 0
@@ -151,10 +92,6 @@ func ScrubStream(r io.Reader, w io.Writer, name string) error {
 	}
 }
 
-// scrubValue consumes exactly one JSON value from dec and writes its
-// scrubbed form to buf. key is the object key this value was found under
-// ("" for the document root or for array elements), and drives whether a
-// string value is treated as prose, an identifier, or passed through.
 func scrubValue(dec *json.Decoder, buf *bytes.Buffer, key string) error {
 	tok, err := dec.Token()
 	if err != nil {
@@ -216,7 +153,6 @@ func scrubObject(dec *json.Decoder, buf *bytes.Buffer) error {
 			return err
 		}
 	}
-	// Consume the closing '}'.
 	if _, err := dec.Token(); err != nil {
 		return err
 	}
@@ -236,7 +172,6 @@ func scrubArray(dec *json.Decoder, buf *bytes.Buffer, key string) error {
 			return err
 		}
 	}
-	// Consume the closing ']'.
 	if _, err := dec.Token(); err != nil {
 		return err
 	}
@@ -244,8 +179,6 @@ func scrubArray(dec *json.Decoder, buf *bytes.Buffer, key string) error {
 	return nil
 }
 
-// scrubString returns the redacted content for a string found under the
-// given object key; the caller is responsible for JSON-encoding it.
 func scrubString(key, content string) string {
 	switch {
 	case uuidKeys[key]:
@@ -257,17 +190,6 @@ func scrubString(key, content string) string {
 	}
 }
 
-// redactPlain replaces any account's home path, this machine's username, and
-// this machine's email address wherever they appear in s. It is applied to
-// every string and every object key that is not otherwise classified, so a
-// leaked path in an unexpected field (an argv entry, a cwd, a stray log
-// line) is still caught.
-//
-// The home-path rewrite is a generic "/Users/<name>" or "/home/<name>"
-// pattern (homeUserRe), not this machine's literal home directory: a
-// fixture recorded from a different account, after a username change, or on
-// a machine whose home path differs still gets redacted, and the guard in
-// scrub_test.go can ban a broader pattern than this rule itself produces.
 func redactPlain(s string) string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		s = strings.ReplaceAll(s, home, "/home/u")
@@ -278,11 +200,6 @@ func redactPlain(s string) string {
 	return s
 }
 
-// fillerPreserveByteLen replaces s with ASCII 'x' characters such that the
-// filler's UTF-8 byte length equals s's UTF-8 byte length exactly — not its
-// rune count. A multibyte rune (e.g. the 3-byte 日) becomes three 'x's, not
-// one, which is what keeps a byte-offset tailer's offsets valid against the
-// redacted file.
 func fillerPreserveByteLen(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -298,11 +215,6 @@ func fillerPreserveByteLen(s string) string {
 	return b.String()
 }
 
-// rewriteUUID deterministically maps s to a fixed-format (version-4-shaped)
-// UUID string derived from a SHA-256 hash of s. The same input always
-// produces the same output, so cross-record references (a parentUuid
-// pointing at another record's uuid, a toolUseId matching a subagent's
-// meta.json) still line up after independent Scrub calls on each record.
 func rewriteUUID(s string) string {
 	if s == "" {
 		return s
@@ -318,9 +230,6 @@ func rewriteUUID(s string) string {
 func writeJSONString(buf *bytes.Buffer, s string) {
 	enc, err := json.Marshal(s)
 	if err != nil {
-		// json.Marshal of a string only fails for invalid UTF-8, which
-		// cannot occur here: s was itself decoded from valid JSON, or is
-		// our own filler/uuid/redaction output, all valid UTF-8.
 		panic(fmt.Sprintf("fixture: scrub: marshal string: %v", err))
 	}
 	buf.Write(enc)

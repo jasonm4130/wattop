@@ -10,7 +10,7 @@ func TestBurnRatePositiveAfterObservations(t *testing.T) {
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 	tr.Observe("s1", 0.00, t0, time.Time{})
-	tr.Observe("s1", 0.01, t0.Add(10*time.Second), time.Time{}) // $0.01 in 10s = $3.60/hr instantaneous
+	tr.Observe("s1", 0.01, t0.Add(10*time.Second), time.Time{})
 
 	rate := tr.RatePerHour("s1", t0.Add(10*time.Second))
 	if rate <= 0 {
@@ -18,8 +18,6 @@ func TestBurnRatePositiveAfterObservations(t *testing.T) {
 	}
 }
 
-// TestBurnRateGoesQuietDropsToZero: a session with no new records inside
-// the window reports $0.00/hr, never the last nonzero value.
 func TestBurnRateGoesQuietDropsToZero(t *testing.T) {
 	window := 60 * time.Second
 	tr := NewBurnTracker(window, 0.3)
@@ -46,8 +44,6 @@ func TestBurnRateUnknownSessionIsZero(t *testing.T) {
 	}
 }
 
-// TestForgetRemovesTrackedSessions: forgetting a set of observed sessions
-// leaves the tracker reporting 0 for each, as if they were never observed.
 func TestForgetRemovesTrackedSessions(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -81,18 +77,13 @@ func TestBurnRateNegativeDeltaFlooredAtZero(t *testing.T) {
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 	tr.Observe("s1", 0.10, t0, time.Time{})
-	tr.Observe("s1", 0.05, t0.Add(5*time.Second), time.Time{}) // a corrected/rewound total
+	tr.Observe("s1", 0.05, t0.Add(5*time.Second), time.Time{})
 
 	if rate := tr.RatePerHour("s1", t0.Add(5*time.Second)); rate < 0 {
 		t.Fatalf("RatePerHour = %v, want a floored, non-negative rate", rate)
 	}
 }
 
-// TestFirstSightingOfExistingSpendContributesNothing: the tailers read hours
-// of transcript in wattop's first second or two, so the first cumulative
-// total a session id is ever seen with is money spent before wattop ran. It
-// baselines and contributes $0/hr — and it must seed the tracker rather than
-// poison it, so a real delta afterwards still reports a plausible rate.
 func TestFirstSightingOfExistingSpendContributesNothing(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -102,7 +93,6 @@ func TestFirstSightingOfExistingSpendContributesNothing(t *testing.T) {
 		t.Fatalf("RatePerHour after a $300 first sighting = %v, want exactly 0", rate)
 	}
 
-	// $0.02 of genuinely new spend, 20s later.
 	at := t0.Add(20 * time.Second)
 	tr.Observe("s1", 300.02, at, at)
 	if got, want := tr.RatePerHour("s1", at), 3.60; got < want-1e-9 || got > want+1e-9 {
@@ -110,8 +100,6 @@ func TestFirstSightingOfExistingSpendContributesNothing(t *testing.T) {
 	}
 }
 
-// TestPostBaselineDeltaIsTheRate: $0.50 in 30s is $60/hr, exactly — the
-// first counting delta seeds the EWMA rather than being blended with a zero.
 func TestPostBaselineDeltaIsTheRate(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -125,16 +113,10 @@ func TestPostBaselineDeltaIsTheRate(t *testing.T) {
 	}
 }
 
-// TestBackfilledDeltaOlderThanWindowContributesNothing: a resumed session
-// whose newest usage record is two hours old is history the tailer has only
-// just caught up with, however recently it was read. It must not register as
-// spend inside the window.
 func TestBackfilledDeltaOlderThanWindowContributesNothing(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
-	// Both observations land ~now on the wall clock (the tailer read them
-	// 1.3s apart at launch); their usage timestamps are two hours old.
 	tr.Observe("s1", 300.00, now, now.Add(-2*time.Hour-30*time.Second))
 	tr.Observe("s1", 338.50, now.Add(1300*time.Millisecond), now.Add(-2*time.Hour))
 
@@ -143,11 +125,6 @@ func TestBackfilledDeltaOlderThanWindowContributesNothing(t *testing.T) {
 	}
 }
 
-// TestFirstEventTimestampDoesNotSpike: the backfilled chunk that baselines a
-// session can contain no tool_use record at all, so its event time is
-// unknown while the next observation's is fresh. That pair bounds no span,
-// and falling back to the wall clock there is exactly the $105k/hr bug —
-// the delta must be discarded, and must not ride along into the next one.
 func TestFirstEventTimestampDoesNotSpike(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -159,8 +136,6 @@ func TestFirstEventTimestampDoesNotSpike(t *testing.T) {
 		t.Fatalf("RatePerHour across an unknown→known event time = %v, want exactly 0", rate)
 	}
 
-	// The discarded $38.50 must not reappear in the next delta: $0.01 more,
-	// 10s later, is $3.60/hr and nothing else.
 	at2 := at1.Add(10 * time.Second)
 	tr.Observe("s1", 362.84, at2, at2)
 	if got, want := tr.RatePerHour("s1", at2), 3.60; got < want-1e-9 || got > want+1e-9 {
@@ -168,10 +143,6 @@ func TestFirstEventTimestampDoesNotSpike(t *testing.T) {
 	}
 }
 
-// TestSameInstantUsageFallsBackToWallClock: several usage records sharing one
-// transcript timestamp bound a zero-length event span. The wall clock is the
-// longer of the two spans there, so the delta still reports a rate instead of
-// dividing by zero or being thrown away.
 func TestSameInstantUsageFallsBackToWallClock(t *testing.T) {
 	tr := NewBurnTracker(60*time.Second, 0.3)
 	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)

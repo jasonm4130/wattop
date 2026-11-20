@@ -1,5 +1,3 @@
-// Package tokenrate aggregates timestamped transcript usage into a rolling
-// minute. It measures recorded throughput, not model decoding speed.
 package tokenrate
 
 import (
@@ -8,7 +6,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// Window retains at most 61 one-second buckets, even while reading old logs.
 type Window struct {
 	buckets map[int64]domain.TokenRate
 	latest  int64

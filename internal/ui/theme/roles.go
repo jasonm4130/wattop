@@ -1,9 +1,5 @@
 package theme
 
-// Palette is the on-disk shape of a theme file. It mirrors mactop's own
-// convention ({"foreground": "#...", "background": "#..."}) so a user who
-// already themed mactop can paste the same hexes across, extended with
-// wattop's semantic role keys below.
 type Palette struct {
 	Foreground string `json:"foreground"`
 	Background string `json:"background"`
@@ -28,11 +24,6 @@ type Palette struct {
 	ChartCost  string `json:"chart_cost"`
 }
 
-// Roles is the semantic palette every widget renders from. No widget ever
-// reads a Palette field directly -- ToRoles is the one place a palette's raw
-// hex values become meaning, which is what keeps four palettes from becoming
-// four rendering bugs, and lets a light palette swap its two chart ramps
-// rather than rendering pale-on-pale.
 type Roles struct {
 	Foreground string
 	Accent     string
@@ -61,7 +52,6 @@ type Roles struct {
 	ChartCost  string
 }
 
-// ToRoles maps a loaded Palette into its semantic Roles.
 func (p Palette) ToRoles() Roles {
 	return Roles{
 		Foreground: p.Foreground,
@@ -92,8 +82,6 @@ func (p Palette) ToRoles() Roles {
 	}
 }
 
-// Fields reports every Roles field by name, for validation (every field must
-// be a non-empty hex string) without reflection at call sites.
 func (r Roles) Fields() map[string]string {
 	return map[string]string{
 		"Foreground": r.Foreground,
@@ -124,8 +112,6 @@ func (r Roles) Fields() map[string]string {
 	}
 }
 
-// Severity picks GaugeLow/GaugeMid/GaugeHigh for pct (0-100) against the
-// given warn/hot thresholds -- e.g. context-fill at 70/90.
 func (r Roles) Severity(pct, warnAt, hotAt float64) string {
 	switch {
 	case pct >= hotAt:

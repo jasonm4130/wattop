@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Re-fetches the pinned mactop commit (see internal/soc/VENDOR.md) into a
-# temp dir and diffs the 16 verbatim-copied files against it, so an upstream
-# fix or behavior change arrives as a reviewable delta instead of a silent
-# fork. metrics_subset.go and cpu_usage_subset.go are partial extractions,
-# not file-for-file copies -- see VENDOR.md -- and are intentionally not
-# diffed here.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,8 +48,6 @@ for f in "${FILES[@]}"; do
     any_diff=1
     continue
   fi
-  # Normalize the one universal, documented edit (package clause) before
-  # diffing so unrelated noise doesn't drown a real upstream change.
   if ! diff -u \
       <(sed 's/^package app$/package mactop/' "$upstream") \
       "$local_copy" \

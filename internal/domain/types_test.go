@@ -13,7 +13,6 @@ func fixedTime(offsetSec int) time.Time {
 	return time.Date(2026, 9, 6, 12, 0, offsetSec, 0, time.UTC)
 }
 
-// roundTrip marshals v to JSON and unmarshals it back into a fresh T.
 func roundTrip[T any](t *testing.T, v T) T {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -34,8 +33,6 @@ func assertRoundTrip[T any](t *testing.T, name string, v T) {
 		t.Errorf("%s: round trip mismatch\n  want: %#v\n  got:  %#v", name, v, got)
 	}
 }
-
-// --- fully-populated fixtures for every top-level type ---
 
 func fullCluster() Cluster {
 	return Cluster{Label: "P", CoreCount: 6, ActivePct: fp(42.5), FreqMHz: fp(3800), CoreActive: []float64{10, 20, 30, 40, 50, 60}}
@@ -136,8 +133,6 @@ func fullSnapshot() Snapshot {
 	}
 }
 
-// --- full round trips ---
-
 func TestTypesFullRoundTrip(t *testing.T) {
 	assertRoundTrip(t, "Cluster", fullCluster())
 	assertRoundTrip(t, "Power", fullPower())
@@ -155,8 +150,6 @@ func TestTypesFullRoundTrip(t *testing.T) {
 	assertRoundTrip(t, "SysSample", fullSysSample())
 	assertRoundTrip(t, "Snapshot", fullSnapshot())
 }
-
-// --- nil-optional round trips: absent must never decode as zero ---
 
 func TestNilOptionalsRoundTrip(t *testing.T) {
 	t.Run("Cluster", func(t *testing.T) {
@@ -224,9 +217,6 @@ func TestNilOptionalsRoundTrip(t *testing.T) {
 	})
 }
 
-// TestSnapshotJSONKeys proves the JSON tags used by Task 13's `jq` are
-// exactly what land on the wire, so a missing/renamed tag fails here rather
-// than downstream.
 func TestSnapshotJSONKeys(t *testing.T) {
 	snap := fullSnapshot()
 	b, err := json.Marshal(snap)

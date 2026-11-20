@@ -1,11 +1,5 @@
 //go:build darwin && arm64 && cgo
 
-// sampler_map_test.go covers the pure Composite -> domain.SysSample mapping.
-// It deliberately carries no `hardware` tag: the mapping is where both SoC
-// defects from the 2026-09-06 QA run lived, and a rule that only runs under
-// `go test -tags=hardware` is a rule the default suite cannot defend.
-// Sampling real IOReport stays in sampler_hw_test.go.
-
 package soc
 
 import (
@@ -14,7 +8,6 @@ import (
 	"testing"
 )
 
-// bwFixture builds the only part of a Composite bandwidthFromComposite reads.
 func bwFixture(src DRAMBWSource, read, write, ane float64) Composite {
 	var c Composite
 	c.CPU.DRAMBWSource = src
@@ -32,10 +25,6 @@ func deref(t *testing.T, name string, v *float64) float64 {
 	return *v
 }
 
-// TestBandwidthZeroIsAReadingNotAnAbsence is the QA regression: a DRAM
-// channel that resolved and counted zero bytes must publish 0.0 GB/s, not a
-// dash. Treating an exact 0.0 as "unresolved" is what made wattop dash live
-// DRAM traffic and claim the channel was dead on hardware where it is not.
 func TestBandwidthZeroIsAReadingNotAnAbsence(t *testing.T) {
 	var missing []string
 	bw := bandwidthFromComposite(bwFixture(DRAMBWDirectional, 0, 0, 0), &missing)
@@ -56,8 +45,6 @@ func TestBandwidthZeroIsAReadingNotAnAbsence(t *testing.T) {
 	}
 }
 
-// TestBandwidthAbsentSourceIsUnresolved is the other half of the same rule:
-// with no source at all, every DRAM field is nil and named in Missing.
 func TestBandwidthAbsentSourceIsUnresolved(t *testing.T) {
 	var missing []string
 	bw := bandwidthFromComposite(bwFixture(DRAMBWNone, 0, 0, 0), &missing)
@@ -71,12 +58,6 @@ func TestBandwidthAbsentSourceIsUnresolved(t *testing.T) {
 	}
 }
 
-// TestBandwidthNeverPublishesOneChannelTwice is the duplication regression.
-// mactop hands over two byte counts whatever the source; on a combined
-// counter, and on the DRAM-power estimate, those two are one figure halved.
-// Publishing them as dram_read_gbs and dram_write_gbs produced two fields
-// identical to fifteen significant figures on every live sample. Only a
-// directional source may fill the two directions.
 func TestBandwidthNeverPublishesOneChannelTwice(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -88,7 +69,6 @@ func TestBandwidthNeverPublishesOneChannelTwice(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var missing []string
-			// 16.4 + 16.4: one 32.8 GB/s figure split across the two fields.
 			bw := bandwidthFromComposite(bwFixture(tc.src, 16.4, 16.4, 0), &missing)
 
 			if bw.DRAMReadGBs != nil || bw.DRAMWriteGBs != nil {
@@ -113,8 +93,6 @@ func TestBandwidthNeverPublishesOneChannelTwice(t *testing.T) {
 	}
 }
 
-// TestBandwidthDirectionalKeepsBothDirections proves a genuinely directional
-// source is passed through untouched, with the total as their sum.
 func TestBandwidthDirectionalKeepsBothDirections(t *testing.T) {
 	var missing []string
 	bw := bandwidthFromComposite(bwFixture(DRAMBWDirectional, 12.5, 7.5, 0), &missing)
@@ -133,9 +111,6 @@ func TestBandwidthDirectionalKeepsBothDirections(t *testing.T) {
 	}
 }
 
-// TestTempsPublishOnlyAggregatedKeys is the Temp-row regression: the sampler
-// used to fold every raw SMC and HID sensor key into Temps -- 325 of them on
-// the QA machine -- and the panel printed all of them across the frame.
 func TestTempsPublishOnlyAggregatedKeys(t *testing.T) {
 	var c Composite
 	c.CPU.CPUTemp = 50.5
@@ -154,8 +129,6 @@ func TestTempsPublishOnlyAggregatedKeys(t *testing.T) {
 	}
 }
 
-// TestTempsOmitUnreadSensor keeps a sensor that read zero out of the map
-// rather than publishing a literal 0.0 °C: the panel dashes a missing key.
 func TestTempsOmitUnreadSensor(t *testing.T) {
 	var c Composite
 	c.CPU.CPUTemp = 50.5
@@ -169,10 +142,6 @@ func TestTempsOmitUnreadSensor(t *testing.T) {
 	}
 }
 
-// TestChannelsResolveOnSourceNotValue guards doctor's channel report. Sampler
-// .Channels() takes a fresh 50 ms sample, in which the DRAM-power estimator
-// can never have calibrated, so a value-based rule reported DRAM bandwidth
-// permanently unresolved no matter what the TUI was showing.
 func TestChannelsResolveOnSourceNotValue(t *testing.T) {
 	t.Run("directional zero resolves", func(t *testing.T) {
 		ch := channelsFromComposite(bwFixture(DRAMBWDirectional, 0, 0, 0))
@@ -203,9 +172,6 @@ func TestChannelsResolveOnSourceNotValue(t *testing.T) {
 	})
 }
 
-// TestThrottledReachesSysSample: mactop computes Throttled from the thermal
-// pressure level; the mapping must carry it onto domain.SysSample rather
-// than discard it.
 func TestThrottledReachesSysSample(t *testing.T) {
 	var c Composite
 	c.Thermal = 2

@@ -28,9 +28,6 @@ func buildInfo(mainVersion string, settings map[string]string) func() (*debug.Bu
 	}
 }
 
-// TestResolveFallsBackToBuildInfo: a `go install ...@latest` binary has no
-// ldflags, so the placeholders fall back to the module version and the
-// VCS stamp the toolchain embedded.
 func TestResolveFallsBackToBuildInfo(t *testing.T) {
 	v, c, d := resolve("dev", "none", "unknown", buildInfo("v0.3.0", map[string]string{
 		"vcs.revision": "4544e44abcdef0123456789",
@@ -41,7 +38,6 @@ func TestResolveFallsBackToBuildInfo(t *testing.T) {
 	}
 }
 
-// TestResolveLdflagsWin: values set with -ldflags are never overridden.
 func TestResolveLdflagsWin(t *testing.T) {
 	v, c, d := resolve("v1.2.3", "abc1234", "2026-01-01T00:00:00Z", buildInfo("v0.3.0", map[string]string{
 		"vcs.revision": "4544e44abcdef",
@@ -52,9 +48,6 @@ func TestResolveLdflagsWin(t *testing.T) {
 	}
 }
 
-// TestResolveKeepsPlaceholdersWithoutInfo: a local `go build` reports its
-// main module as "(devel)", which is no better than "dev"; and a missing
-// build info leaves every placeholder in place.
 func TestResolveKeepsPlaceholdersWithoutInfo(t *testing.T) {
 	if v, _, _ := resolve("dev", "none", "unknown", buildInfo("(devel)", nil)); v != "dev" {
 		t.Errorf("version with (devel) main module = %q, want dev", v)

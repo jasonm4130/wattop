@@ -1,11 +1,3 @@
-// Trims consecutive `wattop --demo --json` snapshots (NDJSON) down to the
-// fields the landing-page dashboard renders, and writes src/data/demo.json.
-//
-//   pnpm demo:refresh                         # build wattop, record 25 frames, trim
-//   pnpm trim-demo path/to/demo-frames.ndjson # trim an existing recording
-//
-// The input is synthetic data from `wattop --demo`; nothing here is invented,
-// only selected and rounded (see scripts/demo-schema.mjs).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

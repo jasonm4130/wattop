@@ -33,14 +33,6 @@ func TestCorpusDirFindsSOCFixtures(t *testing.T) {
 	}
 }
 
-// TestSubagentMetaModelIsAliasNotResolved locks in the divergence that makes
-// Task 8's TestSubagentUsesResolvedModel a real test. In a live Claude Code
-// session, agent-<hash>.meta.json records the model the caller *asked for*
-// (an alias, "opus") while the child transcript records the model the API
-// *resolved* ("claude-opus-5"). Cost accounting must read the transcript. If
-// these two fields ever carry the same string in the corpus, an
-// implementation that reads meta.json passes the downstream test by
-// accident, so the property is asserted here rather than left to chance.
 func TestSubagentMetaModelIsAliasNotResolved(t *testing.T) {
 	metas, err := filepath.Glob(filepath.Join(CorpusDir(), "agent", "claude", "subagents", "agent-*.meta.json"))
 	if err != nil {
@@ -76,9 +68,6 @@ func TestSubagentMetaModelIsAliasNotResolved(t *testing.T) {
 				"distinct from the resolved model id, or a reader of the wrong field "+
 				"cannot be caught", metaPath, transcript, resolved)
 		}
-		// Difference alone is not enough: swap the two fields and a reader of
-		// meta.json would look correct again. Pin the direction — an alias is
-		// bare ("opus"), a resolved id carries the "claude-" prefix.
 		if strings.HasPrefix(meta.Model, "claude-") || !strings.HasPrefix(resolved, "claude-") {
 			t.Fatalf("%s model=%q, %s model=%q: meta must hold the requested alias and "+
 				"the transcript the resolved id, not the reverse",
@@ -87,8 +76,6 @@ func TestSubagentMetaModelIsAliasNotResolved(t *testing.T) {
 	}
 }
 
-// assistantModel returns message.model from the first assistant record in a
-// transcript, or "" if there is none.
 func assistantModel(t *testing.T, path string) string {
 	t.Helper()
 
@@ -108,7 +95,7 @@ func assistantModel(t *testing.T, path string) string {
 			} `json:"message"`
 		}
 		if err := json.Unmarshal(line, &rec); err != nil {
-			continue // a deliberately truncated final line is not this test's subject
+			continue
 		}
 		if rec.Type == "assistant" && rec.Message.Model != "" {
 			return rec.Message.Model

@@ -11,12 +11,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// Reduce turns one coordinated sampling cycle into a Snapshot. "Pure" here
-// means no I/O and deterministic given (st, in), not functionally pure: it
-// mutates st (rings advance, the burn tracker records observations) exactly
-// as the old prev-Snapshot-threading design already did. It must never
-// block, never call a collector, and never read the clock — in.At is the
-// only source of time a cycle has.
 func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	procByPID := make(map[int]domain.ProcSample, len(in.Procs))
 	for _, p := range in.Procs {
@@ -36,11 +30,6 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	sessions := make([]domain.Session, 0, len(in.Sessions)+len(st.tracked))
 	seen := make(map[sessionKey]bool, len(in.Sessions))
 
-	// Sessions the source actually reported this cycle: refresh the
-	// tracked entry from the raw, pre-enrichment session (per its own
-	// source-supplied Status — this must never be overwritten here, since
-	// Codex's own mtime-derived "stale" status must survive untouched),
-	// then emit an enriched copy.
 	for _, raw := range in.Sessions {
 		key := sessionKey{Agent: raw.Agent, ID: raw.ID}
 		seen[key] = true
@@ -60,9 +49,6 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		sessions = append(sessions, enriched)
 	}
 
-	// Sessions retained from a previous cycle that the source omitted this
-	// time. Order deterministically (Agent, ID) so Snapshot.Sessions is
-	// reproducible for a given Inputs sequence.
 	var missingKeys []sessionKey
 	for key := range st.tracked {
 		if !seen[key] {
@@ -79,10 +65,6 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	for _, key := range missingKeys {
 		tr := st.tracked[key]
 
-		// A failed poll is not a vanished session: while this session's
-		// source reports unhealthy, re-emit the row exactly as retained,
-		// run neither the stale transition nor the TTL drop, and push the
-		// TTL clock forward so the outage never counts against it.
 		if healthFailed[key.Agent] {
 			tr.ttlClock = in.At
 			tr.heldByOutage = true
@@ -93,10 +75,6 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			continue
 		}
 
-		// First healthy cycle after an outage held this row: the TTL
-		// countdown starts here, not at the last unhealthy cycle, so
-		// re-anchor before the drop check — this cycle must only flip the
-		// row to stale, never expire it, however long the outage ran.
 		if tr.heldByOutage {
 			tr.ttlClock = in.At
 			tr.heldByOutage = false
@@ -104,12 +82,6 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 
 		if in.At.Sub(tr.ttlClock) > sessionTTL {
 			delete(st.tracked, key)
-			// The tracker keeps its own per-session state, so dropping the
-			// row here without forgetting it leaks one entry per session
-			// for the life of the process — and leaves a stale cumulative
-			// cost to diff against if the id ever comes back, which is the
-			// backfill spike in miniature. A returning session must
-			// baseline again like any first sighting.
 			st.burn.Forget(key.Agent + ":" + key.ID)
 			delete(st.burnLastCost, key.Agent+":"+key.ID)
 			st.forgetSubagentBurn(key.Agent + ":" + key.ID)
@@ -225,10 +197,6 @@ func addTokenRate(total **domain.TokenRate, rate *domain.TokenRate) {
 	(*total).CacheReadPerSec += rate.CacheReadPerSec
 }
 
-// enrichSession joins s to its ProcSample by pid, prices it (and its
-// subagents) through st.book, and feeds its burn tracker. s is mutated in
-// place; it must already carry the source- (or reducer-) supplied
-// Status/StatusSince, which this never touches.
 func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcSample, unpriced map[string]struct{}, at time.Time) {
 	if s.PID != nil {
 		if p, ok := procByPID[*s.PID]; ok {
@@ -258,21 +226,10 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 	s.BurnUSDPerHr = &rate
 }
 
-// childSeedWindow bounds which first-sighted subagents are seeded from zero
-// rather than baselined. A child that started within it was born while
-// wattop was watching (or moments before), so everything it has cost so far
-// is current spend; an older child's cost is history and only baselines,
-// exactly like a session's first sighting.
 const childSeedWindow = 2 * time.Minute
 
-// childSeedMinSpan is the shortest span a seeded child's first cost is
-// spread over.
 const childSeedMinSpan = 30 * time.Second
 
-// subagentKey identifies a child within its session for burn tracking: its
-// ID, else its Hash, else its position. Sources that predate Subagent.ID
-// leave it empty, and a shared empty key would diff siblings' costs against
-// each other.
 func subagentKey(sa domain.Subagent, i int) string {
 	switch {
 	case sa.ID != "":
@@ -284,20 +241,13 @@ func subagentKey(sa domain.Subagent, i int) string {
 	}
 }
 
-// subagentBurnKey namespaces a child's burn-tracker key under its session's,
-// so dropping the session can forget every child by prefix.
 func subagentBurnKey(sessionKey, subID string) string {
 	return sessionKey + ":sub:" + subID
 }
 
-// burnSubagents gives each priced subagent its own $/hr, timed by its own
-// LastActivityAt. These rates are display-only: the session's cost already
-// includes its children, so totals and history rings never add them again.
 func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time.Time) {
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		// A child with no activity timestamp has nothing to time its spend
-		// by; the wall-clock fallback would read a backfill as a burn.
 		if sa.CostUSD == nil || sa.LastActivityAt.IsZero() {
 			sa.BurnUSDPerHr = nil
 			continue
@@ -305,9 +255,6 @@ func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time
 		key := subagentBurnKey(sessionBurnKey, subagentKey(*sa, i))
 		last, seen := st.burnLastCost[key]
 		if !seen && !sa.StartedAt.IsZero() && !sa.LastActivityAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
-			// Spread a newborn's spend over at least childSeedMinSpan, so a
-			// child that spent a few cents in its first second does not
-			// report hundreds of dollars an hour.
 			seedAt := sa.StartedAt
 			if floor := sa.LastActivityAt.Add(-childSeedMinSpan); floor.Before(seedAt) {
 				seedAt = floor
@@ -324,7 +271,6 @@ func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time
 	}
 }
 
-// forgetSubagentBurn drops every child burn key under sessionBurnKey.
 func (st *State) forgetSubagentBurn(sessionBurnKey string) {
 	prefix := sessionBurnKey + ":sub:"
 	for key := range st.burnLastCost {
@@ -335,10 +281,6 @@ func (st *State) forgetSubagentBurn(sessionBurnKey string) {
 	}
 }
 
-// summarizeWorkflows fills each workflow's cost, partial flag and burn from
-// the subagents that carry its ID. A workflow whose agents are all unpriced
-// has a nil cost; one with some unpriced agents, or an agent whose own cost
-// omits an unpriced model, is partial.
 func summarizeWorkflows(s *domain.Session) {
 	if len(s.Workflows) == 0 {
 		return
@@ -385,28 +327,11 @@ func addPtr(p *float64, v float64) *float64 {
 	return &sum
 }
 
-// childBilled reports whether an unpriced subagent actually spent tokens,
-// so its missing price makes a total partial. A child with no model and no
-// usage yet (its transcript has not appeared) omits nothing.
 func childBilled(sa domain.Subagent) bool {
 	u := sa.Usage
 	return sa.Model != "" || u.Input+u.Output+u.CacheRead+u.CacheCreate5m+u.CacheCreate1h > 0
 }
 
-// lastTranscriptAt returns the newest transcript-record timestamp behind s's
-// current cost, or the zero time when the source exposes none.
-//
-// The burn tracker needs to know *when the tokens were generated*, not when
-// the tailer got round to reading them: at launch it reads hours of history
-// in the first second or two, and a delta timed by the wall clock reads as
-// tens of dollars per second. domain.Session carries no usage timestamp, so
-// this takes the newer of LastUsageAt — the newest usage record in the
-// session's own transcript or any child's — and ToolCall.At. Including the
-// children is what keeps a parent blocked on a subagent burning at the
-// child's rate instead of reading $0.00/hr once its own spawn call ages out
-// of the window. Sessions whose sources expose neither report zero here and
-// fall back to the tracker's wall-clock path, where baselining the first
-// sighting is their only protection.
 func lastTranscriptAt(s *domain.Session) time.Time {
 	newest := s.LastUsageAt
 	for _, tc := range s.Tools {
@@ -417,32 +342,6 @@ func lastTranscriptAt(s *domain.Session) time.Time {
 	return newest
 }
 
-// priceSession prices s's own usage plus every subagent's usage through
-// st.book. Each subagent's CostUSD is set independently (nil, and its
-// unpriced models added to unpriced, when none of its own usage prices) so
-// the UI can still show per-subagent cost breakdown. Session.CostUSD is the
-// *combined* total of s's own usage and every priced subagent when s's own
-// usage prices; when none of it does, Session.CostUSD is nil and
-// Session.Priced is false — the whole session renders "$—" rather than a
-// partial number built only from its children, and contributes 0 to
-// TotalCostUSD.
-//
-// Usage is priced per request wherever the source recorded a ledger
-// (domain.UsageLedger): each bucket at its own model and its own prompt
-// tier, so one request past a long-context threshold, or a /model switch,
-// never reprices the rest of the session's history. Only a row with no
-// ledger (replay fixtures, sources that set Usage alone) falls back to
-// pricing its cumulative Usage at its current Model and the tier its
-// ContextUsed (last-request prompt size) selects.
-//
-// A ledger can mix models the book prices with ones it cannot. When some of
-// a row's own buckets price, the unpriced ones are left out of the total,
-// their models are reported, and the session is CostPartial; only when none
-// price is the row unpriced outright, which keeps the rule that a session
-// whose own model does not resolve renders "$—". A subagent that spent
-// tokens under a model the book cannot price is likewise left out of the
-// total and marks the session CostPartial, so the total is never shown as
-// exact.
 func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	mainCost, mainOK, partial := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
 
@@ -478,11 +377,6 @@ func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
 	}
 }
 
-// priceUsage prices one row's own usage: its ledger when it has one, else
-// its cumulative usage at model and the tier contextUsed selects. ok is
-// whether any of it priced; partial is whether some priced and some did
-// not. Every model that failed to price (other than an empty one) is added
-// to unpriced.
 func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) (cost float64, ok, partial bool) {
 	if len(l) > 0 {
 		usd, missing, anyPriced := st.book.CostLedger(l)
@@ -500,11 +394,6 @@ func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l d
 	return usd, priced, false
 }
 
-// machineCPUPct is the machine-wide CPU history value: the cluster
-// ActivePcts weighted by core count, since a plain mean would over-weight a
-// small cluster (this box is 12 P-cores against 6 S-cores). Clusters with a
-// nil ActivePct do not resolve and are excluded from both sums; an
-// all-nil topology (or none reported) leaves a gap in the graph.
 func machineCPUPct(clusters []domain.Cluster) float64 {
 	var weighted float64
 	var cores int

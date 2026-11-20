@@ -1,14 +1,3 @@
-// Astro integration: after the build, hash every inline <script> body in
-// dist/**/*.html and write the hashes into dist/_headers in place of
-// __INLINE_SCRIPT_HASHES__, so the CSP stays script-src 'self' without
-// 'unsafe-inline'. It runs inside `astro build`, so any deploy that builds
-// with `pnpm build` (Cloudflare Workers Builds included) gets the hashes.
-//
-// The build fails when:
-//   - the landing page or 404 page has an inline script (they must not);
-//   - dist/_headers is missing, or has no placeholder to fill;
-//   - no inline-script hash was found (Starlight always ships some, so zero
-//     means this scan broke and the docs would be blocked by the CSP).
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
@@ -24,7 +13,6 @@ function* walk(dir) {
   }
 }
 
-/** Returns the hashes it wrote; throws on any failure above. */
 export function writeCspHashes(dist) {
   const hashes = new Set();
   const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;

@@ -12,16 +12,11 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// sourceFixture plants one ~/.claude/sessions/<pid>.json and returns a
-// Source pointed at it plus the transcript path the session's records go
-// to, so a test can rewrite that transcript underneath a live Source.
 func sourceFixture(t *testing.T) (*Source, string) {
 	s, transcript, _ := sourceFixtureWithSubagents(t)
 	return s, transcript
 }
 
-// sourceFixtureWithSubagents is sourceFixture plus the <sessionId>/subagents/
-// directory the walker reads, returned so a test can plant children in it.
 func sourceFixtureWithSubagents(t *testing.T) (*Source, string, string) {
 	t.Helper()
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
@@ -47,9 +42,6 @@ func sourceFixtureWithSubagents(t *testing.T) (*Source, string, string) {
 	return NewSource(sessionsDir, projectsDir, nil), filepath.Join(projectDir, "sess-1.jsonl"), subagentsDir
 }
 
-// assistantRecord is one transcript line carrying usage and a tool_use
-// block, with padding the decoder ignores so a test can control the file's
-// byte length independently of its token counts.
 func assistantRecord(inputTokens int, tool, padding string) string {
 	return fmt.Sprintf(
 		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5",`+
@@ -89,14 +81,6 @@ type sessionForTest struct {
 	model      string
 }
 
-// TestCompactionResetDoesNotDoubleCount is the regression the offset
-// tailer alone cannot prevent: Claude Code compacts a session's context in
-// place, truncating and rewriting the SAME transcript for the SAME session
-// id. The rewrite here is deliberately LONGER than the pre-truncation
-// offset, so a call site comparing offsets sees ordinary growth — only
-// TailResult.Reset distinguishes the two, and every session total derived
-// from the transcript is wrong for the rest of the session's life if it is
-// ignored.
 func TestCompactionResetDoesNotDoubleCount(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -115,8 +99,6 @@ func TestCompactionResetDoesNotDoubleCount(t *testing.T) {
 	}
 	beforeSize := statSize(t, transcript)
 
-	// Compaction: same path, same session id, rewritten from byte 0 with
-	// one 30-token record — padded so the new file is longer than the old.
 	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", int(beforeSize)+512)))
 	if got := statSize(t, transcript); got <= beforeSize {
 		t.Fatalf("rewritten transcript is %d bytes, must exceed the pre-truncation %d for this test to bite", got, beforeSize)
@@ -138,8 +120,6 @@ func TestCompactionResetDoesNotDoubleCount(t *testing.T) {
 		t.Fatalf("Model = %q after compaction, want the last-observed id kept, not blanked", second.model)
 	}
 
-	// A plain append after the reset must still accumulate onto the
-	// post-compaction totals — the reset must not become permanent.
 	appendTo(t, transcript, assistantRecord(5, "Grep", ""))
 	third := pollOnly(t, s, now.Add(2*time.Second))
 	if third.input != 35 {
@@ -147,9 +127,6 @@ func TestCompactionResetDoesNotDoubleCount(t *testing.T) {
 	}
 }
 
-// TestInodeSwapResetDoesNotDoubleCount covers the second reset trigger: the
-// transcript is replaced at the same path with a new inode, at a size a
-// size-only check would never flag.
 func TestInodeSwapResetDoesNotDoubleCount(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -159,8 +136,6 @@ func TestInodeSwapResetDoesNotDoubleCount(t *testing.T) {
 		t.Fatalf("first poll Usage.Input = %d, want 100", got.input)
 	}
 
-	// Keep the old file alive until the replacement exists so Linux cannot
-	// reuse its inode. Both records have the same byte length.
 	replacement := transcript + ".replacement"
 	writeFile(t, replacement, assistantRecord(100, "Grep", ""))
 	if err := os.Rename(replacement, transcript); err != nil {
@@ -176,10 +151,6 @@ func TestInodeSwapResetDoesNotDoubleCount(t *testing.T) {
 	}
 }
 
-// TestContextHighWaterMarkResetsWithTheTranscript pins the context-fill
-// half of the same bug: the ladder rung is chosen from a high-water mark,
-// and a mark carried across a compaction pins the gauge to a window the
-// live file no longer justifies.
 func TestContextHighWaterMarkResetsWithTheTranscript(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -196,11 +167,6 @@ func TestContextHighWaterMarkResetsWithTheTranscript(t *testing.T) {
 	}
 }
 
-// TestRateLimitExpiresAtResetsAt is the regression for a session latching
-// to "rate-limited" forever: agg.rateLimit is a last-observed fact that
-// survives a compaction reset, and nothing else ever clears it, so it must
-// be checked against the wall clock instead. The fixture's quotaLimits
-// record carries resetsAt 2026-09-06T14:00:00Z.
 func TestRateLimitExpiresAtResetsAt(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	lines := readFixtureLines(t, "agent", "claude", "rate-limited.jsonl")
@@ -233,10 +199,6 @@ func TestRateLimitExpiresAtResetsAt(t *testing.T) {
 	}
 }
 
-// TestDeadSessionAggIsPruned covers the memory leak: once a session's file
-// disappears from ~/.claude/sessions (its process exited), Poll must stop
-// returning it AND its accumulator — including the full tool-call log — must
-// not be retained forever.
 func TestDeadSessionAggIsPruned(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -266,9 +228,6 @@ func TestDeadSessionAggIsPruned(t *testing.T) {
 	}
 }
 
-// TestToolLogIsCapped pins the ring-buffer half of the pruning fix: a
-// session's tool log must not grow without bound over its lifetime, since
-// the only consumer (the detail view) ever shows the last few.
 func TestToolLogIsCapped(t *testing.T) {
 	s, transcript := sourceFixture(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -295,13 +254,6 @@ func statSize(t *testing.T, path string) int64 {
 	return fi.Size()
 }
 
-// TestCompactionDoesNotResurrectFinishedSubagents covers the seam between
-// the two halves of subagent liveness. Walk decides Live from one signal
-// only — whether the parent recorded a tool_result for the child's
-// toolUseId — and a compacted transcript no longer carries the line that
-// retired it. An answered tool_use stays answered, so the resulted-id set
-// is the one thing derived from transcript lines that must survive a
-// reset.
 func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -311,7 +263,6 @@ func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"),
 		`{"type":"assistant","message":{"model":"claude-opus-5","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n")
 
-	// The parent spawns the child and then records its result.
 	writeFile(t, transcript,
 		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
 			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n"+
@@ -326,7 +277,6 @@ func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 		t.Fatalf("subagent should be finished after its tool_result: %+v", sessions[0].Subagents)
 	}
 
-	// Compaction rewrites the transcript without the tool_result line.
 	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", 512)))
 
 	sessions, err = s.Poll(context.Background(), now.Add(time.Second), nil)
@@ -341,15 +291,11 @@ func TestCompactionDoesNotResurrectFinishedSubagents(t *testing.T) {
 	}
 }
 
-// childRecord is one line of a subagent's own transcript, stamped at the
-// tests' base time (2026-09-06T01:00:00Z), with padding the decoder ignores
-// so a test can grow the file without changing its totals.
 func childRecord(padding string) string {
 	return `{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant","content":[],` +
 		`"usage":{"input_tokens":1,"output_tokens":1}},"pad":"` + padding + `"}` + "\n"
 }
 
-// pollSubagent polls once and returns the session's single subagent.
 func pollSubagent(t *testing.T, s *Source, now time.Time) domain.Subagent {
 	t.Helper()
 	sessions, err := s.Poll(context.Background(), now, nil)
@@ -362,11 +308,6 @@ func pollSubagent(t *testing.T, s *Source, now time.Time) domain.Subagent {
 	return sessions[0].Subagents[0]
 }
 
-// TestHungSubagentStopsBeingLive: an unfinished child with no outstanding
-// tool_use reads running only while its newest record or observed growth is
-// within two minutes. A child that died or hung before its result was
-// written goes idle rather than standing as Live forever waiting on a record
-// that is never coming — and silence never makes it done.
 func TestHungSubagentStopsBeingLive(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -375,7 +316,6 @@ func TestHungSubagentStopsBeingLive(t *testing.T) {
 		`{"toolUseId":"tu-1","hash":"h1","agentType":"general-purpose","description":"d","model":"opus","spawnDepth":1}`)
 	writeFile(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord(""))
 
-	// The parent spawns the child and never records its result.
 	writeFile(t, transcript,
 		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
 			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
@@ -384,23 +324,16 @@ func TestHungSubagentStopsBeingLive(t *testing.T) {
 		t.Fatalf("a child whose newest record is fresh should be Live; got %+v", sub)
 	}
 
-	// Nothing writes to the child transcript for over two minutes: the
-	// process behind it is gone or wedged.
 	if sub := pollSubagent(t, s, now.Add(3*time.Minute)); sub.Live || sub.Status != domain.SubagentIdle {
 		t.Fatalf("want idle for a quiet child whose tool_use has no result: %+v", sub)
 	}
 
-	// It was not dead after all — the transcript grows again. The appended
-	// record carries the old timestamp, so only observed growth relights it.
 	appendTo(t, filepath.Join(subagentsDir, "agent-1.jsonl"), childRecord("more"))
 	if sub := pollSubagent(t, s, now.Add(3*time.Minute+time.Second)); !sub.Live {
 		t.Fatalf("Live = false for a child whose transcript grew again: %+v", sub)
 	}
 }
 
-// TestGrowingSubagentWithToolResultIsNotLive pins the other half of the
-// conjunction: growth alone is not liveness. A child still flushing its
-// last records after the parent has recorded its tool_result is finished.
 func TestGrowingSubagentWithToolResultIsNotLive(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -424,11 +357,6 @@ func TestGrowingSubagentWithToolResultIsNotLive(t *testing.T) {
 	}
 }
 
-// TestCompactionDoesNotRelightHungSubagent is the mirror of
-// TestCompactionDoesNotResurrectFinishedSubagents, on the growth half.
-// Compaction rewrites the PARENT transcript; a child's jsonl is a separate
-// file it does not touch, so its state (including observed sizes) must
-// survive and a hung child with no tool_result must stay idle.
 func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	now := time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
@@ -441,8 +369,8 @@ func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 		`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"model":"claude-opus-5","role":"assistant",`+
 			`"content":[{"type":"tool_use","id":"tu-1","name":"Task"}],"usage":{"input_tokens":10,"output_tokens":1}}}`+"\n")
 
-	pollSubagent(t, s, now)                                          // fresh record: Live
-	if sub := pollSubagent(t, s, now.Add(3*time.Minute)); sub.Live { // quiet for 3 minutes: idle
+	pollSubagent(t, s, now)
+	if sub := pollSubagent(t, s, now.Add(3*time.Minute)); sub.Live {
 		t.Fatalf("precondition: child should have gone quiet, got %+v", sub)
 	}
 
@@ -453,12 +381,6 @@ func TestCompactionDoesNotRelightHungSubagent(t *testing.T) {
 	}
 }
 
-// TestSanitizeCWDEncodesDotsAndUnderscores pins the encoding Claude Code
-// actually uses for ~/.claude/projects/<dir>: every character outside
-// [A-Za-z0-9-] becomes '-', not just '/'. The dotted and underscored cases
-// are the ones the 2026-09-06 QA run caught — a session in
-// ~/.local/share/chezmoi derived a directory that does not exist, so it
-// silently had no transcript, no model, no tokens and no cost.
 func TestSanitizeCWDEncodesDotsAndUnderscores(t *testing.T) {
 	cases := []struct{ cwd, want string }{
 		{"/repo/x", "-repo-x"},
@@ -473,9 +395,6 @@ func TestSanitizeCWDEncodesDotsAndUnderscores(t *testing.T) {
 	}
 }
 
-// TestPollReadsTranscriptForDottedCWD is the end-to-end half of the same
-// defect: a session whose cwd carries a dot and an underscore must still
-// find its transcript, and therefore report its model and its usage.
 func TestPollReadsTranscriptForDottedCWD(t *testing.T) {
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	projectsDir := filepath.Join(t.TempDir(), "projects")
@@ -507,11 +426,6 @@ func TestPollReadsTranscriptForDottedCWD(t *testing.T) {
 	}
 }
 
-// TestPollFindsTranscriptResumedInAnotherProject covers the second way a
-// derived path misses: a session resumed in a different cwd keeps its id
-// but writes its transcript under the project directory it was resumed in.
-// The id is the only identifier that survives, so the id is what is looked
-// for once the derived path comes up empty.
 func TestPollFindsTranscriptResumedInAnotherProject(t *testing.T) {
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	projectsDir := filepath.Join(t.TempDir(), "projects")
@@ -536,10 +450,6 @@ func TestPollFindsTranscriptResumedInAnotherProject(t *testing.T) {
 	}
 }
 
-// TestPollWithNoTranscriptLeavesModelEmpty pins the honest end of the same
-// path: a headless `claude -p` run has a session file and no transcript
-// anywhere, so its model stays the empty string here (the panel renders
-// that as "—"), rather than the poll failing or inventing one.
 func TestPollWithNoTranscriptLeavesModelEmpty(t *testing.T) {
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	projectsDir := filepath.Join(t.TempDir(), "projects")
@@ -565,9 +475,6 @@ func TestPollWithNoTranscriptLeavesModelEmpty(t *testing.T) {
 	}
 }
 
-// TestPollPicksUpATranscriptThatAppearsLater guards the throttle on the
-// id search: a session polled before its transcript exists must still pick
-// it up once it does, rather than being written off on the first poll.
 func TestPollPicksUpATranscriptThatAppearsLater(t *testing.T) {
 	sessionsDir := filepath.Join(t.TempDir(), "sessions")
 	projectsDir := filepath.Join(t.TempDir(), "projects")

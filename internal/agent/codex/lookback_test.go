@@ -10,9 +10,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// plantRollout writes a real rollout (session_meta + turn_context, so it
-// carries a cwd to bind on) into root's YYYY/MM/DD directory for dateDir,
-// stamped with mtime.
 func plantRollout(t *testing.T, root string, dateDir time.Time, id, cwd string, mtime time.Time) string {
 	t.Helper()
 	dir := filepath.Join(root, dateDir.Format("2006"), dateDir.Format("01"), dateDir.Format("02"))
@@ -33,11 +30,6 @@ func plantRollout(t *testing.T, root string, dateDir time.Time, id, cwd string, 
 	return path
 }
 
-// TestPollDropsRolloutsOlderThanLookback is the QA defect of 2026-09-06:
-// twelve dormant Codex rollouts, up to 23h old and every one of them
-// unbound, buried five live Claude sessions in the table. A rollout past
-// the lookback with no pid is not a session and must not be emitted at all
-// — including in --json, which is why it is dropped here and not in the UI.
 func TestPollDropsRolloutsOlderThanLookback(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 6, 16, 0, 0, 0, time.UTC)
@@ -57,10 +49,6 @@ func TestPollDropsRolloutsOlderThanLookback(t *testing.T) {
 	}
 }
 
-// TestPollKeepsAnOldRolloutBoundToALivePid is the exception that keeps the
-// filter honest: a rollout untouched for hours still describes something
-// running right now if a live codex process binds to it, so mtime alone
-// never drops it.
 func TestPollKeepsAnOldRolloutBoundToALivePid(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 6, 16, 0, 0, 0, time.UTC)
@@ -80,10 +68,6 @@ func TestPollKeepsAnOldRolloutBoundToALivePid(t *testing.T) {
 	}
 }
 
-// TestWithLookbackWidensTheWindow pins the config knob cmd/wattop wires
-// (`codex_lookback_minutes`): a longer lookback brings back exactly the
-// rollouts the default drops, and a zero duration is ignored rather than
-// collapsing the window to nothing.
 func TestWithLookbackWidensTheWindow(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 6, 16, 0, 0, 0, time.UTC)

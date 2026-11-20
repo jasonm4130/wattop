@@ -11,14 +11,9 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// Event is what one transcript record (one line of a Claude Code
-// <sessionId>.jsonl file, main or subagent) contributes: the model and
-// usage of an assistant turn, the tool_use calls it made, the tool_use ids
-// any tool_result in it resolves, and a rate-limit record if this line is
-// one.
 type Event struct {
 	MessageID     string
-	Type          string // the record's own "type": user | assistant | system | ...
+	Type          string
 	Timestamp     time.Time
 	Model         string
 	Usage         domain.Usage
@@ -26,14 +21,9 @@ type Event struct {
 	Tools         []domain.ToolCall
 	ToolResultIDs []string
 	RateLimit     *domain.RateLimit
-	// Notification is set for a queue-operation enqueue record carrying a
-	// <task-notification>: the completion signal of a background task.
-	Notification *TaskNotification
+	Notification  *TaskNotification
 }
 
-// TaskNotification is the part of a background task-notification wattop
-// correlates on. ToolUseID is the tool_use that launched the task; Status is
-// the <status> text verbatim ("completed" for a clean finish).
 type TaskNotification struct {
 	TaskID    string
 	ToolUseID string
@@ -108,9 +98,6 @@ type rawQuota struct {
 	ResetsAt      string `json:"resetsAt"`
 }
 
-// fiveHourWindowMins is the window length wattop renders for Claude's
-// "five_hour" quotaLimits rateLimitType — the only value observed on this
-// machine. Claude's API does not name the window length itself.
 const fiveHourWindowMins = 5 * 60
 
 var (
@@ -119,9 +106,6 @@ var (
 	notificationStatusPattern    = regexp.MustCompile(`<status>([^<]*)</status>`)
 )
 
-// parseTaskNotification pulls the correlating tags out of a queue-operation
-// enqueue record's content string. It returns nil when the content carries
-// no <task-notification> at all (an ordinary queued prompt).
 func parseTaskNotification(content string) *TaskNotification {
 	tag := func(re *regexp.Regexp) string {
 		if m := re.FindStringSubmatch(content); m != nil {
@@ -140,12 +124,6 @@ func parseTaskNotification(content string) *TaskNotification {
 	return &n
 }
 
-// ParseRecord decodes one JSONL line from a Claude Code transcript
-// (main session or subagent) into an Event. It never returns an error for
-// a record type it does not recognise — only for bytes that are not valid
-// JSON at all, since a caller trying to parse a still-being-written
-// partial line is a bug in the caller (Tail already buffers those), not
-// something this function should paper over.
 func ParseRecord(line []byte) (Event, error) {
 	var raw rawRecord
 	if err := json.Unmarshal(line, &raw); err != nil {
@@ -201,7 +179,7 @@ func ParseRecord(line []byte) (Event, error) {
 		}
 		ev.RateLimit = &domain.RateLimit{
 			Scope:      raw.QuotaLimits.RateLimitType,
-			UsedPct:    nil, // Claude never reports a proactive usage percentage
+			UsedPct:    nil,
 			WindowMins: fiveHourWindowMins,
 			ResetsAt:   resetsAt,
 			Rejected:   raw.QuotaLimits.Status == "rejected",
@@ -218,10 +196,6 @@ func usageFromRaw(u *rawUsage) domain.Usage {
 		CacheRead: u.CacheReadInputTokens,
 	}
 	if u.CacheCreation != nil {
-		// The record breaks its cache write down by TTL tier — use it
-		// exactly, even though the tiers may not sum to
-		// CacheCreationInputTokens (they should, but the tiered fields are
-		// what pricing needs).
 		out.CacheCreate5m = u.CacheCreation.Ephemeral5m
 		out.CacheCreate1h = u.CacheCreation.Ephemeral1h
 	} else if u.CacheCreationInputTokens != 0 {

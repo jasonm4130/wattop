@@ -8,9 +8,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
-// resultedToolUseIDsFromParent replays subagent-tree.jsonl and returns the
-// set of tool_use ids that already have a matching tool_result — the
-// back-link Walk uses to decide Live.
 func resultedToolUseIDsFromParent(t *testing.T) map[string]bool {
 	t.Helper()
 	lines := readFixtureLines(t, "agent", "claude", "subagent-tree.jsonl")
@@ -27,9 +24,6 @@ func resultedToolUseIDsFromParent(t *testing.T) map[string]bool {
 	return resulted
 }
 
-// TestSubagentTreeAssemblesOneLive walks the corpus's three-subagent
-// fixture and asserts exactly one is live: agent-3's tool_use has no
-// matching tool_result in the parent transcript.
 func TestSubagentTreeAssemblesOneLive(t *testing.T) {
 	dir := filepath.Join(fixture.CorpusDir(), "agent", "claude", "subagents")
 	resulted := resultedToolUseIDsFromParent(t)
@@ -53,9 +47,6 @@ func TestSubagentTreeAssemblesOneLive(t *testing.T) {
 	}
 }
 
-// TestSubagentUsesResolvedModel is the corpus's central assertion: the
-// child transcript's message.model ("claude-fable-5-1") is used, not the
-// alias meta.json recorded ("fable").
 func TestSubagentUsesResolvedModel(t *testing.T) {
 	dir := filepath.Join(fixture.CorpusDir(), "agent", "claude", "subagents")
 	resulted := resultedToolUseIDsFromParent(t)
@@ -88,12 +79,8 @@ func TestSubagentUsesResolvedModel(t *testing.T) {
 func TestWalkIgnoresNonMetaFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "agent-x.meta.json"), `{"toolUseId":"t1","hash":"h1","agentType":"general-purpose","model":"opus"}`)
-	// Stamped now, so the unfinished child reads running (Walk evaluates at
-	// the wall clock).
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
 	writeFile(t, filepath.Join(dir, "agent-x.jsonl"), `{"type":"assistant","timestamp":"`+stamp+`","message":{"model":"claude-opus-5","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n")
-	// A stray file that is not a .meta.json sibling must be ignored, not
-	// opened as metadata.
 	writeFile(t, filepath.Join(dir, "notes.txt"), "not a subagent file")
 
 	subs, err := Walk(dir, map[string]bool{})
