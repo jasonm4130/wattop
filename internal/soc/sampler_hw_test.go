@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// TestLiveSample exercises the real vendored collectors against live
-// hardware. It t.Skips (with a reason) when Init fails — e.g. running on a
-// non-Apple-Silicon machine, where sampler_stub.go's ErrUnsupportedPlatform
-// is what Init returns.
 func TestLiveSample(t *testing.T) {
 	s := NewSampler()
 	if err := s.Init(); err != nil {
@@ -37,10 +33,6 @@ func TestLiveSample(t *testing.T) {
 		t.Errorf("want at least two clusters with nonzero CoreCount, got %d (clusters=%+v)", nonzeroClusters, sample.Clusters)
 	}
 
-	// The first Sample after Init must carry a real CPU-usage delta: Init
-	// takes the baseline. Some core is always busy across a 1s window on a
-	// live machine (this test process, at minimum), so all-zero means the
-	// delta had no baseline.
 	anyActive := false
 	for _, c := range sample.Clusters {
 		for _, v := range c.CoreActive {

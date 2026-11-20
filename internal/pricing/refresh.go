@@ -12,26 +12,12 @@ import (
 	"time"
 )
 
-// refreshTTL is how long a cached refresh is trusted before a new fetch is
-// attempted.
 const refreshTTL = 24 * time.Hour
 
-// pricingClient bounds the background fetch: nothing waits on the refresh
-// goroutine, so without a timeout a stalled server would hold its
-// connection open for the life of the process.
 var pricingClient = &http.Client{Timeout: 10 * time.Second}
 
-// maxPricingBody caps how much of the upstream response is read. The full
-// LiteLLM table is well under this; anything larger is refused rather
-// than buffered into memory whole.
 const maxPricingBody = 20 << 20
 
-// Refresh performs an async, non-blocking pricing refresh into
-// $XDG_CACHE_HOME/wattop/pricing.json with a 24h TTL: a fresh cache is used
-// rather than blocking on the network, a stale or missing one triggers a
-// background fetch of SourceURL, and any failure is logged and left
-// non-fatal — the embedded (or previously cached) table stays in place.
-// Safe to call once at start.
 func (b *Book) Refresh(ctx context.Context) {
 	go b.refresh(ctx)
 }
@@ -84,15 +70,10 @@ func cacheFilePath() string {
 	return filepath.Join(base, "wattop", "pricing.json")
 }
 
-// fetchSnapshot downloads and parses the full upstream table (not the
-// curated subset table.json.gz embeds), so a refresh resolves strictly more
-// models than the embedded snapshot, never fewer.
 func fetchSnapshot(ctx context.Context) (snapshot, error) {
 	return fetchSnapshotFrom(ctx, pricingClient, SourceURL)
 }
 
-// fetchSnapshotFrom is fetchSnapshot with the client and URL injectable
-// for tests.
 func fetchSnapshotFrom(ctx context.Context, client *http.Client, url string) (snapshot, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

@@ -16,9 +16,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/pricing"
 )
 
-// claudeFixture plants one live Claude session (sessions/<pid>.json) whose
-// transcript is lines, and returns a Source reading it plus its subagents
-// directory.
 func claudeFixture(t *testing.T, lines ...string) (*claude.Source, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -44,17 +41,12 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
-// usageLine is one assistant record for model with its own message id and
-// the given prompt (all fresh input) and output sizes.
 func usageLine(id, model string, input, output int64) string {
 	return fmt.Sprintf(`{"type":"assistant","timestamp":"2026-09-06T01:00:00.000Z","message":{"id":%q,"model":%q,`+
 		`"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":%d,"output_tokens":%d}}}`+"\n",
 		id, model, input, output)
 }
 
-// syntheticLine is the shape Claude Code writes for a locally generated
-// assistant message (an API error, a login prompt): model "<synthetic>" and
-// all-zero usage. Copied from a real transcript with ids and text scrubbed.
 const syntheticLine = `{"parentUuid":"00000000-0000-0000-0000-000000000001","isSidechain":false,"type":"assistant",` +
 	`"uuid":"00000000-0000-0000-0000-000000000002","timestamp":"2026-09-06T01:00:05.000Z","message":{"diagnostics":null,` +
 	`"id":"00000000-0000-0000-0000-000000000003","container":null,"model":"<synthetic>","role":"assistant",` +
@@ -98,10 +90,6 @@ func embeddedBook(t *testing.T) *pricing.Book {
 
 func near(a, b float64) bool { return math.Abs(a-b) <= 1e-9 }
 
-// TestCostPricesEachRequestAtItsOwnTier is the lifetime-repricing bug: one
-// request past claude-sonnet-4-5's 200k threshold must not reprice every
-// earlier short request at the long-context rate. The total is the sum of
-// each request priced at its own prompt size.
 func TestCostPricesEachRequestAtItsOwnTier(t *testing.T) {
 	const model = "claude-sonnet-4-5"
 	src, _ := claudeFixture(t,
@@ -128,8 +116,6 @@ func TestCostPricesEachRequestAtItsOwnTier(t *testing.T) {
 	}
 }
 
-// TestCostPricesEachRequestAtItsOwnModel: a /model switch mid-session must
-// not reprice history at the new model's rates.
 func TestCostPricesEachRequestAtItsOwnModel(t *testing.T) {
 	src, _ := claudeFixture(t,
 		usageLine("m1", "claude-opus-5", 10_000, 2_000),
@@ -151,9 +137,6 @@ func TestCostPricesEachRequestAtItsOwnModel(t *testing.T) {
 	}
 }
 
-// TestCodexCostPricesEachTurnAtItsOwnTier: a Codex session whose second
-// turn crosses gpt-5.6-terra's 272k threshold prices its first turn at the
-// base rate, not the whole cumulative total at the long-context rate.
 func TestCodexCostPricesEachTurnAtItsOwnTier(t *testing.T) {
 	const model = "gpt-5.6-terra"
 	r := &codex.Rollout{}
@@ -188,10 +171,6 @@ func TestCodexCostPricesEachTurnAtItsOwnTier(t *testing.T) {
 	}
 }
 
-// TestLedgerWithAnUnpricedModelIsPartial: a session whose ledger mixes a
-// priced model with one the book cannot price keeps the priced part, names
-// the other, and is marked partial; one whose ledger prices nothing renders
-// "$—" as before.
 func TestLedgerWithAnUnpricedModelIsPartial(t *testing.T) {
 	b := embeddedBook(t)
 	st := newTestState(t, time.Minute)
@@ -221,10 +200,6 @@ func TestLedgerWithAnUnpricedModelIsPartial(t *testing.T) {
 	}
 }
 
-// TestSyntheticRecordDoesNotUnpriceSession: Claude writes locally generated
-// messages (API errors, login prompts) as model "<synthetic>" with all-zero
-// usage. One arriving last must not become the session's model, zero its
-// context size, or push "<synthetic>" into UnpricedModels.
 func TestSyntheticRecordDoesNotUnpriceSession(t *testing.T) {
 	src, _ := claudeFixture(t,
 		usageLine("m1", "claude-opus-5", 50_000, 1_000),
@@ -246,8 +221,6 @@ func TestSyntheticRecordDoesNotUnpriceSession(t *testing.T) {
 	}
 }
 
-// TestSyntheticRecordDoesNotUnpriceSubagent is the same for a child
-// transcript.
 func TestSyntheticRecordDoesNotUnpriceSubagent(t *testing.T) {
 	src, subDir := claudeFixture(t, usageLine("p1", "claude-opus-5", 1_000, 10))
 	mustWrite(t, filepath.Join(subDir, "agent-a1.meta.json"), `{"agentType":"general-purpose","description":"child"}`)
@@ -270,7 +243,6 @@ func TestSyntheticRecordDoesNotUnpriceSubagent(t *testing.T) {
 	}
 }
 
-// TestSubagentCostPricesEachRequestAtItsOwnTier is the tier bug for a child.
 func TestSubagentCostPricesEachRequestAtItsOwnTier(t *testing.T) {
 	const model = "claude-sonnet-4-5"
 	src, subDir := claudeFixture(t, usageLine("p1", model, 1_000, 10))
@@ -290,10 +262,6 @@ func TestSubagentCostPricesEachRequestAtItsOwnTier(t *testing.T) {
 	}
 }
 
-// TestPartlyPricedChildMarksItsWorkflowPartial: a workflow agent whose ledger
-// mixes a priced model with an unpriced one has a cost, but that cost omits
-// spend, so the agent and its workflow are both partial, not just the
-// session.
 func TestPartlyPricedChildMarksItsWorkflowPartial(t *testing.T) {
 	st := newTestState(t, time.Minute)
 

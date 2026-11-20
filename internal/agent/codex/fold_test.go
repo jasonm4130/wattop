@@ -11,18 +11,13 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// metaLine builds one session_meta record. source, when non-nil, is
-// marshalled as-is into payload.source (a string for a top-level rollout, an
-// object for a child); parentThreadID is written at the top level, matching
-// real session_meta payloads where it sits alongside "source" rather than
-// only nested under thread_spawn.
 type metaOpts struct {
 	threadID       string
 	sessionID      string
 	parentThreadID string
 	nickname       string
 	agentPath      string
-	source         any // string, or a map producing {"subagent": ...}
+	source         any
 	at             time.Time
 }
 
@@ -80,8 +75,6 @@ func taskStartedLine(at time.Time) string {
 	return string(b)
 }
 
-// writeRolloutBody writes a rollout file at root's YYYY/MM/DD directory
-// (dateDir) with the given lines, stamped with mtime.
 func writeRolloutBody(t *testing.T, root string, dateDir time.Time, filenameStamp string, lines []string, mtime time.Time) string {
 	t.Helper()
 	dir := filepath.Join(root, dateDir.Format("2006"), dateDir.Format("01"), dateDir.Format("02"))
@@ -103,10 +96,6 @@ func writeRolloutBody(t *testing.T, root string, dateDir time.Time, filenameStam
 	return path
 }
 
-// TestFoldThreadSpawnAndGuardianChildren: a parent with a thread_spawn child
-// and a guardian child folds into one session carrying both subagents. The
-// child shares session_id with the parent (the real-world collision this
-// package must not key on) and must not produce a second session for it.
 func TestFoldThreadSpawnAndGuardianChildren(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -189,9 +178,6 @@ func TestFoldThreadSpawnAndGuardianChildren(t *testing.T) {
 	}
 }
 
-// TestFoldedChildNotBoundToParentPid: a folded child rollout must never be
-// offered to the pid binder — it runs inside the parent's process, so
-// binding it would steal the parent's own pid.
 func TestFoldedChildNotBoundToParentPid(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -209,9 +195,6 @@ func TestFoldedChildNotBoundToParentPid(t *testing.T) {
 		}),
 	}, now.Add(-1*time.Minute))
 
-	// One live "codex" process sitting in the parent's cwd — since cwd was
-	// never set by these session_meta-only fixtures (turn_context carries
-	// it), leave procs empty and only assert on binds directly instead.
 	src := NewSource(root, DefaultIdleThreshold)
 	sessions, err := src.Poll(context.Background(), now, nil)
 	if err != nil {
@@ -226,22 +209,13 @@ func TestFoldedChildNotBoundToParentPid(t *testing.T) {
 	if sessions[0].Subagents[0].AgentType != "reviewer" {
 		t.Fatalf("AgentType = %q, want reviewer (non-null agent_role)", sessions[0].Subagents[0].AgentType)
 	}
-	// The pid-binding path (bindAll) is exercised directly: a child rollout
-	// must never appear in bindAll's input set. This is asserted at the
-	// bindAll level in TestBindAllExcludesChildRollouts below.
 }
 
-// TestBindAllExcludesChildRollouts: Poll must never pass a child rollout
-// (ParentThreadID != "") to bindAll, since it runs inside the parent's
-// process and must not steal its pid. This is a behavioural check on the
-// binding a live parent+child pair would produce: only the parent's cwd/pid
-// combination should ever resolve to "exact".
 func TestBindAllExcludesChildRollouts(t *testing.T) {
 	rollouts := []Rollout{
 		{Path: "/r/parent.jsonl", ThreadID: "thread-parent", CWD: "/home/u/proj", MetaAt: time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)},
 		{Path: "/r/child.jsonl", ThreadID: "thread-child", ParentThreadID: "thread-parent", CWD: "/home/u/proj", MetaAt: time.Date(2026, 9, 25, 10, 0, 1, 0, time.UTC)},
 	}
-	// Simulate what Poll does: only offer the top-level rollout to bindAll.
 	var topLevel []Rollout
 	for _, r := range rollouts {
 		if r.ParentThreadID == "" {
@@ -259,9 +233,6 @@ func TestBindAllExcludesChildRollouts(t *testing.T) {
 	}
 }
 
-// TestOrphanChildEmittedAsSubagentSession: a child whose root is not present
-// in this poll (e.g. the root's rollout is outside the lookback and unbound)
-// renders as its own session with Kind "subagent" rather than being dropped.
 func TestOrphanChildEmittedAsSubagentSession(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -295,9 +266,6 @@ func TestOrphanChildEmittedAsSubagentSession(t *testing.T) {
 	}
 }
 
-// TestNestedChildParentID: a depth-2 spawn (child of a child) folds into the
-// root's Subagents with ParentID set to its direct parent's ThreadID, not
-// the root's.
 func TestNestedChildParentID(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -352,16 +320,11 @@ func TestNestedChildParentID(t *testing.T) {
 	if leaf.ParentID != "thread-mid" {
 		t.Errorf("leaf.ParentID = %q, want thread-mid", leaf.ParentID)
 	}
-	// Depth-first order: mid must precede leaf.
 	if sessions[0].Subagents[0].ID != "thread-mid" || sessions[0].Subagents[1].ID != "thread-leaf" {
 		t.Errorf("order = %v, want [thread-mid, thread-leaf] (depth-first)", []string{sessions[0].Subagents[0].ID, sessions[0].Subagents[1].ID})
 	}
 }
 
-// TestDuplicateThreadIDGetsPathSuffix: two independent rollouts sharing one
-// ThreadID within a single poll must not collapse into one session row — the
-// later one (by the shortlist's sorted path order) gets a path-suffixed id
-// instead of silently being summed into or overwriting the first.
 func TestDuplicateThreadIDGetsPathSuffix(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -396,15 +359,12 @@ func TestDuplicateThreadIDGetsPathSuffix(t *testing.T) {
 	}
 }
 
-// TestSessionLastUsageAtIsMaxOfRootAndChildren: Session.LastUsageAt must
-// reflect the newest usage timestamp across the root and every folded child,
-// not just the root's own transcript.
 func TestSessionLastUsageAtIsMaxOfRootAndChildren(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 
 	rootUsageAt := now.Add(-9 * time.Minute)
-	childUsageAt := now.Add(-2 * time.Minute) // newer than the root's own usage
+	childUsageAt := now.Add(-2 * time.Minute)
 
 	tokenCountLine := func(at time.Time, input, output int64) string {
 		rec := map[string]any{
@@ -450,9 +410,6 @@ func TestSessionLastUsageAtIsMaxOfRootAndChildren(t *testing.T) {
 	}
 }
 
-// TestFollowUpTurnReopensChild: a child whose first turn completed and whose
-// second turn started but never finished is not done, however long it has
-// been quiet.
 func TestFollowUpTurnReopensChild(t *testing.T) {
 	r := &Rollout{}
 	for _, line := range []string{

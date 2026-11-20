@@ -122,15 +122,8 @@ func TestMachTicksToNs(t *testing.T) {
 	}
 }
 
-// TestCPUPctFromRawMachTicksIsWrong is the negative test for the bug this
-// conversion exists to prevent: a process pinned to 100% of one core
-// accumulates 24e6 Mach ticks per second on Apple Silicon, and feeding
-// those ticks to CPUPct as if they were nanoseconds reports 2.4%, not
-// 100%. It is the arithmetic behind the 2.39% a `yes` process reported
-// before scan_darwin.go applied the timebase.
 func TestCPUPctFromRawMachTicksIsWrong(t *testing.T) {
 	const numer, denom = 125, 3
-	// One second of CPU on one core, in Mach ticks.
 	const oneCoreSecondTicks = 24_000_000
 
 	raw := CPUPct(0, oneCoreSecondTicks, time.Second)
@@ -156,9 +149,6 @@ func TestCPUTrackerFirstSampleYieldsNoPercentage(t *testing.T) {
 		t.Fatalf("first sample: ok = true, want false (no baseline yet); got pct=%v", pct)
 	}
 
-	// A second sample 500ms later, 250ms of CPU consumed, must now report
-	// a real delta-based percentage rather than a lifetime average
-	// (1.25s cumulative / process age would read flat and wrong).
 	pct, ok = tr.Update(407, 1_250_000_000, now.Add(500*time.Millisecond))
 	if !ok {
 		t.Fatalf("second sample: ok = false, want true")
@@ -176,12 +166,10 @@ func TestCPUTrackerPrune(t *testing.T) {
 
 	tr.Prune(map[int]bool{1: true})
 
-	// pid 2 was pruned, so it must look like a first sample again.
 	_, ok := tr.Update(2, 200, now.Add(time.Second))
 	if ok {
 		t.Fatalf("pid 2 should have been pruned and re-baseline, got ok=true")
 	}
-	// pid 1 was kept, so it must still have its baseline.
 	_, ok = tr.Update(1, 200, now.Add(time.Second))
 	if !ok {
 		t.Fatalf("pid 1 should have kept its baseline, got ok=false")
@@ -192,14 +180,11 @@ func TestGPUTracker(t *testing.T) {
 	tr := NewGPUTracker()
 	now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
 
-	// First sample: baseline only, pid omitted from the result.
 	deltas := tr.Update(map[int]uint64{407: 1_000_000_000}, now)
 	if _, ok := deltas[407]; ok {
 		t.Fatalf("first GPU sample should be omitted (baseline only), got %v", deltas)
 	}
 
-	// Second sample 1.22s later: the plan's own measured datapoint, pid
-	// 407 at 20.026 ms/sec, corresponds to a ~24.43e6 ns delta.
 	elapsed := 1220 * time.Millisecond
 	deltas = tr.Update(map[int]uint64{407: 1_000_000_000 + 24_431_720}, now.Add(elapsed))
 	got, ok := deltas[407]
@@ -253,22 +238,22 @@ func TestRescaleGPUPct(t *testing.T) {
 		if out[1] == nil || out[2] == nil {
 			t.Fatalf("expected non-nil results, got %v", out)
 		}
-		if *out[1] != 10 { // 10/40 * 40
+		if *out[1] != 10 {
 			t.Fatalf("pid 1 pct = %v, want 10", *out[1])
 		}
-		if *out[2] != 30 { // 30/40 * 40
+		if *out[2] != 30 {
 			t.Fatalf("pid 2 pct = %v, want 30", *out[2])
 		}
 	})
 }
 
 func TestStartWall(t *testing.T) {
-	numer, denom := uint32(125), uint32(3) // Apple Silicon mach timebase
+	numer, denom := uint32(125), uint32(3)
 	nowTicks := uint64(1_000_000_000)
 	nowWall := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
 
 	t.Run("10 seconds earlier", func(t *testing.T) {
-		startTicks := nowTicks - 240_000_000 // 240e6 ticks * 125/3 ns/tick = 10s
+		startTicks := nowTicks - 240_000_000
 		got := StartWall(startTicks, nowTicks, numer, denom, nowWall)
 		want := nowWall.Add(-10 * time.Second)
 		if !got.Equal(want) {
@@ -294,9 +279,6 @@ func TestStartWall(t *testing.T) {
 		startTicks := nowTicks - 240_000_000
 		correct := StartWall(startTicks, nowTicks, numer, denom, nowWall)
 
-		// The bug this guards against: treating the raw tick count as if
-		// it were itself a duration since the Unix epoch, skipping the
-		// anchor subtraction entirely.
 		naiveNs := startTicks * uint64(numer) / uint64(denom)
 		naive := time.Unix(0, 0).Add(time.Duration(naiveNs))
 
@@ -318,9 +300,6 @@ func TestProcStartWall(t *testing.T) {
 		want time.Time
 	}{
 		{
-			// The real p_starttime measured for pid 410 (loginwindow) on
-			// the target laptop; `ps -o lstart= -p 410` printed
-			// "Thu Aug 27 18:56:00 2026" in AEST, i.e. 08:56:00 UTC.
 			name: "a real boot-era p_starttime",
 			usec: 1787820960200148,
 			want: time.Date(2026, 8, 27, 8, 56, 0, 200148000, time.UTC),
@@ -354,25 +333,8 @@ func TestProcStartWall(t *testing.T) {
 	}
 }
 
-// lineCommentRe strips whole-line and trailing // comments so the guard
-// below matches on code, not on the prose explaining the code.
 var lineCommentRe = regexp.MustCompile(`(?m)//.*$`)
 
-// TestScannerStartTimeIsNotMachAnchored is a source-text guard, and it is
-// deliberately a source-text guard: the defect it protects against lives in
-// scan_darwin.go, which carries //go:build darwin && arm64 && cgo and so is
-// never compiled — let alone tested — on Linux CI. This test runs
-// everywhere, including under CGO_ENABLED=0, and is the only thing that
-// turns the regression red before a human sees it on hardware.
-//
-// The regression: deriving domain.ProcSample.StartTime by subtracting a
-// Mach tick elapsed from a clock read now. Measured on the target laptop
-// (uptime 9.74 days, 2.97 of them asleep), a mach_absolute_time anchor put
-// pid 410's start 71.37h late against `ps -o lstart=`, and swapping in
-// mach_continuous_time moves the same error onto every recently-started
-// process instead — see StartWall's doc comment in delta.go for the full
-// measurement. The scanner must read the kernel's own wall-clock stamp
-// (kinfo_proc p_starttime, via ProcStartWall) and nothing else.
 func TestScannerStartTimeIsNotMachAnchored(t *testing.T) {
 	src, err := os.ReadFile("scan_darwin.go")
 	if err != nil {

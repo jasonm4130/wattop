@@ -21,22 +21,13 @@ func almostEqual(a, b, eps float64) bool {
 	return math.Abs(a-b) <= eps
 }
 
-// TestCache1hTierFires prices a claude-opus-5 block with ephemeral_1h
-// nonzero and ephemeral_5m zero, asserting the 1h cache-write rate fires
-// and the total is exact to the cent:
-//
-//	1,000,000 input   × $5/M  = $5.00
-//	  100,000 output  × $25/M = $2.50
-//	1,000,000 cache_read × $0.50/M = $0.50
-//	1,000,000 cache_create_1h × $10/M = $10.00
-//	                              total = $18.00
 func TestCache1hTierFires(t *testing.T) {
 	b := frozenBook(t)
 
 	u := domain.Usage{
 		Input:         1_000_000,
 		Output:        100_000,
-		Thinking:      20_000, // already inside Output; must not add separately
+		Thinking:      20_000,
 		CacheRead:     1_000_000,
 		CacheCreate1h: 1_000_000,
 	}
@@ -51,12 +42,6 @@ func TestCache1hTierFires(t *testing.T) {
 	}
 }
 
-// TestCache1hVsCache5mDifference prices an isolated cache-write-only block
-// (every other field zero, so the comparison isolates the cache-write line
-// rather than a mixed total) once at the 1h rate and once at the 5m rate,
-// asserting the difference is 37.5% of the 1h line -- the corrected figure
-// from the Decision section, not the 60% a naive per-line ratio against the
-// 5m figure would produce.
 func TestCache1hVsCache5mDifference(t *testing.T) {
 	b := frozenBook(t)
 
@@ -81,11 +66,6 @@ func TestCache1hVsCache5mDifference(t *testing.T) {
 	}
 }
 
-// TestCodexCachedInputIsSubtracted prices a real Codex record (total 230377
-// = input 227924 + output 2453, cached 210432 not added in) and asserts
-// cached_input_tokens is subtracted from the billable input rather than
-// double-counted on top of it -- getting this backwards roughly doubles the
-// figure.
 func TestCodexCachedInputIsSubtracted(t *testing.T) {
 	b := frozenBook(t)
 
@@ -112,22 +92,12 @@ func TestCodexCachedInputIsSubtracted(t *testing.T) {
 		t.Fatalf("Cost() = %.9f, want %.9f (billable_input = input - cached_input)", usd, want)
 	}
 
-	// Getting the subtraction backwards (pricing the full, un-subtracted
-	// input) would come out close to double this figure -- assert we are
-	// nowhere near that to catch the regression the spec calls out.
 	doubledIfWrong := float64(u.Input)*inputRate + float64(u.Output)*outputRate + float64(u.CachedInput)*cacheReadRate
 	if usd >= doubledIfWrong*0.9 {
 		t.Fatalf("Cost() = %.9f is too close to the un-subtracted figure %.9f", usd, doubledIfWrong)
 	}
 }
 
-// TestCache1hFallsBackWhenAboveKeyAbsent prices a synthetic entry that
-// carries cache_creation_input_token_cost (the 5m rate) but no
-// cache_creation_input_token_cost_above_1hr key at all -- the shape 40 of
-// the 66 committed table entries have. Reading the absent key as a bare 0
-// would silently price every ephemeral_1h_input_token at $0.00 while still
-// reporting Priced == true; the fallback must charge the 5m rate instead so
-// the total matches pricing the same tokens as CacheCreate5m.
 func TestCache1hFallsBackWhenAboveKeyAbsent(t *testing.T) {
 	b := bookFrom(modelTable{
 		"synthetic-no-1hr-key": modelEntry{
@@ -135,7 +105,6 @@ func TestCache1hFallsBackWhenAboveKeyAbsent(t *testing.T) {
 			"output_cost_per_token":           2e-06,
 			"cache_read_input_token_cost":     1e-07,
 			"cache_creation_input_token_cost": 1.25e-06,
-			// deliberately no cache_creation_input_token_cost_above_1hr
 		},
 	})
 
@@ -158,13 +127,6 @@ func TestCache1hFallsBackWhenAboveKeyAbsent(t *testing.T) {
 	}
 }
 
-// TestTierSelectedFromPresentKeys asserts tier selection is driven by which
-// *_above_<N>_tokens keys an entry carries, never a hardcoded tier name:
-// gpt-5.6-terra genuinely carries *_above_272k_tokens rates, so a request
-// above that threshold prices at double the base input rate; claude-opus-5
-// carries no *_above_200k_tokens key at all, so an implementer told "apply
-// the 200k Anthropic tier" would build logic for a field that does not
-// exist -- the rate must stay flat regardless of prompt size.
 func TestTierSelectedFromPresentKeys(t *testing.T) {
 	b := frozenBook(t)
 

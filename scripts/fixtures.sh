@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Re-captures testdata/soc/ from this machine's live mactop and scrubs it
-# through cmd/wattop-scrub. Requires macOS with mactop installed and
-# passwordless (see testdata/README.md). Does not touch testdata/agent/,
-# which is hand-maintained.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -18,8 +14,6 @@ mkdir -p "$RAW/soc"
 
 echo "fixtures.sh: capturing NDJSON framing (count 0, ~45s)..." >&2
 # --count 0 never exits: give it a bounded window and take whatever landed.
-# 45s comfortably clears the >=20-line acceptance bar at the default 1000ms
-# interval, once mactop's own startup latency is accounted for.
 timeout 45 mactop --headless --format json --count 0 --interval 1000 \
 	>"$RAW/soc/mactop-ndjson.jsonl" || true
 

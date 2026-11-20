@@ -10,8 +10,6 @@ import (
 
 var epoch = time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
 
-// frame is everything a World emits at one tick, serialised so two worlds
-// can be compared byte for byte.
 func frame(t *testing.T, w *World, at time.Time) string {
 	t.Helper()
 	b, err := json.Marshal(struct {
@@ -88,7 +86,6 @@ func TestWorldIsPlausible(t *testing.T) {
 			if *sess.PID != procs[j].PID || sess.CWD != procs[j].CWD {
 				t.Errorf("session %s not joined to its process", sess.ID)
 			}
-			// Cumulative usage must never go backwards, or burn would dip.
 			u := sess.Usage
 			total := u.Input + u.Output + u.CacheRead + u.CacheCreate5m
 			if total < lastCost[sess.ID] {
@@ -108,8 +105,6 @@ func TestWorldIsPlausible(t *testing.T) {
 	}
 }
 
-// TestNoRealPaths guards the reason --demo exists: nothing it emits may
-// carry the recording machine's home directory or any absolute user path.
 func TestNoRealPaths(t *testing.T) {
 	w := New(DefaultSeed, time.Second)
 	var out strings.Builder

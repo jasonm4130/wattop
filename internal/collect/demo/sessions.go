@@ -7,21 +7,15 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// rates is token throughput in tokens/second while an entity is actively
-// working, before the per-tick activity factor scales it.
 type rates struct {
 	in, out, cacheRead, cacheCreate float64
-	// cachedFrac is, for Codex, the share of in that was served from cache
-	// (Usage.CachedInput is a subset of Input there, not additive).
-	cachedFrac float64
+	cachedFrac                      float64
 }
 
-// track is one entity's cumulative token usage plus the short history
-// TokenRate is computed from.
 type track struct {
 	in, out, cr, cc, cached float64
-	hist                    []rateSnap // ring of cumulative snapshots, one per tick
-	lastActive              int        // tick of the newest usage; negative is before tick 0
+	hist                    []rateSnap
+	lastActive              int
 	ctx                     float64
 	busyTicks               int
 }
@@ -56,8 +50,6 @@ func (tr *track) accrue(r rates, factor, dt float64, tick int) {
 	tr.busyTicks++
 }
 
-// snapshot records this tick's cumulative totals, keeping winTicks+1 of
-// them so rate() can difference across the full window.
 func (tr *track) snapshot(winTicks int, codex bool) {
 	s := rateSnap{in: tr.in + tr.cr + tr.cc, out: tr.out, cr: tr.cr}
 	if codex {
@@ -80,8 +72,6 @@ func (tr *track) usage() domain.Usage {
 	}
 }
 
-// rate is recorded throughput over the ring's span, or nil before there
-// are two snapshots to difference.
 func (tr *track) rate(step time.Duration) *domain.TokenRate {
 	if len(tr.hist) < 2 {
 		return nil
@@ -95,11 +85,10 @@ func (tr *track) rate(step time.Duration) *domain.TokenRate {
 	}
 }
 
-// Subagent lifecycles.
 const (
-	subRunning = iota // works the whole time
-	subToggle         // alternates running and idle
-	subDone           // finished before the demo began
+	subRunning = iota
+	subToggle
+	subDone
 )
 
 type subSpec struct {
@@ -111,8 +100,8 @@ type subSpec struct {
 	r                           rates
 	base                        domain.Usage
 	ctx                         float64
-	startedMin                  float64 // minutes before tick 0
-	idleSec                     float64 // for subDone: seconds before tick 0 it last worked
+	startedMin                  float64
+	idleSec                     float64
 	tools                       []string
 }
 
@@ -165,8 +154,6 @@ type session struct {
 	subs        []*subagent
 }
 
-// maxTools caps the retained tool-call list so a demo left running all day
-// stays bounded; the TL column tops out long before this.
 const maxTools = 900
 
 func newSession(w *World, idx int, spec sessionSpec) *session {
@@ -176,7 +163,6 @@ func newSession(w *World, idx int, spec sessionSpec) *session {
 		tr:         newTrack(spec.base, w.winTicks, -int(20*rnd(w.seed, chSessBase+400+uint64(idx), 0)), spec.ctx),
 		toolCounts: make(map[string]int),
 	}
-	// Tool calls from before the demo began, spaced back from tick 0.
 	for n := 0; n < spec.baseTools; n++ {
 		name := spec.tools[int(rnd(w.seed, chToolBase+uint64(idx), int64(-n-1))*float64(len(spec.tools)))]
 		s.tools = append(s.tools, toolRec{name: name, id: toolID("toolu", idx, n), tick: -(spec.baseTools - n) * 9})
@@ -196,8 +182,6 @@ func newSession(w *World, idx int, spec sessionSpec) *session {
 	return s
 }
 
-// statusAt decides busy/waiting at simulated second t: the timeline is cut
-// into segSec-long segments and each is busy with probability busyFrac.
 func (s *session) statusAt(w *World, t float64) string {
 	k := math.Floor((t + s.spec.phase) / s.spec.segSec)
 	if rnd(w.seed, chSessBase+uint64(s.idx), int64(k)) < s.spec.busyFrac {
@@ -206,10 +190,6 @@ func (s *session) statusAt(w *World, t float64) string {
 	return "waiting"
 }
 
-// activity scales a busy entity's token rates so the graphs have texture:
-// a per-entity wobble (0.35x to 1.6x, with the occasional long-context
-// burst) times a slow machine-wide swell, so the 60-second token-rate
-// graphs show hills rather than a plateau.
 func activity(w *World, ch uint64, t float64) float64 {
 	a := 0.35 + 1.0*smooth(w.seed, ch, t, 3)
 	if b := smooth(w.seed, ch+7777, t, 11); b > 0.75 {

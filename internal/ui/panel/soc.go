@@ -10,25 +10,14 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// Options controls presentation choices that are not part of the theme
-// itself.
 type Options struct {
-	// NoColor drops the palette entirely: gauges degrade to plain block
-	// characters and no lipgloss styling is applied anywhere in the panel.
-	// This is the --no-color / NO_COLOR contract.
 	NoColor bool
 
-	// BurnHotUSDPerHr is the $/hr at or above which a burn rate renders
-	// CostHot, in both the footer's machine total and a session's detail
-	// view. config.toml's burn_hot_usd_per_hr; zero or negative means unset
-	// and defaultBurnHotUSDPerHr applies.
 	BurnHotUSDPerHr float64
 }
 
-// defaultBurnHotUSDPerHr is the hot-burn line when config sets none.
 const defaultBurnHotUSDPerHr = 5.0
 
-// burnHot resolves the hot-burn threshold, applying the default when unset.
 func (o Options) burnHot() float64 {
 	if o.BurnHotUSDPerHr > 0 {
 		return o.BurnHotUSDPerHr
@@ -56,9 +45,6 @@ func thermalLabel(state int) string {
 	return "Unknown"
 }
 
-// thermalColor picks the severity role for a thermal state: Nominal is
-// baseColor (the panel's normal border/text color), Moderate is Warn, and
-// Heavy/Trapping/Sleeping/anything unrecognised is Hot.
 func thermalColor(r theme.Roles, state int, baseColor string) string {
 	switch {
 	case state >= 2 || state < 0:
@@ -70,21 +56,6 @@ func thermalColor(r theme.Roles, state int, baseColor string) string {
 	}
 }
 
-// Render draws the SoC strip -- clusters (iterated from the reported
-// topology, never a hardcoded E/P pair), GPU utilisation and frequency, the
-// power row, bandwidth, temperatures, fans, thermal state, memory/swap and
-// network/disk -- from a domain.SysSample and nothing else.
-//
-// Every optional (*float64) field that is nil renders as "—", never "0"; and
-// only nil renders as "—". A bandwidth channel that resolved and read 0.0
-// GB/s prints 0.0 GB/s, because on this hardware that is a real idle
-// measurement -- dashing it was what hid live DRAM traffic (QA 2026-09-06
-// §2). A bandwidth figure the platform derived rather than counted prints
-// with a leading "~".
-//
-// The returned string is exactly height lines of exactly width display
-// columns each (measured with lipgloss.Width, so ANSI styling never throws
-// off the padding).
 func Render(sample domain.SysSample, r theme.Roles, width, height int, opts Options) string {
 	var lines []string
 
@@ -166,8 +137,6 @@ func fdash(v *float64, format string) string {
 	return fmt.Sprintf(format, *v)
 }
 
-// bwdash renders a bandwidth reading. Only nil is a dash; 0.0 GB/s is a
-// reading. estimated prefixes "~", the project's mark for a derived number.
 func bwdash(v *float64, estimated bool) string {
 	if v == nil {
 		return "—"
@@ -188,9 +157,6 @@ func powerLine(p domain.Power) string {
 	)
 }
 
-// bandwidthLine shows the DRAM total only when there is one to show -- on a
-// combined-only or estimated source that total is the whole reading, with
-// both directions dashed; on a directional source it is the sum.
 func bandwidthLine(b domain.Bandwidth) string {
 	line := fmt.Sprintf("BW     DRAM R %s  W %s",
 		bwdash(b.DRAMReadGBs, false),
@@ -202,10 +168,6 @@ func bandwidthLine(b domain.Bandwidth) string {
 	return line + "  ANE " + bwdash(b.ANECombinedGBs, false)
 }
 
-// tempKeys is the whole temperature vocabulary this row renders, in the order
-// it renders them. Anything else in the map is a raw sensor key, not a
-// metric, and is ignored -- a sampler that hands over 325 SMC keys must not
-// be able to blow the frame apart (QA 2026-09-06 §2).
 var tempKeys = []string{"cpu", "gpu", "soc"}
 
 func tempLine(t map[string]float64) string {
@@ -234,8 +196,6 @@ func fansLine(fans []domain.Fan) string {
 	return "Fans   " + strings.Join(parts, "  ")
 }
 
-// thermalLine renders the thermal pressure label, followed by a THROTTLED
-// badge when the OS reports it is applying thermal mitigation.
 func thermalLine(r theme.Roles, state int, throttled bool, opts Options) string {
 	line := "Thermal  " + styled(opts, thermalColor(r, state, r.Idle), thermalLabel(state))
 	if throttled {
@@ -282,10 +242,6 @@ func styled(opts Options, color, s string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(s)
 }
 
-// padLine pads s with spaces up to width display columns, measured with
-// lipgloss.Width so embedded ANSI styling is never counted. A line already
-// at or past width is returned unpadded rather than truncated: chopping a
-// styled string risks splitting an escape sequence.
 func padLine(s string, width int) string {
 	w := lipgloss.Width(s)
 	if w >= width {

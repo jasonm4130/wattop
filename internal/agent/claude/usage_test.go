@@ -60,9 +60,6 @@ func TestUsageUpdateReplacesPriorCounters(t *testing.T) {
 	}
 }
 
-// TestLedgerRefilesRevisedMessage: a message whose usage is revised by a
-// later row ends up in the ledger once, under its latest usage and prompt
-// size, with no stale or zero bucket left behind.
 func TestLedgerRefilesRevisedMessage(t *testing.T) {
 	var a usageAccounting
 	ev, _ := ParseRecord([]byte(`{"type":"assistant","timestamp":"2026-09-06T12:00:00Z","message":{"id":"request","model":"claude-opus-5","usage":{"input_tokens":1000,"output_tokens":10}}}`))

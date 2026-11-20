@@ -19,11 +19,6 @@ func bookFrom(models modelTable) *Book {
 	return &Book{snap: snapshot{Models: models}}
 }
 
-// TestLoadEmbeddedTable exercises Load() against the real, gzip-embedded
-// table.json.gz -- distinct from every other test in this package, which
-// pins testdata/frozen-table.json so an upstream `make pricing` run cannot
-// turn CI red. This test asserts only shape (entry count, provenance
-// present), never a specific price, so it survives regeneration.
 func TestLoadEmbeddedTable(t *testing.T) {
 	b, err := Load()
 	if err != nil {

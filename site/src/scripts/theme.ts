@@ -18,9 +18,7 @@ function set(t: 'dark' | 'light') {
   document.documentElement.dataset.theme = t;
   try {
     localStorage.setItem(KEY, t);
-  } catch {
-    /* storage unavailable: the choice lasts for this page only */
-  }
+  } catch {}
   paint();
 }
 

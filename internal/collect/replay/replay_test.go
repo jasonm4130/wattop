@@ -16,10 +16,6 @@ func socDir(t *testing.T) string {
 	return filepath.Join(fixture.CorpusDir(), "soc")
 }
 
-// TestCorpusPathResolves is the cross-package half of Task 3's CorpusDir()
-// check: a package other than internal/fixture itself, whose go test working
-// directory is internal/collect/replay, must still resolve and open a
-// corpus file.
 func TestCorpusPathResolves(t *testing.T) {
 	sampler, err := NewSysSampler(socDir(t))
 	if err != nil {
@@ -47,8 +43,6 @@ func assertPlausible(t *testing.T, sample domain.SysSample) {
 	}
 }
 
-// TestBothFramings proves the sampler decodes NDJSON ('{'-first) and
-// JSON-array ('['-first) captures to the same plausible shape.
 func TestBothFramings(t *testing.T) {
 	t.Run("ndjson", func(t *testing.T) {
 		dir := t.TempDir()
@@ -79,9 +73,6 @@ func TestBothFramings(t *testing.T) {
 	})
 }
 
-// TestDegradedFixtureRendersNil is the version-drift regression test: a
-// capture missing the DRAM-bandwidth channel and the fans array must decode
-// to nil/empty fields and a populated Missing list, never panic.
 func TestDegradedFixtureRendersNil(t *testing.T) {
 	dir := t.TempDir()
 	copyFixture(t, filepath.Join(socDir(t), "mactop-degraded.jsonl"), filepath.Join(dir, "mactop-degraded.jsonl"))
@@ -108,7 +99,6 @@ func TestDegradedFixtureRendersNil(t *testing.T) {
 
 	want := []string{
 		"ane_active", "dram_bw_combined_gbs", "dram_read_bw_gbs", "dram_write_bw_gbs", "fans",
-		// Present in this fixture, but at exactly 0 -- see below.
 		"ane_bw_combined_gbs", "ane_read_bw_gbs", "ane_write_bw_gbs",
 	}
 	for _, name := range want {
@@ -124,11 +114,6 @@ func TestDegradedFixtureRendersNil(t *testing.T) {
 	if channels["dram_read_bw_gbs"] {
 		t.Error("Channels()[\"dram_read_bw_gbs\"] = true, want false on the degraded fixture")
 	}
-	// ane_bw_combined_gbs was NOT deleted from the degraded fixture -- it
-	// survives at exactly 0, which a headless-JSON capture writes both for a
-	// channel that counted zero and for one that never resolved. This path
-	// has no DRAMBWSource-style flag to tell them apart, so it reports
-	// unresolved rather than publishing a 0.0 GB/s reading it cannot back up.
 	if channels["ane_bw_combined_gbs"] {
 		t.Error("Channels()[\"ane_bw_combined_gbs\"] = true, want false: the key survives but reads exactly 0")
 	}
@@ -137,10 +122,6 @@ func TestDegradedFixtureRendersNil(t *testing.T) {
 	}
 }
 
-// TestNonZeroBandwidthResolves is the other half of TestDegradedFixtureRendersNil:
-// the zero-means-unresolved rule must not swallow a capture that really did
-// carry bandwidth. Without this, nil-ing every zero would pass by dashing
-// everything.
 func TestNonZeroBandwidthResolves(t *testing.T) {
 	dir := t.TempDir()
 	rec := `{"timestamp":"2026-09-06T12:00:00Z","soc_metrics":{` +
@@ -196,8 +177,6 @@ func copyFixture(t *testing.T, src, dst string) {
 	}
 }
 
-// TestSysSamplerLoops proves Sample() walks the whole recorded sequence and
-// then loops rather than erroring once exhausted.
 func TestSysSamplerLoops(t *testing.T) {
 	sampler, err := NewSysSampler(socDir(t))
 	if err != nil {
@@ -225,9 +204,6 @@ func TestSysSamplerLoops(t *testing.T) {
 	}
 }
 
-// TestProcSourceScansAndLoops exercises the scripted proc replay: a pid
-// that appears then vanishes, one GPUMsPerSec nil and one non-nil, a
-// codex-exec-shaped process, and looping.
 func TestProcSourceScansAndLoops(t *testing.T) {
 	path := filepath.Join(fixture.CorpusDir(), "replay", "procs.json")
 	source, err := NewProcSource(path)
@@ -296,9 +272,6 @@ func TestProcSourceScansAndLoops(t *testing.T) {
 	}
 }
 
-// TestAgentSourceScriptedSessions exercises the scripted session replay:
-// the required scenarios, and the present-then-dropped lifecycle Task 10's
-// reducer implements.
 func TestAgentSourceScriptedSessions(t *testing.T) {
 	dir := filepath.Join(fixture.CorpusDir(), "replay")
 	source, err := NewAgentSource(dir)
@@ -380,8 +353,6 @@ func TestAgentSourceScriptedSessions(t *testing.T) {
 	}
 }
 
-// TestVirtualClock exercises the Clock seam: Now() is stable until Advance()
-// moves it, deterministically and instantly.
 func TestVirtualClock(t *testing.T) {
 	start := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
 	clock := NewVirtualClock(start)
@@ -395,8 +366,6 @@ func TestVirtualClock(t *testing.T) {
 	}
 }
 
-// Compile-time assertions that the replay collectors satisfy the domain
-// interfaces they're standing in for.
 var (
 	_ domain.Sampler     = (*SysSampler)(nil)
 	_ domain.ProcSource  = (*ProcSource)(nil)

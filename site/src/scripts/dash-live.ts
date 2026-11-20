@@ -1,6 +1,3 @@
-// Animates the server-rendered dashboard: one recorded frame per second.
-// Frozen (no timer at all) under prefers-reduced-motion; the pause button
-// mirrors the TUI's `p` (pause the display).
 import { renderDash, WINDOW } from '../lib/dash';
 import type { Demo } from '../lib/dash';
 
@@ -48,7 +45,6 @@ if (root) {
     else start();
   });
 
-  // Start only once the hero is on screen, and stop when it leaves.
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
       if (e.isIntersecting && !paused) start();

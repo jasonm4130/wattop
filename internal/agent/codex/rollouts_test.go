@@ -24,15 +24,6 @@ func writeRollout(t *testing.T, root string, dateDir time.Time, filenameTS strin
 	return path
 }
 
-// TestShortlistByMtimeNotFilename: a file physically in today's directory
-// but named with a stale embedded timestamp (rollout filenames are local
-// time, and the records inside are UTC, so the two can disagree) must still
-// be shortlisted because its mtime is fresh — an implementation that
-// filtered by parsing the filename's date instead of stat'ing the file would
-// wrongly drop it. The inverse also holds: a file in yesterday's directory
-// named with a *fresh*-looking timestamp, but whose actual mtime is outside
-// the window, must be excluded — a filename-based implementation would
-// wrongly keep it.
 func TestShortlistByMtimeNotFilename(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 6, 23, 55, 0, 0, time.UTC)

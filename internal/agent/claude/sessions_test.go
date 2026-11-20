@@ -8,18 +8,11 @@ import (
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
-// TestWalkerIgnoresKeyFiles plants a fake <pid>.<hash>.key file alongside a
-// real session file and asserts ListSessionFiles never opens it: the
-// allowlist regex must reject it outright, not merely skip it after a
-// failed open.
 func TestWalkerIgnoresKeyFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	writeFile(t, filepath.Join(dir, "12345.json"), `{"pid":12345,"sessionId":"s1","cwd":"/home/u/proj","status":"busy"}`)
 
-	// A .key file that would panic os.ReadFile's caller if opened as JSON —
-	// its content is deliberately not valid JSON, so the test fails loudly
-	// (a decode error) if the allowlist regex ever lets it through.
 	writeFile(t, filepath.Join(dir, "12345.a1b2c3d4.key"), "not json, this is a secret")
 
 	got, err := ListSessionFiles(dir)
@@ -34,18 +27,12 @@ func TestWalkerIgnoresKeyFiles(t *testing.T) {
 	}
 }
 
-// TestMissingStatusIsUnknown covers the corpus's missing-status.json fixture
-// (pid 99571 on the capture machine): a session file with no "status" key
-// at all must render "unknown", never default to "waiting" or "".
 func TestMissingStatusIsUnknown(t *testing.T) {
 	dir := t.TempDir()
 	src, err := os.ReadFile(filepath.Join(fixture.CorpusDir(), "agent", "claude", "sessions", "missing-status.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	// The fixture isn't named for a pid (it lives under sessions/ for
-	// documentation purposes, per testdata/README.md), so copy it into a
-	// pid-named file to pass the allowlist.
 	writeFile(t, filepath.Join(dir, "99571.json"), string(src))
 
 	got, err := ListSessionFiles(dir)
@@ -96,16 +83,10 @@ func TestHeadlessChildSessionKind(t *testing.T) {
 	}
 }
 
-// TestTornFileDoesNotFailWholePoll plants one file that decodes to invalid
-// JSON (a torn read of the shape Claude Code produces mid-rewrite)
-// alongside two valid session files, and asserts ListSessionFiles returns
-// both valid sessions rather than failing outright: one bad file must
-// never blank every other Claude row for the cycle.
 func TestTornFileDoesNotFailWholePoll(t *testing.T) {
 	dir := t.TempDir()
 
 	writeFile(t, filepath.Join(dir, "11111.json"), `{"pid":11111,"sessionId":"s1","cwd":"/home/u/proj","status":"busy"}`)
-	// A torn write: valid JSON prefix, cut off mid-object.
 	writeFile(t, filepath.Join(dir, "22222.json"), `{"pid": 1`)
 	writeFile(t, filepath.Join(dir, "33333.json"), `{"pid":33333,"sessionId":"s3","cwd":"/home/u/proj","status":"waiting"}`)
 
@@ -122,9 +103,6 @@ func TestTornFileDoesNotFailWholePoll(t *testing.T) {
 	}
 }
 
-// TestTornFileUnreadableStillSkipped covers the ReadFile-error half of the
-// same guarantee: a file matching the allowlist that cannot be read (here,
-// permission-denied) must be skipped rather than failing the whole poll.
 func TestTornFileUnreadableStillSkipped(t *testing.T) {
 	dir := t.TempDir()
 
@@ -149,12 +127,6 @@ func TestTornFileUnreadableStillSkipped(t *testing.T) {
 	}
 }
 
-// TestStatusNormalisation covers every raw ~/.claude/sessions/<pid>.json
-// status value observed on real Claude Code (docs/manual-qa.md) plus an
-// invented one, and asserts each lands on one of the domain's five
-// documented Session.Status values (busy|waiting|stale|unknown|
-// rate-limited) — "stale" and "rate-limited" are never produced from a
-// session file's own status field, so they are excluded from this table.
 func TestStatusNormalisation(t *testing.T) {
 	cases := []struct {
 		raw  string
@@ -178,9 +150,6 @@ func TestStatusNormalisation(t *testing.T) {
 	}
 }
 
-// TestStatusNormalisationFixtures covers the real idle.json/shell.json
-// fixtures end-to-end through ListSessionFiles, and asserts RawStatus
-// still carries the on-disk value even though Status was remapped.
 func TestStatusNormalisationFixtures(t *testing.T) {
 	cases := []struct {
 		fixture    string

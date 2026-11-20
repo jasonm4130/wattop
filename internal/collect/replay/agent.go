@@ -11,19 +11,12 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// AgentSource implements domain.AgentSource by replaying a scripted
-// sequence of session lists recorded as testdata/replay/sessions.json — a
-// [][]domain.Session, one element per Poll() call, looping at the end.
-// It ignores the procs argument: the fixture already carries whatever
-// Proc/PID/BindConf shape each scripted session needs.
 type AgentSource struct {
 	name  string
 	polls [][]domain.Session
 	idx   int
 }
 
-// NewAgentSource loads the scripted poll sequence from
-// filepath.Join(dir, "sessions.json").
 func NewAgentSource(dir string) (*AgentSource, error) {
 	path := filepath.Join(dir, "sessions.json")
 	raw, err := os.ReadFile(path)
@@ -40,14 +33,10 @@ func NewAgentSource(dir string) (*AgentSource, error) {
 	return &AgentSource{name: "replay", polls: polls}, nil
 }
 
-// Name identifies this AgentSource for Snapshot.Degraded badges.
 func (s *AgentSource) Name() string {
 	return s.name
 }
 
-// Poll returns the next recorded session list, looping once the scripted
-// sequence is exhausted. now and procs are accepted for interface
-// compatibility and ignored.
 func (s *AgentSource) Poll(ctx context.Context, now time.Time, procs []domain.ProcSample) ([]domain.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -57,5 +46,4 @@ func (s *AgentSource) Poll(ctx context.Context, now time.Time, procs []domain.Pr
 	return poll, nil
 }
 
-// Close satisfies domain.AgentSource; replay holds no resources to release.
 func (s *AgentSource) Close() error { return nil }

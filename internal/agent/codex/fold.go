@@ -8,12 +8,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// walkToRoot follows c.ParentThreadID up through byThreadID (a poll's
-// rollouts, keyed by ThreadID) until it reaches a rollout with no
-// ParentThreadID at all, and returns that root. ok is false when any hop in
-// the chain is missing from this poll (the true root is not visible) or a
-// cycle is detected, in which case c cannot be folded and stays its own
-// session.
 func walkToRoot(c Rollout, byThreadID map[string]Rollout) (root Rollout, ok bool) {
 	seen := make(map[string]bool)
 	cur := c
@@ -33,10 +27,6 @@ func walkToRoot(c Rollout, byThreadID map[string]Rollout) (root Rollout, ok bool
 	}
 }
 
-// buildSubagent turns one folded child rollout into the domain.Subagent
-// entry it contributes to its root session. parentID is "" when c's direct
-// parent is the root itself, or the direct parent's ThreadID when that
-// parent is itself a folded child (a nested spawn).
 func buildSubagent(c Rollout, parentID string, idleThreshold time.Duration, now time.Time) domain.Subagent {
 	inferred := inferStatus(c.Status, c.ModTime, now, idleThreshold)
 	status := childSubagentStatus(inferred, c.TaskCompleted)
@@ -71,11 +61,6 @@ func buildSubagent(c Rollout, parentID string, idleThreshold time.Duration, now 
 	}
 }
 
-// childSubagentStatus maps a rollout's inferred busy/waiting/stale status
-// (see inferStatus) plus whether a task_complete was ever observed onto the
-// domain Subagent status vocabulary. "waiting" in practice always follows a
-// task_complete (that is what sets it), so its branch is here mainly for
-// symmetry with "stale", which can arrive with or without one.
 func childSubagentStatus(inferred string, taskCompleted bool) string {
 	switch inferred {
 	case "busy":
@@ -98,10 +83,6 @@ func childSubagentStatus(inferred string, taskCompleted bool) string {
 	}
 }
 
-// sortSubagentsTree orders a root's folded children depth-first: each
-// ParentID group (starting with "", the root's direct children) is sorted by
-// StartedAt then ID, and every subagent is emitted immediately before its
-// own children.
 func sortSubagentsTree(subs []domain.Subagent) []domain.Subagent {
 	byParent := make(map[string][]domain.Subagent, len(subs))
 	for _, s := range subs {

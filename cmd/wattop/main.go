@@ -1,8 +1,3 @@
-// Command wattop is the terminal dashboard: SoC watts and AI coding-agent
-// dollars, read on one refresh clock and joined by pid. See docs/plans for
-// the full design; this file only wires the real collectors, resolves
-// flags/env/config, and dispatches to the TUI, --json/--once headless
-// output, or the doctor subcommand.
 package main
 
 import (
@@ -30,30 +25,18 @@ import (
 	"github.com/jasonm4130/wattop/internal/version"
 )
 
-// defaultInterval is the SoC block duration when neither --interval nor
-// config.toml's interval_ms sets one.
 const defaultInterval = time.Second
 
-// minInterval and maxInterval bound --interval / config's interval_ms: it
-// is the SoC block duration and therefore the whole cycle period, so a
-// value outside this range is clamped (with a warning) rather than
-// accepted, per the Task 13 spec.
 const (
 	minInterval = 500 * time.Millisecond
 	maxInterval = 5 * time.Second
 )
 
-// burnWindow and burnAlpha are the BurnTracker's sliding window and EWMA
-// smoothing factor, per the plan's burn.go spec.
 const (
 	burnWindow = 60 * time.Second
 	burnAlpha  = 0.3
 )
 
-// cliFlags is the parsed top-level flag surface: --theme, --interval,
-// --json, --once, --no-color, --version, --demo. Pulled out of main() so
-// run_test.go can assert the flag surface parses without exec'ing the
-// built binary.
 type cliFlags struct {
 	theme    string
 	interval time.Duration
@@ -64,9 +47,6 @@ type cliFlags struct {
 	demo     bool
 }
 
-// newFlagSet declares the top-level flags into f. Output is discarded and
-// Usage is a no-op: parseErrorExit, not the flag package, decides where
-// usage and errors go, so -h prints to stdout and a bad flag to stderr.
 func newFlagSet(f *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("wattop", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -81,9 +61,6 @@ func newFlagSet(f *cliFlags) *flag.FlagSet {
 	return fs
 }
 
-// newDoctorFlagSet declares doctor's own flags. Shared by runDoctorCommand
-// and writeUsage so the top-level help can never drift from what doctor
-// actually parses.
 func newDoctorFlagSet(groups *bool) *flag.FlagSet {
 	fs := flag.NewFlagSet("wattop doctor", flag.ExitOnError)
 	fs.BoolVar(groups, "ioreport-groups", false, "enumerate IOReport groups with channel counts")
@@ -98,8 +75,6 @@ func parseFlags(args []string) (cliFlags, error) {
 	return f, nil
 }
 
-// writeUsage prints the full usage text: the top-level flags, then the
-// doctor subcommand and its flags.
 func writeUsage(w io.Writer) {
 	var f cliFlags
 	fs := newFlagSet(&f)
@@ -114,9 +89,6 @@ func writeUsage(w io.Writer) {
 	dfs.PrintDefaults()
 }
 
-// parseErrorExit handles a parseFlags error and returns the exit code:
-// -h/--help prints usage to stdout and exits 0; any other error prints
-// itself and the usage to stderr and exits 2.
 func parseErrorExit(err error, stdout, stderr io.Writer) int {
 	if errors.Is(err, flag.ErrHelp) {
 		writeUsage(stdout)
@@ -143,8 +115,6 @@ func main() {
 		return
 	}
 
-	// --demo ignores config.toml as well as every real collector, so a
-	// recording looks the same on any machine.
 	var cfg Config
 	if !flags.demo {
 		cfg, err = loadConfig()
@@ -206,8 +176,6 @@ func main() {
 	}
 }
 
-// runDoctorCommand parses doctor's own tiny flag set (--ioreport-groups)
-// and runs the report, without touching the main flag set above.
 func runDoctorCommand(args []string) {
 	groups := new(bool)
 	fs := newDoctorFlagSet(groups)
@@ -228,15 +196,6 @@ func runDoctorCommand(args []string) {
 	runDoctor(ctx, os.Stdout, src, interval, book, resolvedThemeName, *groups)
 }
 
-// buildSources constructs the real, non-replay Sources: the CGO soc
-// sampler (or its Linux/non-Apple-Silicon stub), the process scanner, and
-// the Claude and Codex agent sources. It also constructs and kicks off a
-// background refresh of the one pricing.Book the whole process shares.
-//
-// soc.Init() is called once here (never inside Loop's own retry path on
-// this first attempt) so a startup failure gets main's one-line banner:
-// "run with the session half only" per the spec, rather than a silent
-// disabled sampler.
 func buildSources(ctx context.Context, cfg Config) (Sources, *pricing.Book, bool) {
 	sampler := soc.NewSampler()
 	sysAvailable := true
@@ -273,18 +232,11 @@ func buildSources(ctx context.Context, cfg Config) (Sources, *pricing.Book, bool
 			claude.NewSource(claudeSessions, claudeProjects, cfg.ContextWindowOverrides),
 			codex.NewSource(codexRoot, idleThreshold),
 		},
-		// The same book state.New holds, kept here as well so each cycle
-		// can report the pricing source's health -- Refresh's failures are
-		// invisible otherwise (see pricingHealth), and main keeps its own
-		// reference for doctor regardless.
 		Pricing: book,
 	}
 	return src, book, sysAvailable
 }
 
-// resolveInterval applies the --interval / config.toml precedence and
-// clamps the result to [minInterval, maxInterval] with a warning, never
-// fatally.
 func resolveInterval(flagValue time.Duration, cfg Config) time.Duration {
 	interval := flagValue
 	if interval == 0 && cfg.IntervalMs > 0 {
@@ -304,8 +256,6 @@ func resolveInterval(flagValue time.Duration, cfg Config) time.Duration {
 	return interval
 }
 
-// resolveThemeName applies the --theme > $WATTOP_THEME > config.toml >
-// wattop-dark precedence stated in the Task 13 spec.
 func resolveThemeName(flagValue string, cfg Config) string {
 	if flagValue != "" {
 		return flagValue
@@ -319,11 +269,6 @@ func resolveThemeName(flagValue string, cfg Config) string {
 	return "wattop-dark"
 }
 
-// loadThemeOrWarn resolves name via theme.Load, falling back to
-// "wattop-dark" with a one-line stderr warning on an unrecognised name --
-// an unknown theme is never fatal. It returns the resolved Roles and the
-// name actually used (for ui.New's initial theme-cycle position and for
-// doctor's report).
 func loadThemeOrWarn(name string) (theme.Roles, string) {
 	roles, err := theme.Load(name)
 	if err == nil {
@@ -332,8 +277,6 @@ func loadThemeOrWarn(name string) (theme.Roles, string) {
 	fmt.Fprintf(os.Stderr, "wattop: %v; falling back to wattop-dark\n", err)
 	roles, err = theme.Load("wattop-dark")
 	if err != nil {
-		// The embedded default palette failing to load is a build defect,
-		// not a runtime condition callers can recover from.
 		panic(fmt.Sprintf("wattop: embedded default theme wattop-dark failed to load: %v", err))
 	}
 	return roles, "wattop-dark"

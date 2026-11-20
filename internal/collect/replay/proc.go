@@ -9,15 +9,11 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// ProcSource implements domain.ProcSource by replaying a scripted sequence
-// of process-table scans recorded as testdata/replay/procs.json — a
-// [][]domain.ProcSample, one element per Scan() call, looping at the end.
 type ProcSource struct {
 	scans []([]domain.ProcSample)
 	idx   int
 }
 
-// NewProcSource loads the scripted scan sequence from path.
 func NewProcSource(path string) (*ProcSource, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -33,7 +29,6 @@ func NewProcSource(path string) (*ProcSource, error) {
 	return &ProcSource{scans: scans}, nil
 }
 
-// Scan returns the next recorded scan, looping once the sequence is exhausted.
 func (s *ProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -43,5 +38,4 @@ func (s *ProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	return scan, nil
 }
 
-// Close satisfies domain.ProcSource; replay holds no resources to release.
 func (s *ProcSource) Close() error { return nil }

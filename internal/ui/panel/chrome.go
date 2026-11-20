@@ -11,7 +11,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// Rule embeds a section label in a quiet, full-width divider.
 func Rule(title string, r theme.Roles, width int, opts Options) string {
 	if width < 5 {
 		return styled(opts, r.Border, strings.Repeat("─", max(0, width)))
@@ -37,7 +36,6 @@ func card(title string, lines []string, r theme.Roles, width, height int, opts O
 	return strings.Join(out, "\n")
 }
 
-// HardwareHeight reserves a compact strip or two neighbouring instruments.
 func HardwareHeight(s domain.SysSample, width int) int {
 	if width < 110 {
 		return 10 + len(s.Clusters)
@@ -45,8 +43,6 @@ func HardwareHeight(s domain.SysSample, width int) int {
 	return max(12, 10+len(s.Clusters))
 }
 
-// HardwareRender uses the available width to put related readings together.
-// The compact strip retains its full vocabulary at ordinary 80-column sizes.
 func HardwareRender(s domain.SysSample, r theme.Roles, width, height int, opts Options) string {
 	if width < 110 {
 		return Render(s, r, width, height, opts)

@@ -1,15 +1,3 @@
-// Package demo generates synthetic, deterministic telemetry for `wattop
-// --demo`: an Apple-silicon SoC, a process table and a handful of Claude
-// Code and Codex sessions, none of it read from the machine. It exists so
-// the README hero GIF and social card can be re-recorded reproducibly
-// without exposing anyone's real sessions, paths or spend.
-//
-// Everything is a function of the seed and the tick count. World never
-// reads the wall clock, the environment, the filesystem or the process
-// table, and it uses no global random source: each "random" value is a
-// hash of (seed, channel, index). Timestamps it emits are offsets from the
-// time the caller passes in, so the numbers are identical on every run and
-// only the clock-time labels move.
 package demo
 
 import (
@@ -21,28 +9,18 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// DefaultSeed is the seed `wattop --demo` runs with.
-const DefaultSeed uint64 = 0x776174746f70 // "wattop"
+const DefaultSeed uint64 = 0x776174746f70
 
-// SoCName is the chip the demo claims to be. It is deliberately not the
-// machine the project is developed on.
 const SoCName = "Apple M4 Pro"
 
-// Chip topology for SoCName: 4 efficiency cores, 10 performance cores and
-// a 20-core GPU.
 const (
 	eCores   = 4
 	pCores   = 10
 	gpuCores = 20
 )
 
-// rateWindow is how far back TokenRate looks, matching the real sources'
-// "recorded over 60s".
 const rateWindow = 60 * time.Second
 
-// World is the demo's whole simulated machine. The zero value is not
-// usable; construct one with New. Methods are safe for concurrent use, but
-// the demo is only ever driven from the one sampling goroutine.
 type World struct {
 	mu   sync.Mutex
 	seed uint64
@@ -51,18 +29,13 @@ type World struct {
 
 	winTicks int
 
-	temp     float64 // °C, first-order lag toward the load target
+	temp     float64
 	sessions []*session
 
-	// Per-tick system readings computed by Advance, so Sys, Procs and
-	// Sessions called at the same tick agree with each other.
 	cpuLoad, gpuLoad float64
 	nBusy            int
 }
 
-// New returns a World at tick 0. step is the simulated time between ticks
-// and should be the sampling interval, so the synthetic token rates and
-// burn figures come out in real per-second units.
 func New(seed uint64, step time.Duration) *World {
 	if step <= 0 {
 		step = time.Second
@@ -80,18 +53,14 @@ func New(seed uint64, step time.Duration) *World {
 	return w
 }
 
-// Step returns the simulated time between ticks.
 func (w *World) Step() time.Duration { return w.step }
 
-// Tick returns how many times Advance has been called.
 func (w *World) Tick() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.tick
 }
 
-// Advance moves the world forward one tick: statuses flip, tokens accrue,
-// temperatures drift.
 func (w *World) Advance() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -99,12 +68,10 @@ func (w *World) Advance() {
 	w.computeTick()
 }
 
-// seconds is simulated elapsed time at tick.
 func (w *World) seconds(tick int) float64 {
 	return float64(tick) * w.step.Seconds()
 }
 
-// ago converts "n ticks before the current one" into a time before at.
 func (w *World) ago(at time.Time, ticks int) time.Time {
 	return at.Add(-time.Duration(ticks) * w.step)
 }
@@ -121,8 +88,6 @@ func (w *World) computeTick() {
 		}
 	}
 
-	// Machine load follows how many agents are working, plus its own
-	// wander and the occasional build/test burst.
 	burst := 0.0
 	if b := smooth(w.seed, chCPUBurst, t, 5); b > 0.68 {
 		burst = (b - 0.68) * 2.2
@@ -138,8 +103,6 @@ func (w *World) computeTick() {
 	w.temp += (target - w.temp) * clamp(0.12*dt, 0, 1)
 }
 
-// Sys returns the SoC reading for the current tick. At is left zero: the
-// reducer stamps every cycle with the loop's own clock.
 func (w *World) Sys() domain.SysSample {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -177,8 +140,6 @@ func (w *World) Sys() domain.SysSample {
 		SystemWatts: ptr(round2(sysW)),
 	}
 
-	// This chip, like the real M-series fallback, reports DRAM traffic as
-	// one power-derived total rather than read and write separately.
 	dram := round1(4 + 38*w.cpuLoad + 22*w.gpuLoad)
 	s.Bandwidth = domain.Bandwidth{DRAMCombinedGBs: &dram, DRAMEstimated: true}
 	s.Missing = []string{"dram_read_bw_gbs", "dram_write_bw_gbs"}
@@ -234,9 +195,6 @@ func (w *World) cluster(label string, cores int, act, fLo, fHi float64, first in
 	return domain.Cluster{Label: label, CoreCount: cores, ActivePct: &pct, FreqMHz: &freq, CoreActive: perCore}
 }
 
-// Procs returns one process-table row per session, consistent with the
-// sessions' own pid, cwd and busy/waiting state. at is the cycle's clock
-// time, used only to date each process's start.
 func (w *World) Procs(at time.Time) []domain.ProcSample {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -272,10 +230,6 @@ func (w *World) Procs(at time.Time) []domain.ProcSample {
 	return out
 }
 
-// SelfProc returns a process row for wattop itself under pid, so the
-// footer's self-CPU figure reads like a real run (about 1.5-3% CPU and
-// 60 MB resident) instead of 0.0%. The caller supplies pid (the reducer
-// keys self on os.Getpid); World itself never looks it up.
 func (w *World) SelfProc(pid int, at time.Time) domain.ProcSample {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -292,9 +246,6 @@ func (w *World) SelfProc(pid int, at time.Time) domain.ProcSample {
 	}
 }
 
-// Sessions returns every session whose Agent is agent ("claude" or
-// "codex"), or all of them when agent is empty. at is the cycle's clock
-// time: every timestamp in the result is an offset back from it.
 func (w *World) Sessions(agent string, at time.Time) []domain.Session {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -314,7 +265,6 @@ func ptr(v float64) *float64 { return &v }
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
-// toolID is a stable, obviously synthetic tool-use id.
 func toolID(prefix string, session, n int) string {
 	return fmt.Sprintf("%s_demo%02d%05d", prefix, session, n)
 }

@@ -9,16 +9,12 @@ import (
 	"time"
 )
 
-// TestFetchClientHasTimeout: the refresh runs on a goroutine nobody waits
-// on, so a stalled server must not hold its connection open forever.
 func TestFetchClientHasTimeout(t *testing.T) {
 	if pricingClient.Timeout != 10*time.Second {
 		t.Errorf("pricingClient.Timeout = %v, want 10s", pricingClient.Timeout)
 	}
 }
 
-// TestFetchRejectsOversizedBody: a response larger than maxPricingBody is
-// refused rather than read into memory whole.
 func TestFetchRejectsOversizedBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		chunk := strings.Repeat(" ", 1<<20)
@@ -36,7 +32,6 @@ func TestFetchRejectsOversizedBody(t *testing.T) {
 	}
 }
 
-// TestFetchAcceptsTableWithinLimit: the cap does not break a normal fetch.
 func TestFetchAcceptsTableWithinLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"claude-test":{"input_cost_per_token":0.000003}}`))

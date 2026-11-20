@@ -7,7 +7,6 @@ export default defineConfig({
   site: 'https://wattop.app',
   trailingSlash: 'ignore',
   build: { inlineStylesheets: 'never' },
-  // Never inline scripts: the CSP is script-src 'self' (see public/_headers).
   vite: { build: { assetsInlineLimit: 0 } },
   integrations: [
     starlight({
@@ -15,7 +14,6 @@ export default defineConfig({
       description:
         'Docs for wattop, a terminal monitor for Apple Silicon Macs that watches Claude Code and Codex sessions and the hardware running them.',
       disable404Route: true,
-      // Wrap long lines instead of scrolling or clipping them on phones.
       expressiveCode: { defaultProps: { wrap: true, preserveIndent: true } },
       favicon: '/favicon.svg',
       customCss: ['./src/styles/fonts.css', './src/styles/tokens.css', './src/styles/starlight.css'],
@@ -30,8 +28,6 @@ export default defineConfig({
         { tag: 'meta', attrs: { property: 'og:image:width', content: '1280' } },
         { tag: 'meta', attrs: { property: 'og:image:height', content: '640' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
-        // Skopia (cookieless site analytics) on every docs page. The landing
-        // and 404 pages load the same tag from src/layouts/Base.astro.
         {
           tag: 'script',
           attrs: {
@@ -76,7 +72,6 @@ export default defineConfig({
         },
       ],
     }),
-    // Must stay last: it rewrites dist/_headers after every page is written.
     cspHashes(),
   ],
 });

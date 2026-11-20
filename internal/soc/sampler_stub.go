@@ -9,15 +9,10 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// ErrUnsupportedPlatform is returned by Sampler.Init on any build that is
-// not darwin/arm64 with cgo enabled — the vendored mactop collectors under
-// internal/soc/mactop are Apple Silicon-only.
 var ErrUnsupportedPlatform = errors.New("soc: unsupported platform (requires darwin/arm64 with cgo)")
 
-// Sampler is the non-Apple-Silicon stub so the tree compiles on Linux CI.
 type Sampler struct{}
 
-// NewSampler returns the stub domain.Sampler.
 func NewSampler() *Sampler { return &Sampler{} }
 
 func (s *Sampler) Init() error {

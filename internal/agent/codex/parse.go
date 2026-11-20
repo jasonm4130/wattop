@@ -7,7 +7,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// record is the envelope shared by every Codex rollout line.
 type record struct {
 	Timestamp string          `json:"timestamp"`
 	Type      string          `json:"type"`
@@ -46,13 +45,8 @@ type turnContextPayload struct {
 	CWD   string `json:"cwd"`
 }
 
-// tokenUsage is the shape of both total_token_usage and last_token_usage.
-// Fields are copied raw: CachedInputTokens is a SUBSET of InputTokens, not
-// additive (domain.Usage.CachedInput carries the same contract), and
-// ReasoningOutputTokens is already inside OutputTokens — proved arithmetically
-// against the full-turn fixture (input 5200 + output 180 == total 5380, with
-// reasoning 40 not added on top). Never subtract or add these here; Task 7's
-// cost.go is what computes billable_input = input − cached_input.
+// Codex reports CachedInputTokens as a subset of InputTokens and
+// ReasoningOutputTokens as already inside OutputTokens.
 type tokenUsage struct {
 	InputTokens           int64 `json:"input_tokens"`
 	CachedInputTokens     int64 `json:"cached_input_tokens"`
@@ -71,7 +65,7 @@ type tokenCountInfo struct {
 type rateLimitWindow struct {
 	UsedPercent   *float64 `json:"used_percent"`
 	WindowMinutes int      `json:"window_minutes"`
-	ResetsAt      int64    `json:"resets_at"` // unix seconds
+	ResetsAt      int64    `json:"resets_at"`
 }
 
 type rateLimitsPayload struct {
@@ -79,42 +73,26 @@ type rateLimitsPayload struct {
 	Secondary *rateLimitWindow `json:"secondary"`
 }
 
-// eventMsgPayload covers the event_msg.payload.type values this package
-// reads: task_started, task_complete, token_count. thread_settings_applied
-// is accepted (it un-marshals into the same struct) but carries nothing this
-// package needs yet.
 type eventMsgPayload struct {
 	Type string `json:"type"`
 
-	// task_started carries the context window at the top level of its own
-	// payload — not nested under "info", which is a token_count-only shape.
 	ModelContextWindow int64 `json:"model_context_window"`
 
-	// token_count only.
 	Info       *tokenCountInfo    `json:"info"`
 	RateLimits *rateLimitsPayload `json:"rate_limits"`
 }
 
-// responseItemPayload covers the response_item.payload shapes this package
-// reads: function_call and function_call_output. Every other response_item
-// type (message, reasoning, ...) unmarshals into the same struct with its
-// fields left zero and is ignored.
 type responseItemPayload struct {
 	Type   string `json:"type"`
-	Name   string `json:"name"`    // function_call only
-	CallID string `json:"call_id"` // both function_call and function_call_output
+	Name   string `json:"name"`
+	CallID string `json:"call_id"`
 }
 
-// pendingCall is one function_call awaiting its function_call_output.
 type pendingCall struct {
 	ID   string
 	Name string
 }
 
-// Apply parses one rollout line and folds it into r. Unknown record types
-// and fields are ignored rather than erroring, since a rollout schema this
-// under-verified will drift and an unrecognised event should not crash the
-// tailer.
 func (r *Rollout) Apply(line []byte) error {
 	var rec record
 	if err := json.Unmarshal(line, &rec); err != nil {
@@ -200,16 +178,9 @@ func (r *Rollout) Apply(line []byte) error {
 		}
 		switch p.Type {
 		case "task_started":
-			// busy iff the most recent of task_started/task_complete is
-			// task_started.
 			r.Status = "busy"
-			// A new turn reopens the thread: an earlier task_complete no
-			// longer says the latest turn finished.
 			r.TaskCompleted = false
 			if r.ContextMax == 0 && p.ModelContextWindow > 0 {
-				// Fallback only: a token_count event's info.model_context_window
-				// takes precedence where present (applied below), since it is
-				// paired with an actual total_tokens numerator.
 				r.ContextMax = p.ModelContextWindow
 			}
 		case "task_complete":
@@ -223,8 +194,6 @@ func (r *Rollout) Apply(line []byte) error {
 				u := p.Info.TotalTokenUsage
 				input, output, cached := u.InputTokens-r.Usage.Input, u.OutputTokens-r.Usage.Output, u.CachedInputTokens-r.Usage.CachedInput
 				if !r.hasUsage || input < 0 || output < 0 || cached < 0 {
-					// First record or a reset: only the last request is known,
-					// never interpret the cumulative total as one burst.
 					last := p.Info.LastTokenUsage
 					input, output, cached = last.InputTokens, last.OutputTokens, last.CachedInputTokens
 				}
@@ -235,7 +204,7 @@ func (r *Rollout) Apply(line []byte) error {
 					Input:         u.InputTokens,
 					Output:        u.OutputTokens,
 					CachedInput:   u.CachedInputTokens,
-					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier; bucketed here for cost.go's sake.
+					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier
 					Thinking:      u.ReasoningOutputTokens,
 				}
 				r.fileLedger(p.Info, total)
@@ -244,12 +213,7 @@ func (r *Rollout) Apply(line []byte) error {
 					r.lastUsageAt = recAt
 				}
 				r.Usage = total
-				// ContextUsed is current context occupancy, not cumulative
-				// session spend: last_token_usage.total_tokens reflects the most
-				// recent turn's context, while total_token_usage.total_tokens sums
-				// every turn and can exceed model_context_window many times over on
-				// a long session. r.Usage above stays sourced from total_token_usage
-				// since cost is correctly cumulative.
+				// total_token_usage sums every turn, so ContextUsed comes from the last request.
 				if p.Info.LastTokenUsage.TotalTokens > 0 {
 					r.ContextUsed = p.Info.LastTokenUsage.TotalTokens
 				} else {
@@ -293,22 +257,9 @@ func (r *Rollout) Apply(line []byte) error {
 	return nil
 }
 
-// fileLedger files the usage one token_count adds over the running total
-// (r.Usage, not yet updated) under the current model and this request's
-// prompt size, so it is priced at the tier that request actually hit. It
-// must run after the replay guard, so a replayed prefix files nothing, and
-// before r.Usage takes the new total.
-//
-// The ledger always sums to r.Usage. The first token_count seen files the
-// whole cumulative total, since usage before it is not broken down anywhere
-// this rollout can see; a counter that goes backwards (a reset) restarts
-// the ledger from the new total, exactly as r.Usage is replaced by it. A
-// repeated token_count adds nothing.
 func (r *Rollout) fileLedger(info *tokenCountInfo, total domain.Usage) {
 	prompt := info.LastTokenUsage.InputTokens
 	if prompt <= 0 {
-		// No per-request input: fall back to the same figure ContextUsed
-		// uses, which folds in output and so can only overstate the tier.
 		prompt = info.LastTokenUsage.TotalTokens
 		if prompt <= 0 {
 			prompt = info.TotalTokenUsage.TotalTokens
@@ -347,10 +298,6 @@ func rateLimitsToDomain(p *rateLimitsPayload) []domain.RateLimit {
 	return out
 }
 
-// parseCodexTime parses a rollout record's top-level "timestamp" field
-// (RFC3339 with millisecond fraction, e.g. "2026-09-06T09:00:00.000Z") as
-// UTC. Both sides of every timestamp comparison in this package are UTC:
-// the filename embeds local time, but every record inside is UTC.
 func parseCodexTime(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
@@ -362,9 +309,6 @@ func parseCodexTime(s string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// inferStatus applies the mtime-derived staleness rule on top of the
-// task_started/task_complete-derived base status: stale if the file's mtime
-// exceeds the idle threshold, regardless of which task event was last seen.
 func inferStatus(base string, mtime, now time.Time, idleThreshold time.Duration) string {
 	if base == "" {
 		base = "unknown"
@@ -375,10 +319,6 @@ func inferStatus(base string, mtime, now time.Time, idleThreshold time.Duration)
 	return base
 }
 
-// LoadRollout reads path in full and folds every line into a fresh Rollout.
-// It is the non-incremental counterpart to the tailState-driven path
-// source.go uses on a running poll loop, and it is what the tests in this
-// package exercise directly against the committed fixtures.
 func LoadRollout(path string) (*Rollout, error) {
 	lines, err := readAllLines(path)
 	if err != nil {
@@ -394,10 +334,6 @@ func LoadRollout(path string) (*Rollout, error) {
 			continue
 		}
 		if err := r.Apply(line); err != nil {
-			// A malformed or truncated final line is buffered-and-retried by
-			// the tailer in production; LoadRollout reads a whole file at
-			// once, so it simply skips a line it cannot parse rather than
-			// failing the whole rollout.
 			continue
 		}
 	}

@@ -11,8 +11,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// HistoryRender keeps every chart on the same two-minute wall-clock axis.
-// Values are sampled at each column's right edge; missing periods stay blank.
 func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.Roles, width, height int, opts Options) string {
 	if height <= 0 {
 		return ""
@@ -46,7 +44,6 @@ func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.R
 	plotH = max(1, (height-6)/3)
 	right := chart("cpu", "CPU %", r.ChartCPU, 100, rightW-4)
 	right = append(right, chart("gpu", "GPU %", r.ChartGPU, 100, rightW-4)...)
-	// Power keeps its own scale rather than sharing the percentage axis.
 	right = append(right, chart("watts", "POWER W", r.ChartWatts, 0, rightW-4)...)
 	a := card("TOKEN THROUGHPUT", left, r, leftW, height-1, opts)
 	b := card("HARDWARE HISTORY", right, r, rightW, height-1, opts)
@@ -54,7 +51,6 @@ func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.R
 	return frame(append(strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, a, " ", b), "\n"), axis), width, height)
 }
 
-// HardwareSummary keeps readings visible when graphs leave little vertical room.
 func HardwareSummary(s domain.SysSample, r theme.Roles, width, height int, opts Options) string {
 	return frame([]string{
 		Rule("wattop / "+valueOrDash(s.SoCName)+" / g meters", r, width, opts),

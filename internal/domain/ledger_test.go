@@ -2,9 +2,6 @@ package domain
 
 import "testing"
 
-// TestPromptKPreservesTierThresholds: a tier *_above_<N>k_tokens applies
-// when the prompt exceeds N*1000, and PromptK*1000 must select the same
-// tier the exact prompt size does.
 func TestPromptKPreservesTierThresholds(t *testing.T) {
 	for _, tc := range []struct{ tokens, want int64 }{
 		{0, 0}, {-5, 0}, {1, 1}, {999, 1}, {1000, 1}, {1001, 2},

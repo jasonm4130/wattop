@@ -22,9 +22,6 @@ import (
 	"github.com/jasonm4130/wattop/internal/state"
 )
 
-// replaySources builds a Sources over the Task 3 corpus (soc) and the
-// Task 4 replay fixtures (proc, one agent source), for tests that need the
-// real coordinated cycle over deterministic, cgo-free data.
 func replaySources(t *testing.T) Sources {
 	t.Helper()
 
@@ -58,8 +55,6 @@ func testState(t *testing.T) *state.State {
 	return state.New(book, pricing.NewBurnTracker(burnWindow, burnAlpha))
 }
 
-// TestFlagSurfaceParses asserts every documented flag is recognised and
-// takes the expected type.
 func TestFlagSurfaceParses(t *testing.T) {
 	flags, err := parseFlags([]string{
 		"--theme", "nord",
@@ -90,9 +85,6 @@ func TestFlagSurfaceParses(t *testing.T) {
 	}
 }
 
-// TestDiscardStdLogWhileTUIRuns: the standard logger (pricing refresh
-// failures, from a background goroutine) must not write into the alt
-// screen while the TUI runs, and must go back to stderr afterwards.
 func TestDiscardStdLogWhileTUIRuns(t *testing.T) {
 	prev := log.Writer()
 	defer log.SetOutput(prev)
@@ -108,9 +100,6 @@ func TestDiscardStdLogWhileTUIRuns(t *testing.T) {
 	}
 }
 
-// TestHelpPrintsUsageAndExitsZero: -h/--help is a request, not an error. It
-// prints usage -- including the doctor subcommand and its flags -- to
-// stdout, nothing to stderr, and exits 0.
 func TestHelpPrintsUsageAndExitsZero(t *testing.T) {
 	for _, arg := range []string{"-h", "--help"} {
 		_, err := parseFlags([]string{arg})
@@ -139,9 +128,6 @@ func TestHelpPrintsUsageAndExitsZero(t *testing.T) {
 	}
 }
 
-// TestOnceJSONFromReplay wires the replay sources over the corpus through
-// one coordinated cycle and asserts --once --json's contract: exactly one
-// valid Snapshot line, with sys.soc_name set and sessions an array.
 func TestOnceJSONFromReplay(t *testing.T) {
 	src := replaySources(t)
 	loop := NewLoop(src, time.Second, testState(t), true)
@@ -175,9 +161,6 @@ func TestOnceJSONFromReplay(t *testing.T) {
 	}
 }
 
-// TestCycleStampIsShared asserts one replay cycle's Snapshot.At equals
-// Snapshot.Sys.At -- the coordinated-cycle invariant that makes the sys and
-// session halves of a Snapshot describe one instant.
 func TestCycleStampIsShared(t *testing.T) {
 	src := replaySources(t)
 	loop := NewLoop(src, time.Second, testState(t), true)
@@ -190,11 +173,6 @@ func TestCycleStampIsShared(t *testing.T) {
 	}
 }
 
-// panickingSampler implements domain.Sampler, panicking on its first N
-// Sample calls and succeeding thereafter -- the fixture
-// TestPanickingCollectorDegradesNotDies drives to prove a panic degrades a
-// source rather than killing the run loop, and that the badge clears once
-// the panic stops.
 type panickingSampler struct {
 	failCalls int
 	calls     int
@@ -213,11 +191,6 @@ func (s *panickingSampler) Sample(ctx context.Context, intervalMs int) (domain.S
 	return s.inner.Sample(ctx, intervalMs)
 }
 
-// TestPanickingCollectorDegradesNotDies covers both halves of a collector
-// panic: the badge appears in Snapshot.Degraded while the fake sampler
-// panics, and the badge is gone from Degraded on the first cycle after it
-// recovers -- a badge that never clears is a different bug wearing the
-// same shirt.
 func TestPanickingCollectorDegradesNotDies(t *testing.T) {
 	inner, err := replay.NewSysSampler(filepath.Join(fixture.CorpusDir(), "soc"))
 	if err != nil {
@@ -231,23 +204,18 @@ func TestPanickingCollectorDegradesNotDies(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Cycle 1: sampler panics. The run loop must not die, and the cycle
-	// must still produce a Snapshot with a "soc" badge in Degraded.
 	in1 := loop.Cycle(ctx)
 	snap1 := loop.State.Reduce(in1)
 	if !containsPrefix(snap1.Degraded, "soc:") {
 		t.Fatalf("cycle 1 Degraded = %v, want a soc: entry while the collector panics", snap1.Degraded)
 	}
 
-	// Cycle 2: still panicking (failCalls == 2).
 	in2 := loop.Cycle(ctx)
 	snap2 := loop.State.Reduce(in2)
 	if !containsPrefix(snap2.Degraded, "soc:") {
 		t.Fatalf("cycle 2 Degraded = %v, want a soc: entry while the collector still panics", snap2.Degraded)
 	}
 
-	// Cycle 3: the fake stops panicking. The badge must clear on this
-	// first healthy cycle.
 	in3 := loop.Cycle(ctx)
 	snap3 := loop.State.Reduce(in3)
 	if containsPrefix(snap3.Degraded, "soc:") {
@@ -264,11 +232,6 @@ func containsPrefix(list []string, prefix string) bool {
 	return false
 }
 
-// erroringSampler implements domain.Sampler and fails every Sample call
-// immediately, without blocking. It is the shape the spec explicitly
-// contemplates ("a Sample error or recovered panic never disables soc as
-// the pacing source") and therefore the shape that exposes whether the
-// loop has any pacing of its own when the C block does not happen.
 type erroringSampler struct{ calls int }
 
 func (s *erroringSampler) Init() error               { return nil }
@@ -280,9 +243,6 @@ func (s *erroringSampler) Sample(context.Context, int) (domain.SysSample, error)
 	return domain.SysSample{}, errors.New("erroringSampler: simulated sample failure")
 }
 
-// blockingSampler consumes more than the interval before returning, the way
-// the real CGO sampler does: the block is the period, so the loop must add
-// no wait of its own on top of it.
 type blockingSampler struct{ block time.Duration }
 
 func (s *blockingSampler) Init() error               { return nil }
@@ -294,9 +254,6 @@ func (s *blockingSampler) Sample(context.Context, int) (domain.SysSample, error)
 	return domain.SysSample{}, nil
 }
 
-// recordAfter replaces Loop.after with a timer that fires immediately and
-// records what was asked for, so pacing is asserted without spending the
-// wall-clock time it describes.
 func recordAfter(loop *Loop) *[]time.Duration {
 	var waits []time.Duration
 	loop.after = func(d time.Duration) <-chan time.Time {
@@ -308,11 +265,6 @@ func recordAfter(loop *Loop) *[]time.Duration {
 	return &waits
 }
 
-// TestRunPacesWhenSampleFailsFast is the regression test for the busy
-// spin: with a sampler that errors instantly there is no C block to pace
-// the loop, so Run must wait out the remainder of Interval itself. Before
-// Loop.pace existed, 20 such cycles at a 1s interval finished in 7.5
-// microseconds.
 func TestRunPacesWhenSampleFailsFast(t *testing.T) {
 	src := replaySources(t)
 	src.Sys = &erroringSampler{}
@@ -324,8 +276,6 @@ func TestRunPacesWhenSampleFailsFast(t *testing.T) {
 
 	loop.Run(context.Background())
 
-	// One wait per cycle except the last: Run checks MaxCycles before it
-	// paces, so it never sleeps on the way out.
 	if len(*waits) != loop.MaxCycles-1 {
 		t.Fatalf("paced %d times over %d cycles, want %d", len(*waits), loop.MaxCycles, loop.MaxCycles-1)
 	}
@@ -344,9 +294,6 @@ func TestRunPacesWhenSampleFailsFast(t *testing.T) {
 		t.Errorf("sampler was called %d times over %d cycles, want one call each", sampler.calls, loop.MaxCycles)
 	}
 
-	// The same run on the real timer, because a recorded duration proves
-	// only what the loop asked for. This is the measurement the busy spin
-	// failed: it finished 20 cycles in microseconds.
 	t.Run("on the real clock", func(t *testing.T) {
 		const short = 50 * time.Millisecond
 		realSrc := replaySources(t)
@@ -364,9 +311,6 @@ func TestRunPacesWhenSampleFailsFast(t *testing.T) {
 	})
 }
 
-// TestRunDoesNotPaceWhenSampleBlocks is the other half: when the sampler
-// really does consume the interval, the loop adds no wait on top of it --
-// "the block is the period", not the block plus a period.
 func TestRunDoesNotPaceWhenSampleBlocks(t *testing.T) {
 	src := replaySources(t)
 	const interval = 20 * time.Millisecond
@@ -383,9 +327,6 @@ func TestRunDoesNotPaceWhenSampleBlocks(t *testing.T) {
 	}
 }
 
-// TestRunJSONPacesAndStops covers the same pacing on the headless path,
-// which drives Cycle itself rather than going through Run, plus the
-// MaxCycles bound that makes --json terminable in a test at all.
 func TestRunJSONPacesAndStops(t *testing.T) {
 	src := replaySources(t)
 	src.Sys = &erroringSampler{}
@@ -408,11 +349,6 @@ func TestRunJSONPacesAndStops(t *testing.T) {
 	}
 }
 
-// TestCycleReportsPricingHealth: the per-cycle health list covers pricing
-// as well as soc, proc and the agents, so a refresh that has silently
-// stopped working reaches Snapshot.Degraded like any other source. A Loop
-// with no book simply omits the entry (an absent source is not a degraded
-// one).
 func TestCycleReportsPricingHealth(t *testing.T) {
 	src := replaySources(t)
 	loop := NewLoop(src, time.Second, testState(t), true)
@@ -447,10 +383,6 @@ func TestCycleReportsPricingHealth(t *testing.T) {
 	}
 }
 
-// TestPricingHealthPredicate pins the OK predicate itself. It is a pure
-// function precisely because a *pricing.Book with an old snapshot cannot be
-// built from outside internal/pricing, so the stale branch is unreachable
-// through the real type.
 func TestPricingHealthPredicate(t *testing.T) {
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
@@ -483,8 +415,6 @@ func TestPricingHealthPredicate(t *testing.T) {
 	}
 }
 
-// countingProcSource wraps a ProcSource and counts Scan calls, so a test
-// can assert doctor takes a baseline scan as well as a reported one.
 type countingProcSource struct {
 	inner domain.ProcSource
 	scans int
@@ -497,12 +427,6 @@ func (p *countingProcSource) Scan(ctx context.Context) ([]domain.ProcSample, err
 
 func (p *countingProcSource) Close() error { return p.inner.Close() }
 
-// TestDoctorScansTwiceAndReports pins doctor's report over replay sources.
-// The two-scan structure is the load-bearing part: internal/proc reports
-// deltas, so a pid's first appearance yields no CPU percentage and no GPU
-// ms/sec, and a doctor that scans once always prints an empty GPU table on
-// a machine whose GPU is busy. Collapsing this back to a single scan is a
-// tidy-looking edit that only a human on live hardware would catch.
 func TestDoctorScansTwiceAndReports(t *testing.T) {
 	src := replaySources(t)
 	counting := &countingProcSource{inner: src.Proc}
@@ -538,12 +462,6 @@ func TestDoctorScansTwiceAndReports(t *testing.T) {
 	}
 }
 
-// TestDoctorIOReportGroupsSection covers the three shapes the
-// --ioreport-groups section can take, on a platform with no IOReport: a
-// real listing renders one "<group>: <n> channels" line per group plus the
-// route that produced it, an empty listing says so, and an enumeration
-// error prints the error rather than an empty heading that reads like a
-// clean bill of health.
 func TestDoctorIOReportGroupsSection(t *testing.T) {
 	tests := []struct {
 		name      string

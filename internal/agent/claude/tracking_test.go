@@ -12,12 +12,10 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
-// t0 is the base time every synthetic record in this file is stamped from.
 var t0 = time.Date(2026, 9, 6, 1, 0, 0, 0, time.UTC)
 
 func stampAt(d time.Duration) string { return t0.Add(d).Format(time.RFC3339Nano) }
 
-// usageLine is an assistant record with usage and no tool calls.
 func usageLine(d time.Duration, msgID string, in, out int) string {
 	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"id":%q,"model":"claude-opus-5","role":"assistant",`+
 		`"content":[{"type":"text","text":"x"}],"usage":{"input_tokens":%d,"output_tokens":%d,"cache_read_input_tokens":5,`+
@@ -25,7 +23,6 @@ func usageLine(d time.Duration, msgID string, in, out int) string {
 		stampAt(d), msgID, in, out)
 }
 
-// toolUseLine is an assistant record with usage making one tool_use call.
 func toolUseLine(d time.Duration, msgID, toolID, name string) string {
 	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"id":%q,"model":"claude-opus-5","role":"assistant",`+
 		`"content":[{"type":"tool_use","id":%q,"name":%q}],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n",
@@ -100,7 +97,6 @@ func TestParseRecordStringContentAndNotification(t *testing.T) {
 		t.Fatalf("Notification = %+v, want %+v", ev.Notification, want)
 	}
 
-	// A dequeue record, or an enqueue of an ordinary prompt, is no notification.
 	for _, line := range []string{
 		`{"type":"queue-operation","operation":"dequeue","timestamp":"2026-09-06T01:00:00Z"}`,
 		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-09-06T01:00:00Z","content":"just a prompt"}`,
@@ -116,10 +112,6 @@ func TestParseRecordStringContentAndNotification(t *testing.T) {
 	}
 }
 
-// TestWorkflowJournalStatusesAndAggregation covers workflow agents: status
-// from journal result/failed only, phase and label from started records,
-// label falling back to meta name, a journal agent with no transcript, and
-// the per-workflow summary.
 func TestWorkflowJournalStatusesAndAggregation(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, usageLine(0, "p1", 10, 1))
@@ -153,15 +145,11 @@ func TestWorkflowJournalStatusesAndAggregation(t *testing.T) {
 		`{"type":"started","key":"k","agentId":"b1","phase":"only"}`+"\n"+
 			`{"type":"result","key":"k","agentId":"b1","result":{}}`+"\n")
 
-	// wf_c has a journal but no agents yet; wf_empty has nothing at all.
 	wfC := filepath.Join(subagentsDir, "workflows", "wf_c")
 	mkdir(t, wfC)
 	writeFile(t, filepath.Join(wfC, "journal.jsonl"), `{"type":"launched"}`+"\n")
 	mkdir(t, filepath.Join(subagentsDir, "workflows", "wf_empty"))
 
-	// a3 is fresh (12s old at poll time); a4 was last active 13s in, so at
-	// now = t0+60s both are within the quiet window. Push a4 out of it by
-	// polling late and keep a3 running via an outstanding tool.
 	appendTo(t, filepath.Join(wfA, "agent-a3.jsonl"), toolUseLine(14*time.Second, "a3t", "tu-a3", "Bash"))
 	sess := pollSession(t, s, t0.Add(5*time.Minute))
 
@@ -213,8 +201,6 @@ func TestWorkflowJournalStatusesAndAggregation(t *testing.T) {
 	}
 }
 
-// TestJournalResultDoesNotFreezeAccounting: usage a workflow agent flushes
-// after its journal result must still be counted on the next poll.
 func TestJournalResultDoesNotFreezeAccounting(t *testing.T) {
 	s, transcript, subagentsDir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, usageLine(0, "p1", 10, 1))
@@ -238,17 +224,12 @@ func TestJournalResultDoesNotFreezeAccounting(t *testing.T) {
 	if sess.Workflows[0].Usage.Input != 150 {
 		t.Fatalf("workflow usage = %+v", sess.Workflows[0].Usage)
 	}
-	// An unchanged poll re-reads nothing and double-counts nothing.
 	sess = pollSession(t, s, t0.Add(time.Minute+2*time.Second))
 	if w := subByID(t, sess, "w1"); w.Usage.Input != 150 {
 		t.Fatalf("unchanged poll changed usage: %+v", w)
 	}
 }
 
-// TestNestedChildrenTreeAndPropagation: a nested child's tool_result lives
-// in its parent agent's transcript; a running nested child keeps its quiet
-// parent running; tree order is roots by start, each followed by its
-// descendants, with an unresolvable parent treated as a root.
 func TestNestedChildrenTreeAndPropagation(t *testing.T) {
 	s, transcript, dir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, toolUseLine(0, "s1", "tu-p", "Agent")+toolUseLine(0, "s2", "tu-q", "Agent"))
@@ -268,7 +249,6 @@ func TestNestedChildrenTreeAndPropagation(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "agent-o.meta.json"), `{"toolUseId":"tu-o","parentAgentId":"zzz","spawnDepth":2}`)
 	writeFile(t, filepath.Join(dir, "agent-o.jsonl"), usageLine(3*time.Second, "om", 1, 1))
 
-	// First poll a long time later: everything unfinished is quiet.
 	sess := pollSession(t, s, t0.Add(10*time.Minute))
 	if got := strings.Join(subIDs(sess.Subagents), ","); got != "p,n,r,q,o" {
 		t.Fatalf("tree order = %s, want p,n,r,q,o", got)
@@ -276,8 +256,6 @@ func TestNestedChildrenTreeAndPropagation(t *testing.T) {
 	if n := subByID(t, sess, "n"); n.Status != domain.SubagentDone || n.ParentID != "p" || n.SpawnDepth != 2 {
 		t.Fatalf("n (result in parent agent's transcript) = %+v", n)
 	}
-	// p has tu-r outstanding in its own transcript, so it reads running on
-	// its CurrentTool regardless of propagation.
 	if p := subByID(t, sess, "p"); p.Status != domain.SubagentRunning || p.CurrentTool != "Agent" || p.ToolCalls != 2 {
 		t.Fatalf("p = %+v", p)
 	}
@@ -292,7 +270,6 @@ func TestNestedChildrenTreeAndPropagation(t *testing.T) {
 func TestRunningDescendantPropagatesToQuietParent(t *testing.T) {
 	s, transcript, dir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, toolUseLine(0, "s1", "tu-p", "Agent"))
-	// p's own spawn of c was answered, so p has no outstanding tool.
 	writeFile(t, filepath.Join(dir, "agent-p.meta.json"), `{"toolUseId":"tu-p","spawnDepth":1}`)
 	writeFile(t, filepath.Join(dir, "agent-p.jsonl"), usageLine(time.Second, "pm", 1, 1))
 	writeFile(t, filepath.Join(dir, "agent-c.meta.json"), `{"toolUseId":"tu-c","parentAgentId":"p","spawnDepth":2}`)
@@ -315,16 +292,11 @@ func TestRunningDescendantPropagatesToQuietParent(t *testing.T) {
 	}
 }
 
-// TestBackgroundChildDoneOnlyOnItsNotification: the launch tool_result is
-// not completion; a notification for another tool-use-id changes nothing;
-// the child's own notification ends it; a non-completed status is failed;
-// a nested background child's notification in a child transcript counts;
-// and the notification survives a parent compaction.
 func TestBackgroundChildDoneOnlyOnItsNotification(t *testing.T) {
 	s, transcript, dir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript,
 		toolUseLine(0, "s1", "tu-bg", "Agent")+
-			toolResultLine(time.Second, "tu-bg")+ // "Async agent launched successfully"
+			toolResultLine(time.Second, "tu-bg")+
 			toolUseLine(0, "s2", "tu-bad", "Agent")+
 			toolResultLine(time.Second, "tu-bad"))
 	bgMeta := func(tu, parent string) string {
@@ -368,7 +340,6 @@ func TestBackgroundChildDoneOnlyOnItsNotification(t *testing.T) {
 		t.Fatalf("nest after its notification in host's transcript = %+v", sub)
 	}
 
-	// Compaction drops the notification lines from the parent transcript.
 	writeFile(t, transcript, assistantRecord(30, "Grep", strings.Repeat("x", 2048)))
 	sess = pollSession(t, s, now.Add(3*time.Second))
 	if sub := subByID(t, sess, "bg"); sub.Status != domain.SubagentDone {
@@ -376,7 +347,6 @@ func TestBackgroundChildDoneOnlyOnItsNotification(t *testing.T) {
 	}
 }
 
-// TestQuietChildIdleButOutstandingToolRunning pins the two-minute rule.
 func TestQuietChildIdleButOutstandingToolRunning(t *testing.T) {
 	s, transcript, dir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, toolUseLine(0, "s1", "tu-a", "Agent")+toolUseLine(0, "s2", "tu-b", "Agent"))
@@ -405,8 +375,6 @@ func TestQuietChildIdleButOutstandingToolRunning(t *testing.T) {
 	}
 }
 
-// TestParentResetKeepsChildState: compaction of the parent must neither
-// re-read nor double-count a child, nor lose its tool_result evidence.
 func TestParentResetKeepsChildState(t *testing.T) {
 	s, transcript, dir := sourceFixtureWithSubagents(t)
 	writeFile(t, transcript, toolUseLine(0, "s1", "tu-c", "Agent")+toolResultLine(9*time.Second, "tu-c"))
@@ -425,7 +393,6 @@ func TestParentResetKeepsChildState(t *testing.T) {
 		t.Fatalf("parent reset changed child: before %+v after %+v", before, after)
 	}
 
-	// A child's own truncation resets its accumulators.
 	writeFile(t, filepath.Join(dir, "agent-c.jsonl"), usageLine(3*time.Second, "m3", 7, 1))
 	sess = pollSession(t, s, t0.Add(12*time.Second))
 	if c := subByID(t, sess, "c"); c.Usage.Input != 7 {
@@ -450,7 +417,6 @@ func TestLastUsageAtCoversChildren(t *testing.T) {
 	}
 }
 
-// TestWalkIgnoresUnknownLayout: only subagents/ and workflows/wf_*/ are read.
 func TestWalkIgnoresUnknownLayout(t *testing.T) {
 	dir := t.TempDir()
 	meta := `{"toolUseId":"t","spawnDepth":1}`

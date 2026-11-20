@@ -11,21 +11,10 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// spinnerGlyph is a single static braille frame. The animation itself lives
-// in model.go's tick-driven redraw (a Snapshot carries no frame counter);
-// this is the glyph a busy row renders on any given frame.
 const spinnerGlyph = "⠋"
 
 const ctxBarWidth = 10
 
-// Base column widths -- the layout used when width comfortably fits every
-// column. wCTX is 18, not 16: the gauge's widest form (marker + bracket +
-// ctxBarWidth-wide bar + bracket + " NNN%") is 18 visible columns, and a
-// header slot narrower than its widest row content misaligns every column
-// to its right. computeSessionCols shrinks (or, given extra room, grows)
-// these per render; sessionsHeader and sessionRow/subagentRow always read
-// widths from its result, never these constants directly, so header and
-// row can never drift out of alignment with each other.
 const (
 	wStatus = 16
 	wPID    = 13
@@ -38,42 +27,17 @@ const (
 	wBurn   = 8
 	wCPU    = 5
 	wRSS    = 6
-	// wSA holds the SA column's running/total pair ("3/41", up to
-	// "999/999"), right-aligned like the TL count beside it.
-	wSA = 7
+	wSA     = 7
 )
 
-// colFloor is the narrowest any flexible column is shrunk to before it
-// switches to a degraded-but-legible form (a bare pid number instead of
-// "pid 1234", a percentage instead of a context bar, a compact rate)
-// rather than losing more characters.
 const colFloor = 5
 
-// sessionCols is the per-render column-width plan computed from the
-// available frame width. STATUS/PID/MODEL/CWD/CTX/OUT/s are flexible: they
-// shrink toward colFloor, in priority order, only as far as the frame
-// forces, and grow past their base width to spend any leftover space
-// (CWD first, then MODEL) rather than leaving it as blank trailing
-// columns. AGENT, COST, BURN, CPU and RSS never shrink -- $/$/HR/CPU% are
-// exactly the figures a narrow terminal must still show in full, and
-// AGENT/RSS are already at their minimum useful width.
 type sessionCols struct {
 	Status, PID, Model, CWD, Ctx, Rate int
 	Agent, Cost, Burn, CPU, RSS        int
 	ShowTL, ShowSA, ShowGPU            bool
 }
 
-// computeSessionCols fits the table into width display columns, minus the
-// 2-column selection gutter every row carries (see styleSelected). A full
-// table (all 14 columns at base width) needs 147 columns; short of that,
-// TL, SA and GPU/s -- the three lowest-value columns -- drop first, in
-// that order. If the table still does not fit, the flexible columns
-// shrink toward colFloor in priority order -- OUT/s and CTX first, since
-// both degrade to a shorter but still meaningful form, then MODEL, CWD,
-// PID and STATUS last, since truncating an identity column costs more
-// than a percentage losing its bar. This is what keeps $, $/HR and CPU%
-// on screen at 80 columns and gives 200 columns' worth of slack to CWD
-// (up to +40) and then MODEL instead of leaving it as dead space.
 func computeSessionCols(width int) sessionCols {
 	c := sessionCols{
 		Status: wStatus, PID: wPID, Model: wModel, CWD: wCWD, Ctx: wCTX, Rate: wRate,
@@ -140,27 +104,8 @@ func computeSessionCols(width int) sessionCols {
 	return c
 }
 
-// unknownPID is the literal string a BindConf == "unknown" session renders
-// in place of a real pid -- keyed on BindConf, never on Proc == nil, since
-// a session can in principle carry BindConf == "unknown" with a populated
-// Proc (see TestUnboundPidRendersDashes's synthetic case).
 const unknownPID = "(pid unknown)"
 
-// SessionsRender draws the session table from a flat, already
-// sorted-and-filtered list of sessions, at is the snapshot's own At (never
-// the wall clock: a stale row's age is measured against it, and Render
-// must stay deterministic given its inputs). selected is the flattened row
-// index to highlight, or -1 for none.
-//
-// Children render as indented rows directly under their parent session, in
-// ChildRows order: non-workflow subagents in tree order, then one collapsed
-// row per workflow.
-//
-// When the flattened row count exceeds the frame's data height, the table
-// scrolls: the visible window is recentred on selected (windowRows), and
-// the first/last visible line becomes a "▲/▼ N more" marker whenever rows
-// are hidden on that side, so an off-screen selection is never silent and
-// never itself hidden behind a marker.
 func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, selected int, at time.Time, opts Options) string {
 	cols := computeSessionCols(width)
 	rows := sessionRows(sessions, r, at, opts, selected, cols)
@@ -173,8 +118,6 @@ func SessionsRender(sessions []domain.Session, r theme.Roles, width, height, sel
 	return frame(lines, width, height)
 }
 
-// sessionRows flattens sessions (and their ChildRows) into one
-// already-styled line per row, in flattened-row order.
 func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Options, selected int, cols sessionCols) []string {
 	var lines []string
 	row := 0
@@ -210,12 +153,6 @@ func plainIfSelected(opts Options, isSelected bool) Options {
 	return opts
 }
 
-// windowRows returns at most visible lines from rows, scrolled so selected
-// (a flattened row index, or -1 for none) stays on screen. When rows are
-// hidden above or below the window, the first/last visible line is
-// replaced with a "▲/▼ N more" marker -- unless that line is the selected
-// row itself, in which case the marker is skipped rather than hiding the
-// selection.
 func windowRows(rows []string, visible, selected int) []string {
 	n := len(rows)
 	if visible <= 0 {
@@ -245,10 +182,6 @@ func windowRows(rows []string, visible, selected int) []string {
 	return window
 }
 
-// selectionGutter marks the selected row with "▸ " (and every other row
-// with "  " in its place) so the current selection stays visible even under
-// NO_COLOR or when piped to a colorless terminal -- not just via the
-// selection styling layered on top of it in color mode.
 const selectionGutter = "▸ "
 
 func styleSelected(line string, isSelected bool, r theme.Roles, opts Options) string {
@@ -261,12 +194,6 @@ func styleSelected(line string, isSelected bool, r theme.Roles, opts Options) st
 	if !isSelected || opts.NoColor {
 		return line
 	}
-	// line was built via plainIfSelected, so it carries no embedded ANSI of
-	// its own -- this is the only style applied to it, and it covers every
-	// cell all the way to the end of the line. Wrapping an already-styled
-	// line (the old \x1b[7m...\x1b[0m hand-rolled wrapper, and an
-	// equally-broken lipgloss Render() over pre-styled cells) collapses the
-	// selection background at the first embedded reset instead.
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(r.Foreground)).Background(lipgloss.Color(r.Border)).Bold(true).Render(line)
 }
 
@@ -297,11 +224,6 @@ func sessionsHeader(cols sessionCols) string {
 }
 
 func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, cols sessionCols) string {
-	// Every cell is assembled plain and padded to its column width with
-	// padLine (which measures visible width via lipgloss.Width) before any
-	// ANSI styling is applied. Padding a styled cell with a fmt width verb
-	// counts escape bytes as columns and silently produces a short cell,
-	// shifting every column to its right.
 	statusColor, statusLabel := statusInfo(r, s, at)
 	status := styled(opts, statusColor, padLine(truncate(statusLabel, cols.Status), cols.Status))
 
@@ -310,10 +232,6 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	agent := s.Agent
 	model := truncate(modelLabel(s.Model), cols.Model)
 	if s.Kind != "" && s.Kind != "interactive" {
-		// A background claude -p / sdk-cli run must never look like the
-		// session a person is typing into: mute the identity columns
-		// rather than let a $9/hr Nightshift run blend in with the row
-		// beside it.
 		agent = styled(opts, r.Muted, padLine(truncate(agent+"*", cols.Agent), cols.Agent))
 		model = styled(opts, r.Muted, padLine(model, cols.Model))
 	} else {
@@ -330,16 +248,11 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 		cost = fmt.Sprintf("$%.2f", *s.CostUSD)
 	}
 	if s.CostPartial {
-		// The total omits an unpriced subagent: mark it as a lower bound.
 		cost = "~" + cost
 	}
 	cost = padLine(truncate(cost, cols.Cost), cols.Cost)
 	burn := "—"
 	if s.BurnUSDPerHr != nil {
-		// No "/hr" suffix here -- the header's own "$/HR" label already
-		// carries the unit, and the suffix was the reason a burn rate
-		// past $99.99/hr (e.g. "$179.20/hr", 10 chars) overran wBurn
-		// and got truncated: the one figure this tool exists to show.
 		burn = fmt.Sprintf("$%.2f", *s.BurnUSDPerHr)
 	}
 	burn = padLine(truncate(burn, cols.Burn), cols.Burn)
@@ -366,12 +279,6 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	return strings.Join(parts, " ")
 }
 
-// modelLabel renders a session's model id, or the unresolved dash when the
-// source could not read one — a session whose transcript is not on disk
-// (a headless `claude -p` run writes none) has no model to report, and an
-// empty cell reads as a rendering bug rather than as missing data. The
-// dash never reaches domain.Session.Model itself: --json keeps the empty
-// string, and the pricing table is never asked to price "—".
 func modelLabel(model string) string {
 	if model == "" {
 		return "—"
@@ -379,11 +286,6 @@ func modelLabel(model string) string {
 	return model
 }
 
-// pidCell renders the pid cell, keyed on BindConf == "unknown" (never on
-// Proc == nil -- see unknownPID). At full width it is the verbose
-// "pid 1234" / "(pid unknown)" / "—" form; when width is too narrow for
-// that (a compact terminal drops to it, see computeSessionCols), it falls
-// back to the bare number -- the minimum that still identifies the row.
 func pidCell(s domain.Session, width int) string {
 	verbose := unknownPID
 	if s.BindConf != "unknown" {
@@ -403,7 +305,6 @@ func pidCell(s domain.Session, width int) string {
 	return truncate(compact, width)
 }
 
-// tokenRateCell reports output tokens/sec; total usage remains in detail.
 func tokenRateCell(rate *domain.TokenRate, width int) string {
 	text := "—"
 	if rate != nil {
@@ -415,8 +316,6 @@ func tokenRateCell(rate *domain.TokenRate, width int) string {
 	return padLine(truncate(text, width), width)
 }
 
-// subagentCounts is the SA cell: running/total over every subagent,
-// workflow agents included.
 func subagentCounts(subagents []domain.Subagent) string {
 	running := 0
 	for i := range subagents {
@@ -427,14 +326,6 @@ func subagentCounts(subagents []domain.Subagent) string {
 	return fmt.Sprintf("%d/%d", running, len(subagents))
 }
 
-// childStatusCell renders a child row's STATUS cell: the tree indent (two
-// spaces, plus two per depth level) followed by label, inside the cell
-// itself. The indent lives in the cell rather than as a separate prefix so
-// an indented child row costs exactly the same total width as a parent row
-// -- both are built from the same cols, and a prefix on top of that would
-// silently push every child row past whatever computeSessionCols budgeted
-// for width. Deep nesting stops indenting once the label would drop below
-// four columns.
 func childStatusCell(opts Options, color, label string, depth, width int) string {
 	indent := 2 + 2*depth
 	if limit := width - 4; indent > limit {
@@ -443,8 +334,6 @@ func childStatusCell(opts Options, color, label string, depth, width int) string
 	return styled(opts, color, padLine(strings.Repeat(" ", indent)+truncate(label, width-indent), width))
 }
 
-// childTailCells are the blank TL/SA/CPU/GPU/RSS cells a child row carries
-// so its width matches the parent row's.
 func childTailCells(cols sessionCols) []string {
 	var parts []string
 	if cols.ShowTL {
@@ -460,12 +349,6 @@ func childTailCells(cols sessionCols) []string {
 	return append(parts, padLine("", cols.RSS))
 }
 
-// subagentRow renders one non-workflow child row, indented by depth under
-// its parent. AgentType/Description identify it (a trailing "⇢" on the
-// agent marks a background spawn), Model is the resolved (not requested)
-// model id, and the CWD cell leads with the tool a running child is
-// waiting on. An unpriced subagent model renders "$—", matching the
-// parent's own rule.
 func subagentRow(r theme.Roles, sa *domain.Subagent, depth int, opts Options, cols sessionCols) string {
 	color, state := childStatus(r, sa.Status, sa.Live)
 	label := childStatusCell(opts, color, state, depth, cols.Status)
@@ -488,8 +371,6 @@ func subagentRow(r theme.Roles, sa *domain.Subagent, depth int, opts Options, co
 	return strings.Join(append(parts, childTailCells(cols)...), " ")
 }
 
-// workflowRow renders one collapsed workflow row: its status, id, newest
-// phase and agent counts, with rate, cost and burn summed from its agents.
 func workflowRow(r theme.Roles, w *domain.Workflow, opts Options, cols sessionCols) string {
 	color, state := childStatus(r, w.Status, false)
 	label := childStatusCell(opts, color, "wf "+state, 0, cols.Status)
@@ -509,10 +390,6 @@ func workflowRow(r theme.Roles, w *domain.Workflow, opts Options, cols sessionCo
 	return strings.Join(append(parts, childTailCells(cols)...), " ")
 }
 
-// statusInfo maps a Session.Status to its severity color and display
-// label. All five spec'd values render distinctly; a status the renderer
-// does not recognise falls through to Muted and the literal string, never
-// a blank cell.
 func statusInfo(r theme.Roles, s domain.Session, at time.Time) (color, label string) {
 	switch s.Status {
 	case "busy":
@@ -548,19 +425,6 @@ func formatAge(d time.Duration) string {
 	}
 }
 
-// ctxGauge renders the context-fill bar. ContextExact == false (Claude)
-// carries a "~" prefix and a dashed bar edge; ContextExact == true (Codex)
-// is unmarked. One uniformly-wrong gauge is worse than two honestly
-// labelled ones.
-//
-// Bar() clamps its fill at 100%, so a session over its window (a live
-// Codex row can read 473% -- see the parser-side note on ContextUsed)
-// rendered a saturated bar next to a three-digit, unclamped percentage:
-// the two disagreed, and every saturated row looked identical regardless
-// of how far over budget it was. Past 100%, render the literal ">100%"
-// in r.Hot instead of the raw number: it stays honest about being over
-// scale (unlike silently clamping the number to "100%", which would read
-// as exactly full) while agreeing with the bar's own saturation.
 func ctxGauge(r theme.Roles, s domain.Session, opts Options, width int) string {
 	pct := 0.0
 	if s.ContextMax > 0 {
@@ -576,12 +440,6 @@ func ctxGauge(r theme.Roles, s domain.Session, opts Options, width int) string {
 		plainPct = ">100%"
 	}
 
-	// A gauge's fixed overhead -- marker + both brackets + " NNN%" -- is 8
-	// columns wide (see wCTX's doc comment), so a bar only fits above that;
-	// below it (computeSessionCols has shrunk cols.Ctx toward colFloor for
-	// a narrow terminal) there is no room for a bracketed bar at all, and
-	// the cell degrades to the bare, still-honest percentage rather than
-	// overflowing its column.
 	if barWidth := width - 8; barWidth >= 1 {
 		bar := Bar(r, pct, barWidth, r.Severity(pct, 70, 90), opts.NoColor)
 		left, right := "[", "]"
@@ -592,14 +450,8 @@ func ctxGauge(r theme.Roles, s domain.Session, opts Options, width int) string {
 		if pct > 100 {
 			pctText = styled(opts, r.Hot, plainPct)
 		}
-		// bar already carries ANSI fill/empty styling; padLine measures its
-		// visible width via lipgloss.Width, so padding here (rather than
-		// with a fmt width verb) stays correct regardless of that styling.
 		return padLine(fmt.Sprintf("%s%s%s%s%s", marker, left, bar, right, pctText), width)
 	}
-	// Truncate the plain (unstyled) text first -- cutting a styled string
-	// by rune count risks slicing an embedded ANSI escape in two -- then
-	// style the already-final-width result.
 	cell := truncate(marker+plainPct, width)
 	if pct > 100 {
 		cell = styled(opts, r.Hot, cell)
@@ -607,16 +459,10 @@ func ctxGauge(r theme.Roles, s domain.Session, opts Options, width int) string {
 	return padLine(cell, width)
 }
 
-// formatTokens renders a token count compactly: below 1000 as-is, at or
-// above 1000 as "N.Nk"/"N.NM"/"N.NG".
 func formatTokens(n int64) string {
 	return humanCount(n)
 }
 
-// humanCount renders a raw count with a k/M/G suffix once it clears 1000,
-// keeping one decimal place at every scale -- a 6-8 digit raw number (token
-// counts, cache-read counters) is the widest, least readable cell in the
-// sessions table and overruns its column.
 func humanCount(n int64) string {
 	neg := ""
 	if n < 0 {
@@ -635,10 +481,6 @@ func humanCount(n int64) string {
 	}
 }
 
-// humanBytes renders a byte count with a KB/MB/GB suffix once it clears
-// 1000, one decimal place at every scale -- used wherever a raw byte
-// counter (disk cumulative r/w) would otherwise render as an 8-9 digit
-// integer.
 func humanBytes(n uint64) string {
 	switch {
 	case n >= 1_000_000_000:
@@ -652,7 +494,6 @@ func humanBytes(n uint64) string {
 	}
 }
 
-// truncate cuts s to at most n runes, marking the cut with a trailing "…".
 func truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -664,9 +505,6 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// shortenLeft cuts from the left (keeping the tail, which usually carries
-// the project name) when s is longer than n runes, marking the cut with a
-// leading "…" -- a cwd's most identifying part is its last component.
 func shortenLeft(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

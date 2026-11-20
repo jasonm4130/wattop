@@ -10,25 +10,8 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-// estimateCaveat is permanent UI, not a README line: a Max-plan subscriber
-// pays nothing marginal for what a naive dashboard renders as $12/hr, so
-// every render carries the caveat rather than trusting a user to have read
-// it once.
 const estimateCaveat = "Costs are estimates from a pricing table and ignore subscription plans."
 
-// FooterRender draws the machine totals: total SoC watts next to total
-// $/hr (the one number no existing tool puts side by side), wattop's own
-// CPU cost, an "N models unpriced" count when nonzero, any Degraded source
-// badges, and the standing estimate caveat.
-//
-// sortKey and themeName name the active sort column and palette, paused
-// reports whether the model has frozen updates, and hidden is how many
-// sessions the table's dormant filter is keeping off screen -- all four
-// are otherwise invisible on screen, and a paused monitoring tool with
-// nothing saying so is the one state this UI must never hide. The status
-// line carrying them is placed right after the machine-totals line (not
-// last) so it survives frame's height truncation even when height is too
-// short for every line below it.
 func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortKey, themeName string, paused bool, hidden int, opts Options) string {
 	var lines []string
 
@@ -38,7 +21,6 @@ func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortK
 		burnColor = r.CostHot
 	}
 	burn := styled(opts, burnColor, fmt.Sprintf("$%.2f/hr", snap.TotalBurnUSDPerHr))
-	// "~" marks a total that omits an unpriced session or subagent.
 	partial := ""
 	if snap.TotalCostPartial {
 		partial = "~"
@@ -66,13 +48,6 @@ func FooterRender(snap *domain.Snapshot, r theme.Roles, width, height int, sortK
 	return frame(lines, width, height)
 }
 
-// machineLine joins the machine-totals segments, dropping them from the
-// right until the line fits width. Nothing here is truncated: cutting
-// "$335.19 session total" mid-number at 80 columns would leave a figure
-// that reads as a smaller, wrong one, so the last segment is dropped
-// whole instead. The first segment (total watts) is always kept, however
-// narrow the terminal -- a footer with no numbers at all is worse than
-// one that overruns by a character.
 func machineLine(width int, segs []string) string {
 	const prefix = "Machine  "
 	const sep = "  |  "
@@ -84,20 +59,6 @@ func machineLine(width int, segs []string) string {
 	return build(n)
 }
 
-// statusLine advertises the keybindings that otherwise leave no trace on
-// screen: `s` (sort), `t` (theme), `p` (pause) and `a` (show all), plus
-// the `?` help overlay itself. [PAUSED] is styled with r.Warn and always
-// shown when paused -- it never shares a badge with an active sort/theme,
-// so it cannot be mistaken for the normal state. "N hidden" is the same
-// contract for the dormant-row filter: a row the table drops always has a
-// count on screen saying so, and the key that brings it back.
-//
-// The line is right-aligned within width (padLine only pads on the right,
-// so alignment is done here with leading spaces) rather than left-aligned
-// like every other footer line, so it reads visually distinct as a status
-// strip. When it does not fit, sort and then theme are dropped -- both are
-// also on the help overlay, while [PAUSED] and the hidden count are not
-// recoverable from anywhere else.
 func statusLine(r theme.Roles, sortKey, themeName string, paused bool, hidden, width int, opts Options) string {
 	segs := []string{fmt.Sprintf("sort:%s", sortKey), fmt.Sprintf("theme:%s", themeName)}
 	if paused {

@@ -33,8 +33,6 @@ func newTestModel(t *testing.T) Model {
 	return New(st, "wattop-dark", r)
 }
 
-// keyMsg builds a tea.KeyPressMsg whose String() reproduces s exactly, for
-// every keystroke keys.go's keyAction recognises.
 func keyMsg(s string) tea.KeyPressMsg {
 	switch s {
 	case "up":
@@ -55,9 +53,6 @@ func cycleMsg(at time.Time, sessions []domain.Session) CycleMsg {
 	return CycleMsg{Inputs: state.Inputs{At: at, Sessions: sessions}}
 }
 
-// TestSelectionMovesWithinBounds drives Update with a scripted key
-// sequence and asserts the selected row clamps at both ends rather than
-// wrapping or going negative.
 func TestSelectionMovesWithinBounds(t *testing.T) {
 	m := newTestModel(t)
 
@@ -91,8 +86,6 @@ func TestSelectionMovesWithinBounds(t *testing.T) {
 	}
 }
 
-// TestThemeCyclingForwardAndBack asserts "t" advances through the embedded
-// theme list, wrapping, and "T" reverses it.
 func TestThemeCyclingForwardAndBack(t *testing.T) {
 	m := newTestModel(t)
 	names := theme.Names()
@@ -107,7 +100,6 @@ func TestThemeCyclingForwardAndBack(t *testing.T) {
 		t.Fatalf("themeIdx = %d after one 't', want %d", m.themeIdx, (start+1)%len(names))
 	}
 
-	// Cycle all the way around forward and confirm it wraps back to start.
 	for i := 0; i < len(names)-1; i++ {
 		mi, _ = m.Update(keyMsg("t"))
 		m = mi.(Model)
@@ -124,8 +116,6 @@ func TestThemeCyclingForwardAndBack(t *testing.T) {
 	}
 }
 
-// TestPauseDropsCycleMsg asserts a paused Model's Snapshot does not change
-// when a CycleMsg arrives, and resumes updating once unpaused.
 func TestPauseDropsCycleMsg(t *testing.T) {
 	m := newTestModel(t)
 	base := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -155,8 +145,6 @@ func TestPauseDropsCycleMsg(t *testing.T) {
 	}
 }
 
-// TestQuitReturnsQuitCmd asserts 'q' and ctrl+c both yield a command that,
-// when run, produces a tea.QuitMsg.
 func TestQuitReturnsQuitCmd(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
@@ -172,8 +160,6 @@ func TestQuitReturnsQuitCmd(t *testing.T) {
 	}
 }
 
-// TestToggleDetailFilterHelp exercises enter/f/? and asserts each flips
-// its own bit without disturbing the others.
 func TestToggleDetailFilterHelp(t *testing.T) {
 	m := newTestModel(t)
 
@@ -199,10 +185,6 @@ func TestToggleDetailFilterHelp(t *testing.T) {
 	}
 }
 
-// TestSortCyclesThroughSortKeys asserts 's' advances sortIdx and wraps,
-// and that GPU is never among the cyclable keys -- the spec requires GPU
-// ms/sec never be the default sort key, so it is excluded from the whole
-// cycle rather than merely placed later in it.
 func TestSortCyclesThroughSortKeys(t *testing.T) {
 	m := newTestModel(t)
 	for _, k := range sortKeys {
@@ -219,10 +201,6 @@ func TestSortCyclesThroughSortKeys(t *testing.T) {
 	}
 }
 
-// TestUpdateIsNonBlocking drives Update with 1,000 scripted messages and
-// asserts the whole loop returns in under 250ms, then greps model.go for
-// anything that could block: os.Open, os/exec, net/http, time.Sleep. This
-// is the same pipeline internal/state's purity grep already runs.
 func TestUpdateIsNonBlocking(t *testing.T) {
 	m := newTestModel(t)
 	base := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
@@ -261,11 +239,6 @@ func TestUpdateIsNonBlocking(t *testing.T) {
 	}
 }
 
-// TestWindowResizeUpdatesFrameSize asserts a terminal resize reaches the
-// model, so View lays out to the real terminal rather than New's 120x40
-// default. Both directions are checked -- 80x24 and 200x60 are the two
-// sizes manual QA resizes to -- and a degenerate 0x0 (which some
-// terminals emit while a resize is in flight) must not blank the frame.
 func TestWindowResizeUpdatesFrameSize(t *testing.T) {
 	m := newTestModel(t)
 
@@ -284,9 +257,6 @@ func TestWindowResizeUpdatesFrameSize(t *testing.T) {
 	}
 }
 
-// TestNoColorSuppressesEscapes asserts the --no-color answer cmd/wattop
-// resolves (Task 13) actually reaches every panel: with it set, the
-// rendered frame carries no ANSI escape at all.
 func TestNoColorSuppressesEscapes(t *testing.T) {
 	m := newTestModel(t).WithNoColor(true)
 	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
@@ -305,13 +275,6 @@ func TestNoColorSuppressesEscapes(t *testing.T) {
 	}
 }
 
-// TestViewRendersSoCPanel asserts View() actually composes the SoC panel
-// above the session table -- panel.Render existing and being covered by
-// its own golden tests is not evidence Model.View calls it. It checks the
-// cluster line and the last SoC row (net/disk) specifically: a bare
-// substring check for "SoC" would pass even if the layout clipped the
-// bottom of the panel, since only the border/name lines are guaranteed
-// present at any height.
 func TestViewRendersSoCPanel(t *testing.T) {
 	m := newTestModel(t)
 	in := state.Inputs{
@@ -363,12 +326,6 @@ func TestGraphToggleAndPause(t *testing.T) {
 	}
 }
 
-// TestSoCPanelHeightInvariant asserts the SoC strip, session table and
-// footer heights always sum to exactly m.height, across a range from a
-// generous terminal down to a single row. The desired hardware height
-// depends on topology and width, and on a short terminal must be capped --
-// otherwise the three regions' declared heights would exceed the frame
-// Model.View was asked to fill.
 func TestSoCPanelHeightInvariant(t *testing.T) {
 	for _, height := range []int{40, 12, 5, 1} {
 		m := newTestModel(t)
@@ -390,11 +347,8 @@ func TestSoCPanelHeightInvariant(t *testing.T) {
 	}
 }
 
-// pidOf is a helper for building a bound session in the tests below.
 func pidOf(p int) *int { return &p }
 
-// dormantCorpus is the shape the 2026-09-06 QA run found on the live
-// machine: two live sessions buried under stale, unbound Codex rollouts.
 func dormantCorpus() []domain.Session {
 	return []domain.Session{
 		{Agent: "codex", ID: "rollout-old-1", Status: "stale", BindConf: "unknown"},
@@ -405,18 +359,12 @@ func dormantCorpus() []domain.Session {
 	}
 }
 
-// dormantCycle delivers dormantCorpus with the bound sessions' pids alive in
-// the process table, as the reducer needs to attach a Proc to each.
 func dormantCycle(at time.Time) CycleMsg {
 	msg := cycleMsg(at, dormantCorpus())
 	msg.Inputs.Procs = []domain.ProcSample{{PID: 101}, {PID: 102}, {PID: 103}}
 	return msg
 }
 
-// TestCrashedClaudeSessionIsDormant: a Claude session always binds "exact"
-// (its session file names its pid), so a crashed one -- stale, pid no
-// longer in the process table -- used to stay on the table forever. A
-// stale session with no live process is dormant whatever its BindConf.
 func TestCrashedClaudeSessionIsDormant(t *testing.T) {
 	m := newTestModel(t)
 	msg := cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), []domain.Session{
@@ -440,9 +388,6 @@ func TestCrashedClaudeSessionIsDormant(t *testing.T) {
 	}
 }
 
-// TestDormantRowsHiddenByDefault: a session that is both stale and bound to
-// no process is off the table until `a` asks for it, and a stale session
-// that still holds a pid is never hidden.
 func TestDormantRowsHiddenByDefault(t *testing.T) {
 	m := newTestModel(t)
 	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
@@ -468,8 +413,6 @@ func TestDormantRowsHiddenByDefault(t *testing.T) {
 	}
 }
 
-// TestShowAllTogglesDormantRows: `a` brings the hidden rows back, drops the
-// footer's count to zero, and toggles off again.
 func TestShowAllTogglesDormantRows(t *testing.T) {
 	m := newTestModel(t)
 	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
@@ -491,9 +434,6 @@ func TestShowAllTogglesDormantRows(t *testing.T) {
 	}
 }
 
-// TestLiveSessionsSortFirst: under `a`, a dormant row never sits above a
-// live one, whatever the sort key says — including "cost", where the
-// dormant row is the most expensive session on the machine.
 func TestLiveSessionsSortFirst(t *testing.T) {
 	m := newTestModel(t)
 	expensive := 500.0
@@ -505,7 +445,7 @@ func TestLiveSessionsSortFirst(t *testing.T) {
 	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), sessions))
 	m = mi.(Model)
 
-	mi, _ = m.Update(keyMsg("a")) // show all
+	mi, _ = m.Update(keyMsg("a"))
 	m = mi.(Model)
 	for sortKeys[m.sortIdx] != "cost" {
 		mi, _ = m.Update(keyMsg("s"))
@@ -522,8 +462,6 @@ func TestLiveSessionsSortFirst(t *testing.T) {
 	}
 }
 
-// TestFooterAdvertisesHiddenCount: a hidden row is never silently hidden —
-// the footer says how many, and which key brings them back.
 func TestFooterAdvertisesHiddenCount(t *testing.T) {
 	m := newTestModel(t)
 	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
@@ -542,9 +480,6 @@ func TestFooterAdvertisesHiddenCount(t *testing.T) {
 	}
 }
 
-// loadPanelSnapshot reads one of the panel package's committed snapshot
-// fixtures, so the model's row accounting is checked against the same
-// child shapes the table renders.
 func loadPanelSnapshot(t *testing.T, name string) *domain.Snapshot {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("panel", "testdata", "snapshots", name))
@@ -558,9 +493,6 @@ func loadPanelSnapshot(t *testing.T, name string) *domain.Snapshot {
 	return &snap
 }
 
-// TestFlatRowCountMatchesRenderedRows pins flatRowCount to the rows the
-// table actually draws, across both fixtures, with the dormant and
-// headless filters in every combination.
 func TestFlatRowCountMatchesRenderedRows(t *testing.T) {
 	for _, name := range []string{"cycle0.json", "children.json"} {
 		for _, showAll := range []bool{false, true} {
@@ -572,7 +504,7 @@ func TestFlatRowCountMatchesRenderedRows(t *testing.T) {
 				visible := m.visibleSessions()
 				out := panel.SessionsRender(visible, m.roles, 200, 500, -1, m.snap.At, panel.Options{NoColor: true})
 				rendered := 0
-				for _, line := range strings.Split(out, "\n")[1:] { // skip the header
+				for _, line := range strings.Split(out, "\n")[1:] {
 					if strings.TrimSpace(line) != "" {
 						rendered++
 					}
@@ -592,8 +524,6 @@ func TestFlatRowCountMatchesRenderedRows(t *testing.T) {
 	}
 }
 
-// TestSelectedSessionOnWorkflowRow selects the collapsed workflow row
-// (after the six non-workflow subagents) and expects its parent session.
 func TestSelectedSessionOnWorkflowRow(t *testing.T) {
 	m := newTestModel(t)
 	m.snap = loadPanelSnapshot(t, "children.json")
@@ -617,9 +547,6 @@ func TestSelectedSessionOnWorkflowRow(t *testing.T) {
 	}
 }
 
-// A hex --theme is not an embedded palette name. The footer must name it,
-// not whichever palette sorts first, and cycling must be able to return to
-// it; a differently cased palette name must still select that palette.
 func TestNewThemeNameHexAndCase(t *testing.T) {
 	st := newTestModel(t).st
 

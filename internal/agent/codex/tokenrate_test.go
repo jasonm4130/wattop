@@ -19,7 +19,7 @@ func TestTokenRateUsesDeltasAndEventTime(t *testing.T) {
 	apply(now.Add(-time.Hour), 900000, 600)
 	apply(now.Add(-time.Second), 900600, 600)
 	apply(now, 900600, 600)
-	apply(now.Add(-time.Hour), 900000, 600) // replayed prefix after rotation
+	apply(now.Add(-time.Hour), 900000, 600)
 	apply(now, 900600, 600)
 	if rate := r.tokens.Rate(now); rate.OutputPerSec != 10 {
 		t.Fatalf("backfill or duplicate inflated rate: %+v", rate)

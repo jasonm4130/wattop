@@ -1,14 +1,3 @@
-// Renders one frame of the wattop dashboard as an HTML string. Shared by the
-// Astro page (first frame, server-rendered so the hero works without JS) and
-// the client script (every later frame). All values come from the trimmed
-// `wattop --demo --json` snapshots in src/data/demo.json (refresh with
-// `pnpm demo:refresh`; the mapping lives in scripts/demo-schema.mjs).
-//
-// Cell text follows the TUI (internal/ui/panel/sessions.go, children.go):
-// the static "⠋ Busy" glyph, child rows indented by two spaces per depth
-// level rather than drawn with tree lines, a trailing "⇢" on a background
-// subagent, and blank child $/HR cells when there is no positive burn.
-
 export type Child = {
   k: 'sa' | 'wf';
   type?: string;
@@ -77,13 +66,8 @@ export type Frame = {
 
 export type Demo = { meta: { source: string; soc: string; synthetic: boolean }; frames: Frame[] };
 
-/** Samples of history each sparkline shows (one per second). */
 export const WINDOW = 60;
 
-/**
- * The 25 recorded frames are played forward then backward (0..24..1) so the
- * loop has no jump. `seq(t)` maps a tick to a frame index.
- */
 export function seq(t: number, n: number): number {
   const period = 2 * (n - 1);
   const m = ((t % period) + period) % period;
@@ -112,14 +96,12 @@ function rss(n: number | null): string {
 }
 
 const THERMAL = ['Nominal', 'Fair', 'Serious', 'Critical'];
-/** sessions.go spinnerGlyph: one static braille frame. */
 const SPIN = '⠋';
 
 function trunc(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-/** A column sparkline, like ntcharts' block bars. */
 function spark(values: number[], max: number, cls: string): string {
   const bars = values
     .map((v) => `<i style="height:${Math.max(2, Math.round((v / (max || 1)) * 100))}%"></i>`)
@@ -132,14 +114,12 @@ function gauge(pct: number, cls: string): string {
   return `<span class="g" aria-hidden="true"><span class="g-f ${cls}" style="width:${p}%"></span></span>`;
 }
 
-/** sessions.go ctxGauge: "~" marks Claude's estimate; severity at 70/90%. */
 function ctxGauge(pct: number, exact: boolean): string {
   const tone = pct >= 90 ? 'hot' : pct >= 70 ? 'waiting' : 'busy';
   const text = pct > 100 ? '<span class="hot-c">&gt;100%</span>' : `${pct}%`;
   return `<td class="c-ctx"><span class="ctx ${exact ? 'exact' : 'est'}" title="${exact ? 'exact (Codex rate_limits)' : 'estimate (dashed edge)'}"><span class="ctx-m">${exact ? '' : '~'}</span><span class="ctx-g">${gauge(pct, tone)}</span><span class="ctx-n">${text}</span></span></td>`;
 }
 
-/** sessions.go statusInfo. */
 function status(st: string): string {
   switch (st) {
     case 'busy':
@@ -157,7 +137,6 @@ function status(st: string): string {
   }
 }
 
-/** children.go childStatus (prefix "wf " for a workflow row). */
 function childStatus(st: string, prefix = ''): string {
   if (st === 'running') return `<span class="st busy">${prefix}● run</span>`;
   if (st === 'idle') return `<span class="st waiting">${prefix}idle</span>`;
@@ -166,7 +145,6 @@ function childStatus(st: string, prefix = ''): string {
   return `<span class="st muted">${prefix}${esc(st)}</span>`;
 }
 
-/** children.go childBurn: blank unless there is a positive burn. */
 const childBurn = (n: number | null) => (n == null || n <= 0 ? '' : usd(n));
 
 function sessionRows(s: Session): string {
@@ -174,7 +152,6 @@ function sessionRows(s: Session): string {
   const rows: string[] = [];
   const name = s.cwd.replace(/^~\/code\//, '');
   const bound = s.bind !== 'unknown';
-  // pidCell's compact form (the TUI drops "pid " when the column is narrow).
   const pid = bound ? (s.pid == null ? '—' : String(s.pid)) : '—';
   const bgRun = s.kind !== '' && s.kind !== 'interactive';
   const agent = bgRun ? `<span class="muted">${esc(s.agent)}*</span>` : `<span class="ag-${s.agent}">${esc(s.agent)}</span>`;
@@ -199,7 +176,6 @@ function sessionRows(s: Session): string {
       `</tr>`,
   );
   kids.forEach((c) => {
-    // childStatusCell: two spaces, plus two per depth level (workflows: 0).
     const indent = `<span class="ind" aria-hidden="true">${'&nbsp;'.repeat(2 + 2 * (c.k === 'wf' ? 0 : c.depth ?? 0))}</span>`;
     let who: string;
     let what: string;
@@ -214,7 +190,6 @@ function sessionRows(s: Session): string {
         (c.failed ? ` ${c.failed} fail` : '');
     } else {
       st = childStatus(c.st);
-      // subagentRow: a background spawn keeps its "⇢" and gives up a letter.
       who = c.bg ? esc(trunc(c.type!, 13)) + '⇢' : esc(trunc(c.type!, 14));
       what = (c.tool && c.st === 'running' ? `<span class="tool">▸ ${esc(c.tool)}</span> · ` : '') + esc(c.desc!);
     }
@@ -239,10 +214,6 @@ function niceMax(v: number): number {
   return Math.ceil(v);
 }
 
-/**
- * @param frames all frames
- * @param tick   ever-increasing tick; history is the WINDOW ticks ending here
- */
 export function renderDash(frames: Frame[], tick: number): string {
   const n = frames.length;
   const hist: Frame[] = [];
