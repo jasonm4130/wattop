@@ -320,42 +320,61 @@ func lastTranscriptAt(s *domain.Session) time.Time {
 	return newest
 }
 
-func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
-	mainCost, mainOK, partial := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
+type priceStatus int
 
-	total := mainCost
+const (
+	priceNone priceStatus = iota
+	priceExact
+	pricePartial
+)
+
+type price struct {
+	usd    float64
+	status priceStatus
+}
+
+func (p price) priced() bool { return p.status != priceNone }
+
+func (p price) partial() bool { return p.status == pricePartial }
+
+func (p price) costUSD() *float64 {
+	if !p.priced() {
+		return nil
+	}
+	usd := p.usd
+	return &usd
+}
+
+func (p price) withChild(child price, billed bool) price {
+	if !p.priced() {
+		return p
+	}
+	switch {
+	case child.priced():
+		p.usd += child.usd
+		if child.partial() {
+			p.status = pricePartial
+		}
+	case billed:
+		p.status = pricePartial
+	}
+	return p
+}
+
+func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
+	total := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
 	s.Subagents = append([]domain.Subagent(nil), s.Subagents...)
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		cost, ok, saPartial := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
-		sa.CostPartial = ok && saPartial
-		if ok {
-			c := cost
-			sa.CostUSD = &c
-			total += cost
-			if saPartial {
-				partial = true
-			}
-		} else {
-			sa.CostUSD = nil
-			if childBilled(*sa) {
-				partial = true
-			}
-		}
+		p := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
+		sa.CostUSD, sa.CostPartial = p.costUSD(), p.partial()
+		total = total.withChild(p, childBilled(*sa))
 	}
-
-	s.Priced = mainOK
-	if mainOK {
-		c := total
-		s.CostUSD = &c
-		s.CostPartial = partial
-	} else {
-		s.CostUSD = nil
-		s.CostPartial = false
-	}
+	s.Priced = total.priced()
+	s.CostUSD, s.CostPartial = total.costUSD(), total.partial()
 }
 
-func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) (cost float64, ok, partial bool) {
+func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) price {
 	if len(l) > 0 {
 		usd, missing, anyPriced := st.book.CostLedger(l)
 		for _, m := range missing {
@@ -363,13 +382,23 @@ func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l d
 				unpriced[m] = struct{}{}
 			}
 		}
-		return usd, anyPriced, anyPriced && len(missing) > 0
+		switch {
+		case !anyPriced:
+			return price{}
+		case len(missing) > 0:
+			return price{usd: usd, status: pricePartial}
+		default:
+			return price{usd: usd, status: priceExact}
+		}
 	}
-	usd, priced := st.book.Cost(model, u, contextUsed)
-	if !priced && model != "" {
-		unpriced[model] = struct{}{}
+	usd, ok := st.book.Cost(model, u, contextUsed)
+	if !ok {
+		if model != "" {
+			unpriced[model] = struct{}{}
+		}
+		return price{}
 	}
-	return usd, priced, false
+	return price{usd: usd, status: priceExact}
 }
 
 func machineCPUPct(clusters []domain.Cluster) float64 {
