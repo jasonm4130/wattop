@@ -51,50 +51,60 @@ func bindAll(rollouts []Rollout, procs []domain.ProcSample, resolvedCodexPath st
 		rolloutsByCWD[r.CWD] = append(rolloutsByCWD[r.CWD], i)
 	}
 
-	used := make(map[int]bool)
-
-	var exactCWDs, ambiguousCWDs []string
+	var singleCWDs, sharedCWDs []string
 	for cwd, idxs := range rolloutsByCWD {
 		if len(idxs) == 1 {
-			exactCWDs = append(exactCWDs, cwd)
+			singleCWDs = append(singleCWDs, cwd)
 		} else {
-			ambiguousCWDs = append(ambiguousCWDs, cwd)
+			sharedCWDs = append(sharedCWDs, cwd)
 		}
 	}
-	sort.Strings(exactCWDs)
-	sort.Strings(ambiguousCWDs)
+	sort.Strings(singleCWDs)
+	sort.Strings(sharedCWDs)
 
-	for _, cwd := range exactCWDs {
-		idx := rolloutsByCWD[cwd][0]
-		contenders := unusedContenders(byCWD[cwd], used)
+	b := binder{rollouts: rollouts, byCWD: byCWD, rolloutsByCWD: rolloutsByCWD, used: make(map[int]bool), result: result}
+	b.bindSingleRolloutCWDs(singleCWDs)
+	b.bindSharedCWDs(sharedCWDs)
+	return result
+}
+
+type binder struct {
+	rollouts      []Rollout
+	byCWD         map[string][]candidate
+	rolloutsByCWD map[string][]int
+	used          map[int]bool
+	result        map[string]binding
+}
+
+func (b *binder) bind(idx, pid int, conf string) {
+	b.result[b.rollouts[idx].Path] = binding{PID: &pid, Conf: conf}
+	b.used[pid] = true
+}
+
+func (b *binder) bindSingleRolloutCWDs(cwds []string) {
+	for _, cwd := range cwds {
+		idx := b.rolloutsByCWD[cwd][0]
+		contenders := unusedContenders(b.byCWD[cwd], b.used)
 		switch len(contenders) {
 		case 0:
 		case 1:
-			pid := contenders[0].pid
-			result[rollouts[idx].Path] = binding{PID: &pid, Conf: "exact"}
-			used[pid] = true
+			b.bind(idx, contenders[0].pid, "exact")
 		default:
-			if pid, ok := nearestNotBefore(contenders, rollouts[idx].MetaAt); ok {
-				result[rollouts[idx].Path] = binding{PID: &pid, Conf: "inferred"}
-				used[pid] = true
+			if pid, ok := nearestNotBefore(contenders, b.rollouts[idx].MetaAt); ok {
+				b.bind(idx, pid, "inferred")
 			}
 		}
 	}
+}
 
-	for _, cwd := range ambiguousCWDs {
-		for _, idx := range rolloutsByCWD[cwd] {
-			contenders := unusedContenders(byCWD[cwd], used)
-			if len(contenders) == 0 {
-				continue
-			}
-			if pid, ok := nearestNotBefore(contenders, rollouts[idx].MetaAt); ok {
-				result[rollouts[idx].Path] = binding{PID: &pid, Conf: "inferred"}
-				used[pid] = true
+func (b *binder) bindSharedCWDs(cwds []string) {
+	for _, cwd := range cwds {
+		for _, idx := range b.rolloutsByCWD[cwd] {
+			if pid, ok := nearestNotBefore(unusedContenders(b.byCWD[cwd], b.used), b.rollouts[idx].MetaAt); ok {
+				b.bind(idx, pid, "inferred")
 			}
 		}
 	}
-
-	return result
 }
 
 func unusedContenders(cands []candidate, used map[int]bool) []candidate {
