@@ -33,11 +33,6 @@ const (
 	maxInterval = 5 * time.Second
 )
 
-const (
-	burnWindow = 60 * time.Second
-	burnAlpha  = 0.3
-)
-
 type cliFlags struct {
 	theme    string
 	interval time.Duration
@@ -148,7 +143,7 @@ func main() {
 	} else {
 		src, book, sysAvailable = buildSources(ctx, cfg, pricingLogger(!flags.json))
 	}
-	burn := pricing.NewBurnTracker(burnWindow, burnAlpha)
+	burn := pricing.NewBurnTracker(pricing.DefaultBurnWindow, pricing.DefaultBurnAlpha)
 	st := state.New(book, burn)
 	if world != nil {
 		prewarmDemo(st, world, time.Now(), demoPrewarm)

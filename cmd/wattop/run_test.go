@@ -49,7 +49,7 @@ func testState(t *testing.T) *state.State {
 	if err != nil {
 		t.Fatalf("pricing.Load: %v", err)
 	}
-	return state.New(book, pricing.NewBurnTracker(burnWindow, burnAlpha))
+	return state.New(book, pricing.NewBurnTracker(pricing.DefaultBurnWindow, pricing.DefaultBurnAlpha))
 }
 
 func TestFlagSurfaceParses(t *testing.T) {

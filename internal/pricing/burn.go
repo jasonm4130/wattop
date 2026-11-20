@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+const (
+	DefaultBurnWindow = 60 * time.Second
+	DefaultBurnAlpha  = 0.3
+)
+
 type eventTime struct {
 	at    time.Time
 	known bool
