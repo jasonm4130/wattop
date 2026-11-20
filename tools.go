@@ -7,7 +7,6 @@ import (
 	_ "charm.land/bubbletea/v2"
 	_ "charm.land/lipgloss/v2"
 	_ "github.com/BurntSushi/toml"
-	_ "github.com/NimbleMarkets/ntcharts/v2/sparkline"
 	// Not charm.land/colorprofile: that vanity path serves a module whose go.mod
 	// declares "module github.com/charmbracelet/colorprofile", so importing it
 	// fails with a module-path mismatch.

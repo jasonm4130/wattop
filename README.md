@@ -133,9 +133,6 @@ wattop vendors and depends on the following MIT-licensed projects — details in
   IOReport/SMC collector layer, pinned to a specific upstream commit (see
   `internal/soc/VENDOR.md`), because that code lives under mactop's own
   `internal/app` and cannot be imported.
-- **[ntcharts](https://github.com/NimbleMarkets/ntcharts)** — Copyright ©
-  2024-2026 Neomantra Corp. Used as an ordinary dependency for the braille
-  sparkline helper.
 
 Also depends on the Charm libraries (Bubble Tea, Lip Gloss, Bubbles),
 `BurntSushi/toml`, and `golang.org/x/term`.
