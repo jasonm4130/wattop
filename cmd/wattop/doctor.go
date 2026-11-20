@@ -92,7 +92,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 	fmt.Fprintf(w, "  sha256: %s\n", sha)
 	fmt.Fprintf(w, "  entries: %d\n", book.Entries())
 	fmt.Fprintf(w, "  age: %s\n", formatAge(fetchedAt, now))
-	if ok, err := pricingHealth(book.Entries(), fetchedAt, now); ok {
+	if ok, err := pricingHealth(book.Entries(), fetchedAt, book.RefreshErr(), now); ok {
 		fmt.Fprintln(w, "  status: ok")
 	} else {
 		fmt.Fprintf(w, "  status: degraded (%v)\n", err)

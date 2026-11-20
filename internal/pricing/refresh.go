@@ -19,25 +19,40 @@ var pricingClient = &http.Client{Timeout: 10 * time.Second}
 const maxPricingBody = 20 << 20
 
 func (b *Book) Refresh(ctx context.Context) {
-	go b.refresh(ctx)
+	go b.refreshAndRecord(ctx)
 }
 
-func (b *Book) refresh(ctx context.Context) {
+func (b *Book) RefreshErr() error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.refreshErr
+}
+
+func (b *Book) refreshAndRecord(ctx context.Context) {
+	err := b.refresh(ctx)
+	b.mu.Lock()
+	b.refreshErr = err
+	b.mu.Unlock()
+	if err != nil {
+		log.Printf("pricing: %v", err)
+	}
+}
+
+func (b *Book) refresh(ctx context.Context) error {
 	path := cacheFilePath()
 
 	if fi, err := os.Stat(path); err == nil && time.Since(fi.ModTime()) < refreshTTL {
 		if data, err := os.ReadFile(path); err == nil {
 			if snap, err := parseSnapshotJSON(data); err == nil {
 				b.swap(snap)
-				return
+				return nil
 			}
 		}
 	}
 
 	snap, err := fetchSnapshot(ctx)
 	if err != nil {
-		log.Printf("pricing: refresh failed, keeping existing table: %v", err)
-		return
+		return fmt.Errorf("refresh failed, keeping existing table: %w", err)
 	}
 
 	if data, err := json.Marshal(snap); err == nil {
@@ -49,6 +64,7 @@ func (b *Book) refresh(ctx context.Context) {
 	}
 
 	b.swap(snap)
+	return nil
 }
 
 func (b *Book) swap(snap snapshot) {

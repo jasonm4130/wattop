@@ -2,8 +2,12 @@ package pricing
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,5 +48,47 @@ func TestFetchAcceptsTableWithinLimit(t *testing.T) {
 	}
 	if _, ok := snap.Models["claude-test"]; !ok {
 		t.Errorf("fetched table is missing claude-test: %+v", snap.Models)
+	}
+}
+
+func TestRefreshRecordsFailureAndKeepsTable(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	b := bookFrom(modelTable{"m": {"input_cost_per_token": 1e-06}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	b.refreshAndRecord(ctx)
+
+	if err := b.RefreshErr(); err == nil {
+		t.Fatal("RefreshErr() = nil after a failed fetch, want the fetch error")
+	}
+	if b.Entries() != 1 {
+		t.Fatalf("Entries() = %d after a failed refresh, want the existing table kept", b.Entries())
+	}
+}
+
+func TestRefreshFromFreshCacheClearsError(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	data, err := json.Marshal(snapshot{Models: modelTable{"a": {}, "b": {}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := cacheFilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := bookFrom(modelTable{"m": {}})
+	b.refreshErr = errors.New("earlier failure")
+
+	b.refreshAndRecord(context.Background())
+
+	if err := b.RefreshErr(); err != nil {
+		t.Fatalf("RefreshErr() = %v after loading a fresh cache, want nil", err)
+	}
+	if b.Entries() != 2 {
+		t.Fatalf("Entries() = %d, want the cached table's 2", b.Entries())
 	}
 }

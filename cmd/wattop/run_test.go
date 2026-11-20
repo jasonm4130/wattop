@@ -387,21 +387,23 @@ func TestPricingHealthPredicate(t *testing.T) {
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name      string
-		entries   int
-		fetchedAt time.Time
-		wantOK    bool
+		name       string
+		entries    int
+		fetchedAt  time.Time
+		refreshErr error
+		wantOK     bool
 	}{
-		{"fresh embed", 900, now.Add(-time.Hour), true},
-		{"one hour inside the window", 900, now.Add(-pricingMaxAge + time.Hour), true},
-		{"one hour past the window", 900, now.Add(-pricingMaxAge - time.Hour), false},
-		{"empty table", 0, now, false},
-		{"no generation stamp", 900, time.Time{}, false},
+		{"fresh embed", 900, now.Add(-time.Hour), nil, true},
+		{"one hour inside the window", 900, now.Add(-pricingMaxAge + time.Hour), nil, true},
+		{"one hour past the window", 900, now.Add(-pricingMaxAge - time.Hour), nil, false},
+		{"empty table", 0, now, nil, false},
+		{"no generation stamp", 900, time.Time{}, nil, false},
+		{"fresh embed but refresh failed", 900, now.Add(-time.Hour), errors.New("fetch: offline"), false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, err := pricingHealth(tt.entries, tt.fetchedAt, now)
+			ok, err := pricingHealth(tt.entries, tt.fetchedAt, tt.refreshErr, now)
 			if ok != tt.wantOK {
 				t.Fatalf("pricingHealth = %v (%v), want %v", ok, err, tt.wantOK)
 			}
