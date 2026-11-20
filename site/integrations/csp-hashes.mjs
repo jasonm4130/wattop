@@ -40,6 +40,8 @@ export function writeCspHashes(dist) {
 
 export const INTEGRATION_NAME = 'wattop:csp-hashes';
 
+export const noInlineAssetsForCsp = { build: { assetsInlineLimit: 0 } };
+
 export default function cspHashes() {
   return {
     name: INTEGRATION_NAME,
