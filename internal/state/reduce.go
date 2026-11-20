@@ -39,9 +39,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			st.tracked[key] = tr
 		}
 		tr.session = raw
-		tr.lastSeenAt = in.At
-		tr.ttlClock = in.At
-		tr.heldByOutage = false
+		tr.ttl.sighted(in.At)
 
 		enriched := raw
 		st.enrichSession(&enriched, procByPID, unpriced, in.At)
@@ -65,8 +63,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		tr := st.tracked[key]
 
 		if healthFailed[key.Agent] {
-			tr.ttlClock = in.At
-			tr.heldByOutage = true
+			tr.ttl.holdForOutage()
 			enriched := tr.session
 			clearTokenRates(&enriched)
 			st.enrichSession(&enriched, procByPID, unpriced, in.At)
@@ -74,12 +71,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			continue
 		}
 
-		if tr.heldByOutage {
-			tr.ttlClock = in.At
-			tr.heldByOutage = false
-		}
-
-		if in.At.Sub(tr.ttlClock) > sessionTTL {
+		if tr.ttl.expiredWhenAbsent(in.At) {
 			st.forgetSession(key)
 			continue
 		}

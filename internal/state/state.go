@@ -52,11 +52,40 @@ type historyKey struct {
 	metric  Metric
 }
 
+type ttlPhase int
+
+const (
+	ttlCounting ttlPhase = iota
+	ttlHeldByOutage
+)
+
+type ttlClock struct {
+	phase ttlPhase
+	since time.Time
+}
+
+func (c *ttlClock) sighted(at time.Time) {
+	c.countFrom(at)
+}
+
+func (c *ttlClock) countFrom(at time.Time) {
+	*c = ttlClock{phase: ttlCounting, since: at}
+}
+
+func (c *ttlClock) holdForOutage() {
+	*c = ttlClock{phase: ttlHeldByOutage}
+}
+
+func (c *ttlClock) expiredWhenAbsent(at time.Time) bool {
+	if c.phase == ttlHeldByOutage {
+		c.countFrom(at)
+	}
+	return at.Sub(c.since) > sessionTTL
+}
+
 type trackedSession struct {
-	session      domain.Session
-	lastSeenAt   time.Time
-	ttlClock     time.Time
-	heldByOutage bool
+	session domain.Session
+	ttl     ttlClock
 }
 
 type State struct {
