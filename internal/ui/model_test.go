@@ -321,7 +321,7 @@ func TestGraphToggleAndPause(t *testing.T) {
 	m = mi.(Model)
 	mi, _ = m.Update(cycleMsg(stamp.Add(time.Second), nil))
 	m = mi.(Model)
-	if !m.snap.At.Equal(stamp) || len(m.st.History("time")) != 1 {
+	if !m.snap.At.Equal(stamp) || len(m.st.History(state.MetricTime)) != 1 {
 		t.Fatal("paused graph advanced")
 	}
 }

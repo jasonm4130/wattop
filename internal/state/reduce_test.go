@@ -230,7 +230,7 @@ func TestHistoryRingCaps(t *testing.T) {
 		})
 	}
 
-	watts := st.History("watts")
+	watts := st.History(MetricWatts)
 	if len(watts) != historyCap {
 		t.Fatalf("len(History(\"watts\")) = %d, want %d", len(watts), historyCap)
 	}

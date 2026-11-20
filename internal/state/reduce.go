@@ -81,13 +81,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		}
 
 		if in.At.Sub(tr.ttlClock) > sessionTTL {
-			delete(st.tracked, key)
-			st.burn.Forget(key.Agent + ":" + key.ID)
-			delete(st.burnLastCost, key.Agent+":"+key.ID)
-			st.forgetSubagentBurn(key.Agent + ":" + key.ID)
-			delete(st.histories, key.Agent+":"+key.ID+":cpu")
-			delete(st.histories, key.Agent+":"+key.ID+":gpu")
-			delete(st.histories, key.Agent+":"+key.ID+":cost")
+			st.forgetSession(key)
 			continue
 		}
 
@@ -147,18 +141,18 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	if snap.TokenRate != nil {
 		input, output = snap.TokenRate.InputPerSec, snap.TokenRate.OutputPerSec
 	}
-	st.recordHistory("tokens_in", input)
-	st.recordHistory("tokens_out", output)
-	st.recordHistory("time", float64(in.At.UnixMilli())/1000)
+	st.recordHistory(historyKey{metric: MetricTokensIn}, input)
+	st.recordHistory(historyKey{metric: MetricTokensOut}, output)
+	st.recordHistory(historyKey{metric: MetricTime}, float64(in.At.UnixMilli())/1000)
 
 	cpu, gpu, watts := machineCPUPct(sys.Clusters), derefOr(sys.GPU.ActivePct, math.NaN()), derefOr(sys.Power.SystemWatts, math.NaN())
 	if healthFailed["soc"] {
 		cpu, gpu, watts = math.NaN(), math.NaN(), math.NaN()
 	}
-	st.recordHistory("cpu", cpu)
-	st.recordHistory("gpu", gpu)
-	st.recordHistory("watts", watts)
-	st.recordHistory("cost", totalBurn)
+	st.recordHistory(historyKey{metric: MetricCPU}, cpu)
+	st.recordHistory(historyKey{metric: MetricGPU}, gpu)
+	st.recordHistory(historyKey{metric: MetricWatts}, watts)
+	st.recordHistory(historyKey{metric: MetricCost}, totalBurn)
 
 	for _, s := range sessions {
 		var cpu, gpu, cost float64
@@ -169,12 +163,24 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		if s.BurnUSDPerHr != nil {
 			cost = *s.BurnUSDPerHr
 		}
-		st.recordHistory(s.Agent+":"+s.ID+":cpu", cpu)
-		st.recordHistory(s.Agent+":"+s.ID+":gpu", gpu)
-		st.recordHistory(s.Agent+":"+s.ID+":cost", cost)
+		key := sessionKey{Agent: s.Agent, ID: s.ID}
+		st.recordHistory(historyKey{key, MetricCPU}, cpu)
+		st.recordHistory(historyKey{key, MetricGPU}, gpu)
+		st.recordHistory(historyKey{key, MetricCost}, cost)
 	}
 
 	return snap
+}
+
+func (st *State) forgetSession(key sessionKey) {
+	delete(st.tracked, key)
+	burnKey := key.burnKey()
+	st.burn.Forget(burnKey)
+	delete(st.burnLastCost, burnKey)
+	st.forgetSubagentBurn(burnKey)
+	for _, m := range sessionMetrics {
+		delete(st.histories, historyKey{key, m})
+	}
 }
 
 func clearTokenRates(s *domain.Session) {
@@ -211,7 +217,7 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 
 	st.priceSession(s, unpriced)
 
-	burnKey := s.Agent + ":" + s.ID
+	burnKey := sessionKey{Agent: s.Agent, ID: s.ID}.burnKey()
 	st.burnSubagents(s, burnKey, at)
 	summarizeWorkflows(s)
 	if s.CostUSD == nil {

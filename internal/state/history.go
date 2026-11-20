@@ -24,7 +24,7 @@ func (r *ring) values() []float64 {
 	return out
 }
 
-func (st *State) recordHistory(key string, v float64) {
+func (st *State) recordHistory(key historyKey, v float64) {
 	r, ok := st.histories[key]
 	if !ok {
 		r = newRing(historyCap)

@@ -29,6 +29,29 @@ type sessionKey struct {
 	ID    string
 }
 
+func (k sessionKey) burnKey() string {
+	return k.Agent + ":" + k.ID
+}
+
+type Metric string
+
+const (
+	MetricTime      Metric = "time"
+	MetricTokensIn  Metric = "tokens_in"
+	MetricTokensOut Metric = "tokens_out"
+	MetricCPU       Metric = "cpu"
+	MetricGPU       Metric = "gpu"
+	MetricWatts     Metric = "watts"
+	MetricCost      Metric = "cost"
+)
+
+var sessionMetrics = []Metric{MetricCPU, MetricGPU, MetricCost}
+
+type historyKey struct {
+	session sessionKey
+	metric  Metric
+}
+
 type trackedSession struct {
 	session      domain.Session
 	lastSeenAt   time.Time
@@ -44,7 +67,7 @@ type State struct {
 
 	burnLastCost map[string]float64
 
-	histories map[string]*ring
+	histories map[historyKey]*ring
 }
 
 func New(book *pricing.Book, burn *pricing.BurnTracker) *State {
@@ -53,11 +76,15 @@ func New(book *pricing.Book, burn *pricing.BurnTracker) *State {
 		burn:         burn,
 		tracked:      make(map[sessionKey]*trackedSession),
 		burnLastCost: make(map[string]float64),
-		histories:    make(map[string]*ring),
+		histories:    make(map[historyKey]*ring),
 	}
 }
 
-func (st *State) History(key string) []float64 {
+func (st *State) History(m Metric) []float64 {
+	return st.history(historyKey{metric: m})
+}
+
+func (st *State) history(key historyKey) []float64 {
 	r, ok := st.histories[key]
 	if !ok {
 		return nil

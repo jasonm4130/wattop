@@ -49,7 +49,7 @@ func TestRingValuesIsACopy(t *testing.T) {
 
 func TestStateHistoryUnknownKeyIsNil(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
-	if got := st.History("no-such-key"); got != nil {
+	if got := st.history(historyKey{sessionKey{"claude", "no-such-session"}, MetricCPU}); got != nil {
 		t.Fatalf("History(unknown key) = %v, want nil", got)
 	}
 }
@@ -70,11 +70,11 @@ func TestStateHistoryPerSessionKeys(t *testing.T) {
 		Sys:      domain.SysSample{Power: domain.Power{SystemWatts: &watts}},
 	})
 
-	cpu := st.History("claude:s1:cpu")
+	cpu := sessionHistory(st, "claude", "s1", MetricCPU)
 	if len(cpu) != 1 || cpu[0] != 42 {
 		t.Fatalf("History(\"claude:s1:cpu\") = %v, want [42]", cpu)
 	}
-	machineWatts := st.History("watts")
+	machineWatts := st.History(MetricWatts)
 	if len(machineWatts) != 1 || machineWatts[0] != 30 {
 		t.Fatalf("History(\"watts\") = %v, want [30]", machineWatts)
 	}
@@ -90,22 +90,22 @@ func TestStateHistoryDroppedOnSessionTTLExpiry(t *testing.T) {
 
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{session}, Procs: []domain.ProcSample{proc}})
 
-	if got := st.History("claude:s1:cpu"); got == nil {
+	if got := sessionHistory(st, "claude", "s1", MetricCPU); got == nil {
 		t.Fatalf("History(\"claude:s1:cpu\") = nil after first sighting, want a populated ring")
 	}
 
 	st.Reduce(Inputs{At: at(31)})
 
-	if got := st.History("claude:s1:cpu"); got != nil {
+	if got := sessionHistory(st, "claude", "s1", MetricCPU); got != nil {
 		t.Fatalf("History(\"claude:s1:cpu\") = %v after TTL drop, want nil (ring must be deleted, not retained forever)", got)
 	}
-	if got := st.History("claude:s1:gpu"); got != nil {
+	if got := sessionHistory(st, "claude", "s1", MetricGPU); got != nil {
 		t.Fatalf("History(\"claude:s1:gpu\") = %v after TTL drop, want nil", got)
 	}
-	if got := st.History("claude:s1:cost"); got != nil {
+	if got := sessionHistory(st, "claude", "s1", MetricCost); got != nil {
 		t.Fatalf("History(\"claude:s1:cost\") = %v after TTL drop, want nil", got)
 	}
-	if _, ok := st.histories["claude:s1:cpu"]; ok {
+	if _, ok := st.histories[historyKey{sessionKey{"claude", "s1"}, MetricCPU}]; ok {
 		t.Fatalf("st.histories still holds claude:s1:cpu after TTL drop, want it deleted from the map")
 	}
 }
@@ -122,19 +122,23 @@ func TestStateHistoryPerSessionKeysDistinguishAgent(t *testing.T) {
 
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{claude, codex}, Procs: procs})
 
-	if got := st.History("claude:dup:cpu"); len(got) != 1 || got[0] != 11 {
+	if got := sessionHistory(st, "claude", "dup", MetricCPU); len(got) != 1 || got[0] != 11 {
 		t.Fatalf("History(\"claude:dup:cpu\") = %v, want [11]", got)
 	}
-	if got := st.History("codex:dup:cpu"); len(got) != 1 || got[0] != 22 {
+	if got := sessionHistory(st, "codex", "dup", MetricCPU); len(got) != 1 || got[0] != 22 {
 		t.Fatalf("History(\"codex:dup:cpu\") = %v, want [22]", got)
 	}
 
 	st.Reduce(Inputs{At: at(31), Sessions: []domain.Session{codex}, Procs: []domain.ProcSample{{PID: codexPID, CPUPct: floatp(22)}}})
 
-	if got := st.History("claude:dup:cpu"); got != nil {
+	if got := sessionHistory(st, "claude", "dup", MetricCPU); got != nil {
 		t.Fatalf("History(\"claude:dup:cpu\") = %v after TTL drop, want nil", got)
 	}
-	if got := st.History("codex:dup:cpu"); got == nil {
+	if got := sessionHistory(st, "codex", "dup", MetricCPU); got == nil {
 		t.Fatalf("History(\"codex:dup:cpu\") = nil, want the codex session's ring to survive the claude session's drop")
 	}
+}
+
+func sessionHistory(st *State, agent, id string, m Metric) []float64 {
+	return st.history(historyKey{sessionKey{agent, id}, m})
 }
