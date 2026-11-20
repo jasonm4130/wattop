@@ -5,10 +5,37 @@ import (
 	"time"
 )
 
+type eventTime struct {
+	at    time.Time
+	known bool
+}
+
+func eventTimeOf(t time.Time) eventTime {
+	return eventTime{at: t, known: !t.IsZero()}
+}
+
+type spanKind int
+
+const (
+	spanUncomparable spanKind = iota
+	spanEventStale
+	spanWall
+	spanEvent
+)
+
+type burnSpan struct {
+	kind    spanKind
+	elapsed time.Duration
+}
+
+func (s burnSpan) counts() bool {
+	return s.kind == spanWall || s.kind == spanEvent
+}
+
 type sessionBurn struct {
 	baselined bool
 	lastObs   time.Time
-	lastEvent time.Time
+	lastEvent eventTime
 	lastUSD   float64
 	ewma      float64
 	hasEWMA   bool
@@ -39,9 +66,10 @@ func (t *BurnTracker) Observe(sessionID string, cumulativeUSD float64, at, event
 		t.byID[sessionID] = sb
 	}
 
+	event := eventTimeOf(eventAt)
 	if sb.baselined {
-		if dt, counts := t.span(sb, at, eventAt); counts && dt > 0 {
-			inst := (cumulativeUSD - sb.lastUSD) / dt.Hours()
+		if s := t.span(sb, at, event); s.counts() && s.elapsed > 0 {
+			inst := (cumulativeUSD - sb.lastUSD) / s.elapsed.Hours()
 			if inst < 0 {
 				inst = 0
 			}
@@ -56,27 +84,24 @@ func (t *BurnTracker) Observe(sessionID string, cumulativeUSD float64, at, event
 
 	sb.baselined = true
 	sb.lastObs = at
-	sb.lastEvent = eventAt
+	sb.lastEvent = event
 	sb.lastUSD = cumulativeUSD
 }
 
-func (t *BurnTracker) span(sb *sessionBurn, at, eventAt time.Time) (time.Duration, bool) {
-	eventKnown, lastKnown := !eventAt.IsZero(), !sb.lastEvent.IsZero()
-
+func (t *BurnTracker) span(sb *sessionBurn, at time.Time, event eventTime) burnSpan {
+	wall := at.Sub(sb.lastObs)
 	switch {
-	case eventKnown != lastKnown:
-		return 0, false
-	case !eventKnown:
-		return at.Sub(sb.lastObs), true
-	case at.Sub(eventAt) > t.window:
-		return 0, false
-	default:
-		wall := at.Sub(sb.lastObs)
-		if ev := eventAt.Sub(sb.lastEvent); ev > wall {
-			return ev, true
-		}
-		return wall, true
+	case event.known != sb.lastEvent.known:
+		return burnSpan{kind: spanUncomparable}
+	case !event.known:
+		return burnSpan{kind: spanWall, elapsed: wall}
+	case at.Sub(event.at) > t.window:
+		return burnSpan{kind: spanEventStale}
 	}
+	if gap := event.at.Sub(sb.lastEvent.at); gap > wall {
+		return burnSpan{kind: spanEvent, elapsed: gap}
+	}
+	return burnSpan{kind: spanWall, elapsed: wall}
 }
 
 func (t *BurnTracker) Forget(sessionID string) {
