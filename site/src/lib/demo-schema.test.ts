@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import demo from '../data/demo.json';
 import { SOURCE_FIELDS } from '../../scripts/demo-schema.mjs';
-import { renderDash, WINDOW } from './dash';
+import { renderDash, SEVERITY_HOT_AT, SEVERITY_WARN_AT, WINDOW } from './dash';
 import type { Demo } from './dash';
 
 type Spec =
@@ -165,5 +165,14 @@ describe('demo trimmer vs the Go --json schema', () => {
       .map((seg) => seg.replace(/\[\]$/, ''))
       .filter((seg) => !tags.has(seg));
     expect(missing).toEqual([]);
+  });
+});
+
+describe('severity thresholds vs the TUI', () => {
+  const panel = fileURLToPath(new URL('../../../internal/ui/panel/', import.meta.url));
+
+  it.each(['sessions.go', 'soc.go'])('%s colours bars at the same warn and hot percentages', (name) => {
+    const m = readFileSync(join(panel, name), 'utf8').match(/Severity\(pct, (\d+), (\d+)\)/);
+    expect(m && [Number(m[1]), Number(m[2])]).toEqual([SEVERITY_WARN_AT, SEVERITY_HOT_AT]);
   });
 });
