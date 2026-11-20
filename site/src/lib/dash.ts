@@ -68,7 +68,7 @@ export type Demo = { meta: { source: string; soc: string; synthetic: boolean }; 
 
 export const WINDOW = 60;
 
-export function seq(t: number, n: number): number {
+export function pingPongFrame(t: number, n: number): number {
   const period = 2 * (n - 1);
   const m = ((t % period) + period) % period;
   return m < n ? m : period - m;
@@ -214,10 +214,10 @@ function niceMax(v: number): number {
   return Math.ceil(v);
 }
 
-export function renderDash(frames: Frame[], tick: number): string {
+export function renderDash(frames: Frame[], newestTick: number): string {
   const n = frames.length;
   const hist: Frame[] = [];
-  for (let t = tick - WINDOW + 1; t <= tick; t++) hist.push(frames[seq(t, n)]);
+  for (let t = newestTick - WINDOW + 1; t <= newestTick; t++) hist.push(frames[pingPongFrame(t, n)]);
   const f = hist[hist.length - 1];
   const s = f.sys;
 
