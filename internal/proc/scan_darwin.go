@@ -43,8 +43,6 @@ type Scanner struct {
 	timebaseNum uint32
 	timebaseDen uint32
 
-	systemGPUActivePct *float64
-
 	argvBuf []byte
 }
 
@@ -58,13 +56,9 @@ func NewScanner() *Scanner {
 	}
 }
 
-func (s *Scanner) SetSystemGPUActivePct(pct *float64) {
-	s.systemGPUActivePct = pct
-}
-
 func (s *Scanner) Close() error { return nil }
 
-func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
+func (s *Scanner) Scan(ctx context.Context, systemGPUActivePct *float64) ([]domain.ProcSample, error) {
 	s.tbOnce.Do(func() {
 		var tb C.mach_timebase_info_data_t
 		if C.mach_timebase_info(&tb) != 0 || tb.denom == 0 {
@@ -93,7 +87,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 	if gpuErr == nil {
 		gpuMsPerSec = s.gpu.Update(gpuTable, nowWall)
 	}
-	gpuPctApprox := RescaleGPUPct(gpuMsPerSec, s.systemGPUActivePct)
+	gpuPctApprox := RescaleGPUPct(gpuMsPerSec, systemGPUActivePct)
 
 	out := make([]domain.ProcSample, 0, len(pids))
 	alive := make(map[int]bool, len(pids))
@@ -140,7 +134,10 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 
 		cpuNs := MachTicksToNs(uint64(cpuTicks), s.timebaseNum, s.timebaseDen)
 
-		cpuPct, _ := s.cpu.Update(pid, cpuNs, nowWall)
+		var cpuPct *float64
+		if pct, measured := s.cpu.Update(pid, cpuNs, nowWall); measured {
+			cpuPct = &pct
+		}
 
 		ps := domain.ProcSample{
 			PID:        pid,

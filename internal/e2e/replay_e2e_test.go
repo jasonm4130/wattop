@@ -55,7 +55,7 @@ func buildCycle(ctx context.Context, t *testing.T, clock replay.Clock, sys domai
 	if err != nil {
 		t.Fatalf("sys.Sample: %v", err)
 	}
-	procs, err := proc.Scan(ctx)
+	procs, err := proc.Scan(ctx, sample.GPU.ActivePct)
 	if err != nil {
 		t.Fatalf("proc.Scan: %v", err)
 	}

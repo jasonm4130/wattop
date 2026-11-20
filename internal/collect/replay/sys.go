@@ -172,9 +172,6 @@ var thermalStates = map[string]int{
 	"Heavy":    2,
 	"Trapping": 3,
 	"Sleeping": 4,
-	"Fair":     1,
-	"Serious":  2,
-	"Critical": 3,
 }
 
 func decodeSysRecord(rec []byte) (domain.SysSample, map[string]bool, error) {
@@ -362,10 +359,8 @@ func (s *SysSampler) Sample(ctx context.Context, intervalMs int) (domain.SysSamp
 		return domain.SysSample{}, err
 	}
 	sample := s.samples[s.idx%len(s.samples)]
-	chans := s.channels[s.idx%len(s.channels)]
 	s.lastThermalState = sample.ThermalState
 	s.idx++
-	_ = chans
 	return sample, nil
 }
 

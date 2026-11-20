@@ -45,7 +45,7 @@ func NewProcSource(w *World, now func() time.Time, selfPID int) *ProcSource {
 	return &ProcSource{w: w, now: now, selfPID: selfPID}
 }
 
-func (p *ProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
+func (p *ProcSource) Scan(ctx context.Context, _ *float64) ([]domain.ProcSample, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

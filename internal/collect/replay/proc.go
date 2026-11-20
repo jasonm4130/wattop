@@ -29,7 +29,7 @@ func NewProcSource(path string) (*ProcSource, error) {
 	return &ProcSource{scans: scans}, nil
 }
 
-func (s *ProcSource) Scan(ctx context.Context) ([]domain.ProcSample, error) {
+func (s *ProcSource) Scan(ctx context.Context, _ *float64) ([]domain.ProcSample, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -15,7 +15,7 @@ import (
 func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Duration, book *pricing.Book, themeName string, groups bool) {
 	primeProcBaseline(ctx, src.Proc)
 	sys, errSys := safeSample(ctx, src.Sys, interval)
-	procs, errProc := safeScan(ctx, src.Proc)
+	procs, errProc := safeScan(ctx, src.Proc, sys.GPU.ActivePct)
 	now := time.Now()
 
 	fmt.Fprintln(w, "wattop doctor")
@@ -57,7 +57,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 			if p.GPUMsPerSec != nil {
 				gpuRows++
 			}
-			if p.CPUPct > 0 {
+			if p.CPUPct != nil && *p.CPUPct > 0 {
 				cpuRows++
 			}
 		}
@@ -104,7 +104,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 }
 
 func primeProcBaseline(ctx context.Context, p domain.ProcSource) {
-	_, _ = safeScan(ctx, p)
+	_, _ = safeScan(ctx, p, nil)
 }
 
 func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error)) {

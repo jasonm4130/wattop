@@ -211,7 +211,7 @@ func TestProcSourceScansAndLoops(t *testing.T) {
 		t.Fatalf("NewProcSource: %v", err)
 	}
 
-	scan1, err := source.Scan(context.Background())
+	scan1, err := source.Scan(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Scan 1: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestProcSourceScansAndLoops(t *testing.T) {
 		t.Fatal("expected pid 9012 in scan 1 (it must vanish by a later scan)")
 	}
 
-	scan2, err := source.Scan(context.Background())
+	scan2, err := source.Scan(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Scan 2: %v", err)
 	}
@@ -260,10 +260,10 @@ func TestProcSourceScansAndLoops(t *testing.T) {
 		}
 	}
 
-	if _, err := source.Scan(context.Background()); err != nil {
+	if _, err := source.Scan(context.Background(), nil); err != nil {
 		t.Fatalf("Scan 3: %v", err)
 	}
-	looped, err := source.Scan(context.Background())
+	looped, err := source.Scan(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Scan 4 (wraparound): %v", err)
 	}

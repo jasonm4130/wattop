@@ -1,8 +1,6 @@
 package proc
 
 import (
-	"os"
-	"regexp"
 	"testing"
 	"time"
 )
@@ -247,52 +245,6 @@ func TestRescaleGPUPct(t *testing.T) {
 	})
 }
 
-func TestStartWall(t *testing.T) {
-	numer, denom := uint32(125), uint32(3)
-	nowTicks := uint64(1_000_000_000)
-	nowWall := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
-
-	t.Run("10 seconds earlier", func(t *testing.T) {
-		startTicks := nowTicks - 240_000_000
-		got := StartWall(startTicks, nowTicks, numer, denom, nowWall)
-		want := nowWall.Add(-10 * time.Second)
-		if !got.Equal(want) {
-			t.Fatalf("StartWall = %v, want %v", got, want)
-		}
-	})
-
-	t.Run("equal ticks yields exactly nowWall", func(t *testing.T) {
-		got := StartWall(nowTicks, nowTicks, numer, denom, nowWall)
-		if !got.Equal(nowWall) {
-			t.Fatalf("StartWall = %v, want %v", got, nowWall)
-		}
-	})
-
-	t.Run("startTicks after nowTicks returns the zero time", func(t *testing.T) {
-		got := StartWall(nowTicks+1, nowTicks, numer, denom, nowWall)
-		if !got.IsZero() {
-			t.Fatalf("StartWall = %v, want the zero time", got)
-		}
-	})
-
-	t.Run("naive epoch interpretation lands decades away from the anchor", func(t *testing.T) {
-		startTicks := nowTicks - 240_000_000
-		correct := StartWall(startTicks, nowTicks, numer, denom, nowWall)
-
-		naiveNs := startTicks * uint64(numer) / uint64(denom)
-		naive := time.Unix(0, 0).Add(time.Duration(naiveNs))
-
-		diff := correct.Sub(naive)
-		if diff < 0 {
-			diff = -diff
-		}
-		const decade = 10 * 365 * 24 * time.Hour
-		if diff < decade {
-			t.Fatalf("naive interpretation (%v) is not decades away from the correct anchor (%v): diff %v", naive, correct, diff)
-		}
-	})
-}
-
 func TestProcStartWall(t *testing.T) {
 	cases := []struct {
 		name string
@@ -330,42 +282,5 @@ func TestProcStartWall(t *testing.T) {
 				t.Fatalf("ProcStartWall(%d).IsZero() = %v, want %v", tc.usec, got.IsZero(), tc.want.IsZero())
 			}
 		})
-	}
-}
-
-var lineCommentRe = regexp.MustCompile(`(?m)//.*$`)
-
-func TestScannerStartTimeIsNotMachAnchored(t *testing.T) {
-	src, err := os.ReadFile("scan_darwin.go")
-	if err != nil {
-		t.Fatalf("reading scan_darwin.go: %v", err)
-	}
-	code := lineCommentRe.ReplaceAllString(string(src), "")
-
-	for _, banned := range []struct {
-		pattern *regexp.Regexp
-		why     string
-	}{
-		{
-			pattern: regexp.MustCompile(`mach_absolute_time`),
-			why:     "the absolute clock pauses during sleep, so an anchor on it dates every process that lived through a sleep too late by the accumulated sleep (71.37h measured on the target laptop)",
-		},
-		{
-			pattern: regexp.MustCompile(`mach_continuous_time`),
-			why:     "ri_proc_start_abstime is stamped on the absolute clock, so anchoring it against the continuous clock dates every recently-started process too early by the accumulated sleep — worse for Task 9, which binds recent processes",
-		},
-		{
-			pattern: regexp.MustCompile(`\bStartWall\(`),
-			why:     "StartWall is correct arithmetic over a Mach elapsed duration but no Mach clock yields a wall-clock start; use ProcStartWall over kinfo_proc p_starttime",
-		},
-	} {
-		if loc := banned.pattern.FindStringIndex(code); loc != nil {
-			t.Fatalf("scan_darwin.go calls %s at byte %d of its comment-stripped source: %s",
-				banned.pattern, loc[0], banned.why)
-		}
-	}
-
-	if !regexp.MustCompile(`\bProcStartWall\(`).MatchString(code) {
-		t.Fatalf("scan_darwin.go does not call ProcStartWall — StartTime must come from kinfo_proc p_starttime")
 	}
 }

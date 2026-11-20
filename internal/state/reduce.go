@@ -123,7 +123,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 
 	var selfCPU float64
 	if p, ok := procByPID[os.Getpid()]; ok {
-		selfCPU = p.CPUPct
+		selfCPU = derefOr(p.CPUPct, 0)
 	}
 
 	snap := &domain.Snapshot{
@@ -163,7 +163,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	for _, s := range sessions {
 		var cpu, gpu, cost float64
 		if s.Proc != nil {
-			cpu = s.Proc.CPUPct
+			cpu = derefOr(s.Proc.CPUPct, 0)
 			gpu = derefOr(s.Proc.GPUMsPerSec, 0)
 		}
 		if s.BurnUSDPerHr != nil {

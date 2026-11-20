@@ -214,7 +214,7 @@ func (w *World) Procs(at time.Time) []domain.ProcSample {
 			Argv:       append([]string(nil), sp.argv...),
 			CWD:        sp.cwd,
 			RSSBytes:   uint64(rss),
-			CPUPct:     round1(cpu),
+			CPUPct:     ptr(round1(cpu)),
 			DiskReadB:  uint64(12e6 + 3e4*float64(w.tick)),
 			DiskWriteB: uint64(4e6 + 1e4*float64(w.tick)),
 			StartTime:  w.ago(at, w.tick).Add(-time.Duration(sp.ageMin * float64(time.Minute))),
@@ -241,7 +241,7 @@ func (w *World) SelfProc(pid int, at time.Time) domain.ProcSample {
 		Argv:      []string{"wattop", "--demo"},
 		CWD:       "~/code/wattop",
 		RSSBytes:  uint64(56e6 + 8e6*smooth(w.seed, chSelf+1, t, 12)),
-		CPUPct:    round1(1.5 + 1.5*smooth(w.seed, chSelf, t, 4)),
+		CPUPct:    ptr(round1(1.5 + 1.5*smooth(w.seed, chSelf, t, 4))),
 		StartTime: w.ago(at, w.tick),
 	}
 }
