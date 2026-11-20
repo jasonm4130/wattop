@@ -21,8 +21,8 @@ const (
 var rateBases = [...]string{baseInput, baseOutput, baseCacheRead, baseCacheCreate, baseCacheCreate1h}
 
 type tier struct {
-	threshold int64
-	rate      float64
+	aboveTokens int64
+	rate        float64
 }
 
 type baseRates struct {
@@ -47,7 +47,7 @@ func parseRateCard(e modelEntry) *rateCard {
 				continue
 			}
 			br := c.bases[m[1]]
-			br.tiers = append(br.tiers, tier{threshold: n * 1000, rate: rate})
+			br.tiers = append(br.tiers, tier{aboveTokens: n * 1000, rate: rate})
 			c.bases[m[1]] = br
 			continue
 		}
@@ -56,7 +56,7 @@ func parseRateCard(e modelEntry) *rateCard {
 		c.bases[k] = br
 	}
 	for k, br := range c.bases {
-		sort.Slice(br.tiers, func(i, j int) bool { return br.tiers[i].threshold < br.tiers[j].threshold })
+		sort.Slice(br.tiers, func(i, j int) bool { return br.tiers[i].aboveTokens < br.tiers[j].aboveTokens })
 		c.bases[k] = br
 	}
 	return c
@@ -65,7 +65,7 @@ func parseRateCard(e modelEntry) *rateCard {
 func (c *rateCard) rate(base string, promptTokens int64) float64 {
 	br := c.bases[base]
 	for i := len(br.tiers) - 1; i >= 0; i-- {
-		if promptTokens > br.tiers[i].threshold {
+		if promptTokens > br.tiers[i].aboveTokens {
 			return br.tiers[i].rate
 		}
 	}
@@ -118,20 +118,9 @@ func (b *Book) CostLedger(l domain.UsageLedger) (usd float64, unpricedModels []s
 		r  Rates
 		ok bool
 	}
-	keys := make([]domain.UsageKey, 0, len(l))
-	for k := range l {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].Model != keys[j].Model {
-			return keys[i].Model < keys[j].Model
-		}
-		return keys[i].PromptK < keys[j].PromptK
-	})
-
 	byModel := make(map[string]resolved)
 	unpriced := make(map[string]struct{})
-	for _, k := range keys {
+	for _, k := range keysInSummationOrder(l) {
 		u := l[k]
 		res, seen := byModel[k.Model]
 		if !seen {
@@ -153,4 +142,18 @@ func (b *Book) CostLedger(l domain.UsageLedger) (usd float64, unpricedModels []s
 	}
 	sort.Strings(unpricedModels)
 	return usd, unpricedModels, anyPriced
+}
+
+func keysInSummationOrder(l domain.UsageLedger) []domain.UsageKey {
+	keys := make([]domain.UsageKey, 0, len(l))
+	for k := range l {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Model != keys[j].Model {
+			return keys[i].Model < keys[j].Model
+		}
+		return keys[i].PromptK < keys[j].PromptK
+	})
+	return keys
 }
