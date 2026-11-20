@@ -160,7 +160,7 @@ func (m *Model) cycleTheme(dir int) {
 }
 
 func dormant(s domain.Session) bool {
-	return s.Status == domain.StatusStale && (s.Proc == nil || s.BindConf == domain.BindUnknown)
+	return s.Status == domain.StatusStale && !s.HasLiveProcess()
 }
 
 func (m Model) visibleSessions() []domain.Session {

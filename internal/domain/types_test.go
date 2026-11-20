@@ -277,3 +277,24 @@ func TestEnumsMarshalToWireStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestHasLiveProcess(t *testing.T) {
+	pid := 7
+	proc := &ProcSample{PID: pid}
+	cases := []struct {
+		name string
+		s    Session
+		want bool
+	}{
+		{"bound with a proc", Session{BindConf: BindExact, PID: &pid, Proc: proc}, true},
+		{"inferred with a proc", Session{BindConf: BindInferred, PID: &pid, Proc: proc}, true},
+		{"bound, pid gone from the process table", Session{BindConf: BindExact, PID: &pid}, false},
+		{"unbound", Session{BindConf: BindUnknown}, false},
+		{"unbound with a stray proc", Session{BindConf: BindUnknown, Proc: proc}, false},
+	}
+	for _, c := range cases {
+		if got := c.s.HasLiveProcess(); got != c.want {
+			t.Errorf("%s: HasLiveProcess() = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

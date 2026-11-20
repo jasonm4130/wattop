@@ -318,7 +318,7 @@ func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.S
 }
 
 func processLines(s domain.Session) []string {
-	if s.BindConf == domain.BindUnknown || s.Proc == nil {
+	if !s.HasLiveProcess() {
 		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}
 	}
 	p := s.Proc

@@ -296,3 +296,7 @@ type Session struct {
 	Proc        *ProcSample `json:"proc"`
 	RateLimits  []RateLimit `json:"rate_limits"`
 }
+
+func (s Session) HasLiveProcess() bool {
+	return s.BindConf != BindUnknown && s.Proc != nil
+}

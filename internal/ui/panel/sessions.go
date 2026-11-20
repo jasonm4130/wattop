@@ -258,7 +258,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	burn = padLine(truncate(burn, cols.Burn), cols.Burn)
 
 	cpu, gpu, rss := "—", "—", "—"
-	if s.BindConf != domain.BindUnknown && s.Proc != nil {
+	if s.HasLiveProcess() {
 		cpu = fdash(s.Proc.CPUPct, "%.1f%%")
 		gpu = fdash(s.Proc.GPUMsPerSec, "%.1f")
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
