@@ -275,7 +275,7 @@ func (m Model) View() tea.View {
 	}
 
 	if m.showHelp {
-		return tea.NewView(panel.HelpRender(m.roles, m.width, m.height, m.renderOpts()))
+		return tea.NewView(panel.HelpRender(helpEntries, m.roles, m.width, m.height, m.renderOpts()))
 	}
 
 	if m.showDetail {
