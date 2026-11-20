@@ -26,31 +26,43 @@ const fiveHourRateLimitScope = "five_hour"
 
 const maxRetainedTools = 64
 
-type sessionAgg struct {
+type transcriptTotals struct {
 	usageAccounting
-	tail               TailState
+	tools            []domain.ToolCall
+	toolCounts       map[string]int
+	highWaterMark    int64
+	lastPromptTokens int64
+}
+
+func newTranscriptTotals() transcriptTotals {
+	return transcriptTotals{toolCounts: make(map[string]int)}
+}
+
+type lastObserved struct {
 	model              string
-	tools              []domain.ToolCall
-	toolCounts         map[string]int
 	resultedToolUseIDs map[string]bool
 	rateLimit          *domain.RateLimit
 	rateLimitAt        time.Time
-	subagents          subagentTracker
 	lastUsageAt        time.Time
-	highWaterMark      int64
-	lastPromptTokens   int64
+}
+
+type sessionAgg struct {
+	transcriptTotals
+	lastObserved
+	tail               TailState
+	subagents          subagentTracker
 	nextTranscriptScan time.Time
 }
 
-const transcriptRescanInterval = time.Minute
-
-func (a *sessionAgg) resetAccumulators() {
-	a.usageAccounting = usageAccounting{}
-	a.tools = nil
-	a.toolCounts = make(map[string]int)
-	a.highWaterMark = 0
-	a.lastPromptTokens = 0
+func newSessionAgg() *sessionAgg {
+	return &sessionAgg{
+		transcriptTotals: newTranscriptTotals(),
+		lastObserved:     lastObserved{resultedToolUseIDs: make(map[string]bool)},
+		subagents:        newSubagentTracker(),
+	}
 }
+
+const transcriptRescanInterval = time.Minute
 
 type Source struct {
 	sessionsDir string
@@ -104,11 +116,7 @@ func (s *Source) Poll(_ context.Context, now time.Time, _ []domain.ProcSample) (
 func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	agg := s.agg[f.SessionID]
 	if agg == nil {
-		agg = &sessionAgg{
-			toolCounts:         make(map[string]int),
-			resultedToolUseIDs: make(map[string]bool),
-			subagents:          newSubagentTracker(),
-		}
+		agg = newSessionAgg()
 		s.agg[f.SessionID] = agg
 	}
 
@@ -131,7 +139,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	var lines [][]byte
 	if agg.tail.Path != "" && err == nil {
 		if res.Reset {
-			agg.resetAccumulators()
+			agg.transcriptTotals = newTranscriptTotals()
 		}
 		agg.tail = res.State
 		lines = res.Lines
