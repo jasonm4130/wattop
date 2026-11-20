@@ -187,7 +187,7 @@ func (s *Source) pollOne(f SessionFile, now time.Time) (domain.Session, error) {
 	}
 
 	if agg.rateLimit != nil {
-		status = "rate-limited"
+		status = domain.StatusRateLimited
 		if !agg.rateLimitAt.IsZero() {
 			statusSince = agg.rateLimitAt
 		}

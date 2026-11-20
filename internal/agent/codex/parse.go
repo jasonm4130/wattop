@@ -178,13 +178,13 @@ func (r *Rollout) Apply(line []byte) error {
 		}
 		switch p.Type {
 		case "task_started":
-			r.Status = "busy"
+			r.Status = domain.StatusBusy
 			r.TaskCompleted = false
 			if r.ContextMax == 0 && p.ModelContextWindow > 0 {
 				r.ContextMax = p.ModelContextWindow
 			}
 		case "task_complete":
-			r.Status = "waiting"
+			r.Status = domain.StatusWaiting
 			r.TaskCompleted = true
 		case "token_count":
 			if !recAt.IsZero() && recAt.Before(r.lastUsageAt) {
@@ -309,12 +309,12 @@ func parseCodexTime(s string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-func inferStatus(base string, mtime, now time.Time, idleThreshold time.Duration) string {
+func inferStatus(base domain.SessionStatus, mtime, now time.Time, idleThreshold time.Duration) domain.SessionStatus {
 	if base == "" {
-		base = "unknown"
+		base = domain.StatusUnknown
 	}
 	if !mtime.IsZero() && now.Sub(mtime) > idleThreshold {
-		return "stale"
+		return domain.StatusStale
 	}
 	return base
 }

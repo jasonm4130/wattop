@@ -91,8 +91,8 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			continue
 		}
 
-		if tr.session.Status != "stale" {
-			tr.session.Status = "stale"
+		if tr.session.Status != domain.StatusStale {
+			tr.session.Status = domain.StatusStale
 			tr.session.StatusSince = in.At
 		}
 

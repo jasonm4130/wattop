@@ -43,7 +43,7 @@ type Rollout struct {
 	Nickname       string
 	AgentPath      string
 
-	Status        string
+	Status        domain.SessionStatus
 	TaskCompleted bool
 
 	Usage        domain.Usage

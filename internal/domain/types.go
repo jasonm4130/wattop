@@ -254,6 +254,16 @@ const (
 	BindUnknown  BindConf = "unknown"
 )
 
+type SessionStatus string
+
+const (
+	StatusBusy        SessionStatus = "busy"
+	StatusWaiting     SessionStatus = "waiting"
+	StatusRateLimited SessionStatus = "rate-limited"
+	StatusUnknown     SessionStatus = "unknown"
+	StatusStale       SessionStatus = "stale"
+)
+
 type Session struct {
 	TokenRate    *TokenRate     `json:"token_rate,omitempty"`
 	Agent        string         `json:"agent"`
@@ -264,7 +274,7 @@ type Session struct {
 	Name         string         `json:"name"`
 	Cmdline      string         `json:"cmdline"`
 	Kind         string         `json:"kind"`
-	Status       string         `json:"status"`
+	Status       SessionStatus  `json:"status"`
 	StatusSince  time.Time      `json:"status_since"`
 	Model        string         `json:"model"`
 	Usage        Usage          `json:"usage"`

@@ -251,7 +251,7 @@ func dedupSessionID(r Rollout, id string, used map[string]bool) string {
 	return id
 }
 
-func sessionFromRollout(r Rollout, b binding, status string, procs []domain.ProcSample) domain.Session {
+func sessionFromRollout(r Rollout, b binding, status domain.SessionStatus, procs []domain.ProcSample) domain.Session {
 	// Session identity is the thread id where one is known (unique per
 	// thread, never shared with a parent or sibling); SessionID is the
 	// fallback (Codex reuses one session_id across a whole parent/child

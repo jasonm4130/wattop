@@ -61,16 +61,16 @@ func buildSubagent(c Rollout, parentID string, idleThreshold time.Duration, now 
 	}
 }
 
-func childSubagentStatus(inferred string, taskCompleted bool) string {
+func childSubagentStatus(inferred domain.SessionStatus, taskCompleted bool) string {
 	switch inferred {
-	case "busy":
+	case domain.StatusBusy:
 		return domain.SubagentRunning
-	case "waiting":
+	case domain.StatusWaiting:
 		if taskCompleted {
 			return domain.SubagentDone
 		}
 		return domain.SubagentRunning
-	case "stale":
+	case domain.StatusStale:
 		if taskCompleted {
 			return domain.SubagentDone
 		}

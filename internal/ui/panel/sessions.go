@@ -392,22 +392,22 @@ func workflowRow(r theme.Roles, w *domain.Workflow, opts Options, cols sessionCo
 
 func statusInfo(r theme.Roles, s domain.Session, at time.Time) (color, label string) {
 	switch s.Status {
-	case "busy":
+	case domain.StatusBusy:
 		return r.Busy, spinnerGlyph + " Busy"
-	case "waiting":
+	case domain.StatusWaiting:
 		return r.Waiting, "Waiting"
-	case "rate-limited":
+	case domain.StatusRateLimited:
 		return r.Warn, "RateLimited"
-	case "unknown":
+	case domain.StatusUnknown:
 		return r.Muted, "Unknown"
-	case "stale":
+	case domain.StatusStale:
 		age := "—"
 		if !s.StatusSince.IsZero() && !at.IsZero() {
 			age = formatAge(at.Sub(s.StatusSince))
 		}
 		return r.Muted, "Stale " + age
 	default:
-		return r.Muted, s.Status
+		return r.Muted, string(s.Status)
 	}
 }
 

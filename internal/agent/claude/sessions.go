@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"time"
+
+	"github.com/jasonm4130/wattop/internal/domain"
 )
 
 // sessionFilePattern is a positive allowlist for filenames under
@@ -19,7 +21,7 @@ type SessionFile struct {
 	PID             int
 	SessionID       string
 	CWD             string
-	Status          string
+	Status          domain.SessionStatus
 	RawStatus       string
 	Kind            string
 	Entrypoint      string
@@ -31,16 +33,14 @@ type SessionFile struct {
 
 // Raw status values seen on disk are idle, shell, busy and unknown; "waiting"
 // has never been observed.
-func normaliseStatus(raw string) string {
+func normaliseStatus(raw string) domain.SessionStatus {
 	switch raw {
-	case "busy":
-		return "busy"
+	case "busy", "shell", "tool":
+		return domain.StatusBusy
 	case "waiting", "idle":
-		return "waiting"
-	case "shell", "tool":
-		return "busy"
+		return domain.StatusWaiting
 	default:
-		return "unknown"
+		return domain.StatusUnknown
 	}
 }
 

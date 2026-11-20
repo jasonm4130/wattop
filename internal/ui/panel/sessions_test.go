@@ -246,7 +246,7 @@ func TestAllFiveStatusesRender(t *testing.T) {
 	since := fixtureAt.Add(-90 * time.Second)
 
 	statuses := []struct {
-		status string
+		status domain.SessionStatus
 		want   string
 	}{
 		{"busy", "Busy"},
@@ -258,8 +258,8 @@ func TestAllFiveStatusesRender(t *testing.T) {
 	}
 
 	for _, tc := range statuses {
-		t.Run(tc.status, func(t *testing.T) {
-			s := domain.Session{Agent: "claude", ID: "s-" + tc.status, Status: tc.status, StatusSince: since}
+		t.Run(string(tc.status), func(t *testing.T) {
+			s := domain.Session{Agent: "claude", ID: "s-" + string(tc.status), Status: tc.status, StatusSince: since}
 			out := SessionsRender([]domain.Session{s}, r, 120, 3, -1, fixtureAt, Options{})
 			if !strings.Contains(out, tc.want) {
 				t.Errorf("status %q: expected %q in render, got:\n%s", tc.status, tc.want, out)
@@ -396,7 +396,7 @@ func TestHumanBytesScalesToMAndG(t *testing.T) {
 func manySessions(n int) []domain.Session {
 	out := make([]domain.Session, n)
 	for i := range out {
-		out[i] = domain.Session{Agent: "claude", ID: fmt.Sprintf("s%d", i), Status: fmt.Sprintf("row%d", i)}
+		out[i] = domain.Session{Agent: "claude", ID: fmt.Sprintf("s%d", i), Status: domain.SessionStatus(fmt.Sprintf("row%d", i))}
 	}
 	return out
 }
