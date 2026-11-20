@@ -65,18 +65,15 @@ type State struct {
 
 	tracked map[sessionKey]*trackedSession
 
-	burnLastCost map[string]float64
-
 	histories map[historyKey]*ring
 }
 
 func New(book *pricing.Book, burn *pricing.BurnTracker) *State {
 	return &State{
-		book:         book,
-		burn:         burn,
-		tracked:      make(map[sessionKey]*trackedSession),
-		burnLastCost: make(map[string]float64),
-		histories:    make(map[historyKey]*ring),
+		book:      book,
+		burn:      burn,
+		tracked:   make(map[sessionKey]*trackedSession),
+		histories: make(map[historyKey]*ring),
 	}
 }
 

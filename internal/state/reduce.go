@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
@@ -176,8 +175,7 @@ func (st *State) forgetSession(key sessionKey) {
 	delete(st.tracked, key)
 	burnKey := key.burnKey()
 	st.burn.Forget(burnKey)
-	delete(st.burnLastCost, burnKey)
-	st.forgetSubagentBurn(burnKey)
+	st.burn.ForgetPrefix(subagentBurnKey(burnKey, ""))
 	for _, m := range sessionMetrics {
 		delete(st.histories, historyKey{key, m})
 	}
@@ -224,10 +222,7 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 		s.BurnUSDPerHr = nil
 		return
 	}
-	if last, ok := st.burnLastCost[burnKey]; !ok || last != *s.CostUSD {
-		st.burn.Observe(burnKey, *s.CostUSD, at, lastTranscriptAt(s))
-		st.burnLastCost[burnKey] = *s.CostUSD
-	}
+	st.burn.Observe(burnKey, *s.CostUSD, at, lastTranscriptAt(s))
 	rate := st.burn.RatePerHour(burnKey, at)
 	s.BurnUSDPerHr = &rate
 }
@@ -259,31 +254,16 @@ func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time
 			continue
 		}
 		key := subagentBurnKey(sessionBurnKey, subagentKey(*sa, i))
-		last, seen := st.burnLastCost[key]
-		if !seen && !sa.StartedAt.IsZero() && !sa.LastActivityAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
+		if !st.burn.Tracking(key) && !sa.StartedAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
 			seedAt := sa.StartedAt
 			if floor := sa.LastActivityAt.Add(-childSeedMinSpan); floor.Before(seedAt) {
 				seedAt = floor
 			}
 			st.burn.Observe(key, 0, at, seedAt)
-			seen, last = true, 0
 		}
-		if !seen || last != *sa.CostUSD {
-			st.burn.Observe(key, *sa.CostUSD, at, sa.LastActivityAt)
-			st.burnLastCost[key] = *sa.CostUSD
-		}
+		st.burn.Observe(key, *sa.CostUSD, at, sa.LastActivityAt)
 		rate := st.burn.RatePerHour(key, at)
 		sa.BurnUSDPerHr = &rate
-	}
-}
-
-func (st *State) forgetSubagentBurn(sessionBurnKey string) {
-	prefix := sessionBurnKey + ":sub:"
-	for key := range st.burnLastCost {
-		if strings.HasPrefix(key, prefix) {
-			st.burn.Forget(key)
-			delete(st.burnLastCost, key)
-		}
 	}
 }
 

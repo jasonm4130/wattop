@@ -1,7 +1,6 @@
 package state
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -125,12 +124,18 @@ func TestDroppedSessionForgetsChildBurn(t *testing.T) {
 	st := newTestState(t, 60*time.Second)
 	sess := domain.Session{
 		Agent: "claude", ID: "s1", Model: "claude-opus-5",
-		Subagents: []domain.Subagent{{ID: "a1", Model: "claude-opus-5", Usage: domain.Usage{Input: 10}}},
+		Subagents: []domain.Subagent{{ID: "a1", Model: "claude-opus-5", LastActivityAt: at(0), Usage: domain.Usage{Input: 10}}},
 	}
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{sess}})
+	keys := []string{"claude:s1", "claude:s1:sub:a1"}
+	for _, key := range keys {
+		if !st.burn.Tracking(key) {
+			t.Fatalf("burn key %q not tracked after the first sighting", key)
+		}
+	}
 	st.Reduce(Inputs{At: at(40)})
-	for key := range st.burnLastCost {
-		if strings.HasPrefix(key, "claude:s1") {
+	for _, key := range keys {
+		if st.burn.Tracking(key) {
 			t.Fatalf("burn key %q survived the session's drop", key)
 		}
 	}
@@ -169,5 +174,30 @@ func TestNewbornChildBurnIsBounded(t *testing.T) {
 	maxRate := *sa.CostUSD / childSeedMinSpan.Hours()
 	if sa.BurnUSDPerHr == nil || *sa.BurnUSDPerHr <= 0 || *sa.BurnUSDPerHr > maxRate+1e-9 {
 		t.Fatalf("newborn burn = %v, want in (0, %v]", sa.BurnUSDPerHr, maxRate)
+	}
+}
+
+func TestChildPricedAtZeroIsSeededOnce(t *testing.T) {
+	st := newTestState(t, 60*time.Second)
+	mk := func(in int64, sec int) domain.Session {
+		return domain.Session{
+			Agent: "claude", ID: "s1", Model: "claude-opus-5", Usage: domain.Usage{Input: 1000},
+			Subagents: []domain.Subagent{{
+				ID: "a1", Model: "claude-opus-5", StartedAt: at(0), LastActivityAt: at(sec),
+				Usage: domain.Usage{Input: in},
+			}},
+		}
+	}
+	var snap *domain.Snapshot
+	for sec := 0; sec <= 15; sec += 5 {
+		snap = st.Reduce(Inputs{At: at(sec), Sessions: []domain.Session{mk(0, sec)}})
+	}
+	snap = st.Reduce(Inputs{At: at(20), Sessions: []domain.Session{mk(100_000, 20)}})
+	sa := findSession(t, snap, "claude", "s1").Subagents[0]
+	if sa.CostUSD == nil || *sa.CostUSD != 0.5 {
+		t.Fatalf("child cost = %v, want 0.5", sa.CostUSD)
+	}
+	if sa.BurnUSDPerHr == nil || *sa.BurnUSDPerHr != 36 {
+		t.Fatalf("child burn = %v, want 36 ($0.50 over the 50s since its seed at LastActivityAt-30s, unsmoothed)", sa.BurnUSDPerHr)
 	}
 }
