@@ -228,9 +228,10 @@ func rewriteUUID(s string) string {
 }
 
 func writeJSONString(buf *bytes.Buffer, s string) {
-	enc, err := json.Marshal(s)
-	if err != nil {
-		panic(fmt.Sprintf("fixture: scrub: marshal string: %v", err))
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		panic(fmt.Sprintf("fixture: scrub: encode string: %v", err))
 	}
-	buf.Write(enc)
+	buf.Truncate(buf.Len() - len("\n"))
 }

@@ -258,3 +258,15 @@ func TestScrubStreamPreservesCorpusLineFraming(t *testing.T) {
 		t.Fatalf("walking %s: %v", root, err)
 	}
 }
+
+func TestScrubKeepsHTMLCharactersLiteral(t *testing.T) {
+	line := []byte(`{"a<b>&c":"x < y && y > z","model":"<tag>&"}`)
+
+	out, err := Scrub(line)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if !bytes.Equal(out, line) {
+		t.Fatalf("Scrub(%s) = %s, want it unchanged", line, out)
+	}
+}
