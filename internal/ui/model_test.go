@@ -17,6 +17,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/state"
 	"github.com/jasonm4130/wattop/internal/ui/panel"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
+	"github.com/jasonm4130/wattop/internal/ui/uitest"
 )
 
 func newTestModel(t *testing.T) Model {
@@ -31,22 +32,6 @@ func newTestModel(t *testing.T) Model {
 		t.Fatalf("theme.Load: %v", err)
 	}
 	return New(st, "wattop-dark", r)
-}
-
-func keyMsg(s string) tea.KeyPressMsg {
-	switch s {
-	case "up":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
-	case "down":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
-	case "enter":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
-	case "ctrl+c":
-		return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
-	default:
-		r := []rune(s)[0]
-		return tea.KeyPressMsg(tea.Key{Text: s, Code: r})
-	}
 }
 
 func cycleMsg(at time.Time, sessions []domain.Session) CycleMsg {
@@ -70,7 +55,7 @@ func TestSelectionMovesWithinBounds(t *testing.T) {
 	}
 
 	for _, key := range []string{"down", "down", "down", "down"} {
-		mi, _ = m.Update(keyMsg(key))
+		mi, _ = m.Update(uitest.KeyPress(key))
 		m = mi.(Model)
 	}
 	if want := m.flatRowCount() - 1; m.selected != want {
@@ -78,7 +63,7 @@ func TestSelectionMovesWithinBounds(t *testing.T) {
 	}
 
 	for _, key := range []string{"up", "up", "up", "up", "up"} {
-		mi, _ = m.Update(keyMsg(key))
+		mi, _ = m.Update(uitest.KeyPress(key))
 		m = mi.(Model)
 	}
 	if m.selected != 0 {
@@ -94,21 +79,21 @@ func TestThemeCyclingForwardAndBack(t *testing.T) {
 	}
 	start := m.themeIdx
 
-	mi, _ := m.Update(keyMsg("t"))
+	mi, _ := m.Update(uitest.KeyPress("t"))
 	m = mi.(Model)
 	if m.themeIdx != (start+1)%len(names) {
 		t.Fatalf("themeIdx = %d after one 't', want %d", m.themeIdx, (start+1)%len(names))
 	}
 
 	for i := 0; i < len(names)-1; i++ {
-		mi, _ = m.Update(keyMsg("t"))
+		mi, _ = m.Update(uitest.KeyPress("t"))
 		m = mi.(Model)
 	}
 	if m.themeIdx != start {
 		t.Errorf("themeIdx = %d after a full forward cycle, want back at %d", m.themeIdx, start)
 	}
 
-	mi, _ = m.Update(keyMsg("T"))
+	mi, _ = m.Update(uitest.KeyPress("T"))
 	m = mi.(Model)
 	want := (start - 1 + len(names)) % len(names)
 	if m.themeIdx != want {
@@ -124,7 +109,7 @@ func TestPauseDropsCycleMsg(t *testing.T) {
 	m = mi.(Model)
 	firstAt := m.snap.At
 
-	mi, _ = m.Update(keyMsg("p"))
+	mi, _ = m.Update(uitest.KeyPress("p"))
 	m = mi.(Model)
 	if !m.paused {
 		t.Fatal("expected paused == true after 'p'")
@@ -136,7 +121,7 @@ func TestPauseDropsCycleMsg(t *testing.T) {
 		t.Errorf("Snapshot.At advanced while paused: %v -> %v", firstAt, m.snap.At)
 	}
 
-	mi, _ = m.Update(keyMsg("p"))
+	mi, _ = m.Update(uitest.KeyPress("p"))
 	m = mi.(Model)
 	mi, _ = m.Update(cycleMsg(base.Add(20*time.Second), []domain.Session{{Agent: "claude", ID: "a", Status: "busy"}}))
 	m = mi.(Model)
@@ -149,7 +134,7 @@ func TestQuitReturnsQuitCmd(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
 			m := newTestModel(t)
-			_, cmd := m.Update(keyMsg(key))
+			_, cmd := m.Update(uitest.KeyPress(key))
 			if cmd == nil {
 				t.Fatal("expected a non-nil Cmd")
 			}
@@ -163,19 +148,19 @@ func TestQuitReturnsQuitCmd(t *testing.T) {
 func TestToggleDetailFilterHelp(t *testing.T) {
 	m := newTestModel(t)
 
-	mi, _ := m.Update(keyMsg("enter"))
+	mi, _ := m.Update(uitest.KeyPress("enter"))
 	m = mi.(Model)
 	if !m.showDetail {
 		t.Error("expected showDetail == true after enter")
 	}
 
-	mi, _ = m.Update(keyMsg("f"))
+	mi, _ = m.Update(uitest.KeyPress("f"))
 	m = mi.(Model)
 	if !m.filterHeadless {
 		t.Error("expected filterHeadless == true after 'f'")
 	}
 
-	mi, _ = m.Update(keyMsg("?"))
+	mi, _ = m.Update(uitest.KeyPress("?"))
 	m = mi.(Model)
 	if !m.showHelp {
 		t.Error("expected showHelp == true after '?'")
@@ -193,7 +178,7 @@ func TestSortCyclesThroughSortKeys(t *testing.T) {
 		}
 	}
 	for i := 0; i < len(sortKeys); i++ {
-		mi, _ := m.Update(keyMsg("s"))
+		mi, _ := m.Update(uitest.KeyPress("s"))
 		m = mi.(Model)
 	}
 	if m.sortIdx != 0 {
@@ -215,7 +200,7 @@ func TestUpdateIsNonBlocking(t *testing.T) {
 		if i%4 == 0 {
 			mi, _ = m.Update(cycleMsg(base.Add(time.Duration(i)*time.Second), sessions))
 		} else {
-			mi, _ = m.Update(keyMsg([]string{"down", "up", "t", "enter"}[i%4]))
+			mi, _ = m.Update(uitest.KeyPress([]string{"down", "up", "t", "enter"}[i%4]))
 		}
 		m = mi.(Model)
 	}
@@ -266,8 +251,8 @@ func TestNoColorSuppressesEscapes(t *testing.T) {
 
 	for _, view := range []string{
 		m.View().Content,
-		func() string { mi, _ := m.Update(keyMsg("enter")); return mi.(Model).View().Content }(),
-		func() string { mi, _ := m.Update(keyMsg("?")); return mi.(Model).View().Content }(),
+		func() string { mi, _ := m.Update(uitest.KeyPress("enter")); return mi.(Model).View().Content }(),
+		func() string { mi, _ := m.Update(uitest.KeyPress("?")); return mi.(Model).View().Content }(),
 	} {
 		if strings.Contains(view, "\x1b[") {
 			t.Errorf("expected no ANSI escapes under WithNoColor(true), got:\n%q", view)
@@ -310,14 +295,14 @@ func TestGraphToggleAndPause(t *testing.T) {
 	if !strings.Contains(m.View().Content, "TOKEN THROUGHPUT") {
 		t.Fatal("graphs must be shown by default")
 	}
-	mi, _ = m.Update(keyMsg("g"))
+	mi, _ = m.Update(uitest.KeyPress("g"))
 	m = mi.(Model)
 	if strings.Contains(m.View().Content, "TOKEN THROUGHPUT") {
 		t.Fatal("g did not switch to meters")
 	}
-	mi, _ = m.Update(keyMsg("g"))
+	mi, _ = m.Update(uitest.KeyPress("g"))
 	m = mi.(Model)
-	mi, _ = m.Update(keyMsg("p"))
+	mi, _ = m.Update(uitest.KeyPress("p"))
 	m = mi.(Model)
 	mi, _ = m.Update(cycleMsg(stamp.Add(time.Second), nil))
 	m = mi.(Model)
@@ -418,7 +403,7 @@ func TestShowAllTogglesDormantRows(t *testing.T) {
 	mi, _ := m.Update(dormantCycle(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)))
 	m = mi.(Model)
 
-	mi, _ = m.Update(keyMsg("a"))
+	mi, _ = m.Update(uitest.KeyPress("a"))
 	m = mi.(Model)
 	if n := len(m.visibleSessions()); n != 5 {
 		t.Fatalf("after `a`, visible sessions = %d, want all 5", n)
@@ -427,7 +412,7 @@ func TestShowAllTogglesDormantRows(t *testing.T) {
 		t.Errorf("after `a`, hiddenSessions() = %d, want 0", m.hiddenSessions())
 	}
 
-	mi, _ = m.Update(keyMsg("a"))
+	mi, _ = m.Update(uitest.KeyPress("a"))
 	m = mi.(Model)
 	if n := len(m.visibleSessions()); n != 3 {
 		t.Errorf("after a second `a`, visible sessions = %d, want 3 again", n)
@@ -445,10 +430,10 @@ func TestLiveSessionsSortFirst(t *testing.T) {
 	mi, _ := m.Update(cycleMsg(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC), sessions))
 	m = mi.(Model)
 
-	mi, _ = m.Update(keyMsg("a"))
+	mi, _ = m.Update(uitest.KeyPress("a"))
 	m = mi.(Model)
 	for sortKeys[m.sortIdx] != "cost" {
-		mi, _ = m.Update(keyMsg("s"))
+		mi, _ = m.Update(uitest.KeyPress("s"))
 		m = mi.(Model)
 	}
 
@@ -473,7 +458,7 @@ func TestFooterAdvertisesHiddenCount(t *testing.T) {
 		t.Errorf("footer does not report the hidden rows; got:\n%s", out)
 	}
 
-	mi, _ = m.Update(keyMsg("a"))
+	mi, _ = m.Update(uitest.KeyPress("a"))
 	m = mi.(Model)
 	if out := m.View().Content; strings.Contains(out, "hidden (a)") {
 		t.Errorf("footer still claims hidden rows after `a`; got:\n%s", out)

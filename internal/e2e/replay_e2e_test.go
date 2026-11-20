@@ -19,6 +19,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/state"
 	"github.com/jasonm4130/wattop/internal/ui"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
+	"github.com/jasonm4130/wattop/internal/ui/uitest"
 )
 
 const (
@@ -236,21 +237,11 @@ func normalizeFooterStatusLine(s string) string {
 	})
 }
 
-func keyMsg(s string) tea.KeyPressMsg {
-	switch s {
-	case "enter":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
-	default:
-		r := []rune(s)[0]
-		return tea.KeyPressMsg(tea.Key{Text: s, Code: r})
-	}
-}
-
 func sizedFrames(m ui.Model, w, h int) map[string]ui.Model {
 	mi, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	sized := mi.(ui.Model)
-	detail, _ := sized.Update(keyMsg("enter"))
-	help, _ := sized.Update(keyMsg("?"))
+	detail, _ := sized.Update(uitest.KeyPress("enter"))
+	help, _ := sized.Update(uitest.KeyPress("?"))
 	return map[string]ui.Model{
 		"table":  sized,
 		"detail": detail.(ui.Model),
@@ -379,7 +370,7 @@ func TestThemeCycleRecolours(t *testing.T) {
 	prev := first
 
 	for i := 1; i <= len(names); i++ {
-		mi, _ := m.Update(keyMsg("t"))
+		mi, _ := m.Update(uitest.KeyPress("t"))
 		m = mi.(ui.Model)
 		frame := m.View().Content
 
