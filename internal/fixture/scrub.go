@@ -50,12 +50,12 @@ func Scrub(line []byte) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 
-	var buf bytes.Buffer
-	if err := scrubValue(dec, &buf, ""); err != nil {
+	sc := &scrubber{dec: dec, in: body}
+	if err := sc.value(""); err != nil {
 		return nil, fmt.Errorf("fixture: scrub: %w", err)
 	}
 
-	out := buf.Bytes()
+	out := sc.out.Bytes()
 	if trailingNL {
 		out = append(out, '\n')
 	}
@@ -92,24 +92,52 @@ func ScrubStream(r io.Reader, w io.Writer, name string) error {
 	}
 }
 
-func scrubValue(dec *json.Decoder, buf *bytes.Buffer, key string) error {
-	tok, err := dec.Token()
+type scrubber struct {
+	dec *json.Decoder
+	in  []byte
+	out bytes.Buffer
+}
+
+func (sc *scrubber) token() (tok json.Token, raw []byte, err error) {
+	start := sc.dec.InputOffset()
+	tok, err = sc.dec.Token()
+	if err != nil {
+		return nil, nil, err
+	}
+	raw = sc.in[start:sc.dec.InputOffset()]
+	if i := bytes.IndexByte(raw, '"'); i >= 0 {
+		raw = raw[i:]
+	}
+	return tok, raw, nil
+}
+
+func (sc *scrubber) writeString(original string, raw []byte, scrubbed string) {
+	if scrubbed == original {
+		sc.out.Write(raw)
+		return
+	}
+	writeJSONString(&sc.out, scrubbed)
+}
+
+func (sc *scrubber) value(key string) error {
+	tok, raw, err := sc.token()
 	if err != nil {
 		return err
 	}
+	buf := &sc.out
 
 	switch t := tok.(type) {
 	case json.Delim:
 		switch t {
 		case '{':
-			return scrubObject(dec, buf)
+			return sc.object()
 		case '[':
-			return scrubArray(dec, buf, key)
+			return sc.array(key)
 		default:
 			return fmt.Errorf("unexpected delimiter %q", t)
 		}
 	case string:
-		writeJSONString(buf, scrubString(key, t))
+		sc.writeString(t, raw, scrubString(key, t))
 		return nil
 	case json.Number:
 		buf.WriteString(t.String())
@@ -129,16 +157,16 @@ func scrubValue(dec *json.Decoder, buf *bytes.Buffer, key string) error {
 	}
 }
 
-func scrubObject(dec *json.Decoder, buf *bytes.Buffer) error {
-	buf.WriteByte('{')
+func (sc *scrubber) object() error {
+	sc.out.WriteByte('{')
 	first := true
-	for dec.More() {
+	for sc.dec.More() {
 		if !first {
-			buf.WriteByte(',')
+			sc.out.WriteByte(',')
 		}
 		first = false
 
-		keyTok, err := dec.Token()
+		keyTok, raw, err := sc.token()
 		if err != nil {
 			return err
 		}
@@ -146,36 +174,36 @@ func scrubObject(dec *json.Decoder, buf *bytes.Buffer) error {
 		if !ok {
 			return fmt.Errorf("fixture: scrub: expected object key, got %T", keyTok)
 		}
-		writeJSONString(buf, redactPlain(keyStr))
-		buf.WriteByte(':')
+		sc.writeString(keyStr, raw, redactPlain(keyStr))
+		sc.out.WriteByte(':')
 
-		if err := scrubValue(dec, buf, keyStr); err != nil {
+		if err := sc.value(keyStr); err != nil {
 			return err
 		}
 	}
-	if _, err := dec.Token(); err != nil {
+	if _, err := sc.dec.Token(); err != nil {
 		return err
 	}
-	buf.WriteByte('}')
+	sc.out.WriteByte('}')
 	return nil
 }
 
-func scrubArray(dec *json.Decoder, buf *bytes.Buffer, key string) error {
-	buf.WriteByte('[')
+func (sc *scrubber) array(key string) error {
+	sc.out.WriteByte('[')
 	first := true
-	for dec.More() {
+	for sc.dec.More() {
 		if !first {
-			buf.WriteByte(',')
+			sc.out.WriteByte(',')
 		}
 		first = false
-		if err := scrubValue(dec, buf, key); err != nil {
+		if err := sc.value(key); err != nil {
 			return err
 		}
 	}
-	if _, err := dec.Token(); err != nil {
+	if _, err := sc.dec.Token(); err != nil {
 		return err
 	}
-	buf.WriteByte(']')
+	sc.out.WriteByte(']')
 	return nil
 }
 
