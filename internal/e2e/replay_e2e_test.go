@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/jasonm4130/wattop/internal/collect/replay"
@@ -225,10 +226,6 @@ func TestStaleThenDropLifecycle(t *testing.T) {
 	}
 }
 
-var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
-
-func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
-
 var footerStatusLineRe = regexp.MustCompile(`(?m)^.*\? help$`)
 
 func normalizeFooterStatusLine(s string) string {
@@ -283,7 +280,7 @@ func TestFrameFitsTerminal(t *testing.T) {
 		t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", c.frame, c.w, c.h, widest, at, len(lines))
 		if widest > c.w {
 			t.Errorf("%s frame at %dx%d: widest line is %d cells, want at most %d (wraps in a real terminal):\n%q",
-				c.frame, c.w, c.h, widest, c.w, stripANSI(lines[at]))
+				c.frame, c.w, c.h, widest, c.w, ansi.Strip(lines[at]))
 		}
 		if len(lines) > c.h {
 			t.Errorf("%s frame at %dx%d: %d lines, want at most %d", c.frame, c.w, c.h, len(lines), c.h)
@@ -307,7 +304,7 @@ func TestDetailViewOverflowsAt80Columns(t *testing.T) {
 			t.Errorf("%s frame at 80x24: widest line is %d cells, pinned at %d.\n"+
 				"If it is now <= 80 the layout defect is fixed: delete TestDetailViewOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the detail-view paragraph from docs/limitations.md.\n"+
 				"If it grew, the layout regressed further:\n%q",
-				name, widest, want, stripANSI(lines[at]))
+				name, widest, want, ansi.Strip(lines[at]))
 		}
 		if len(lines) > 24 {
 			t.Errorf("%s frame at 80x24: %d lines, want at most 24", name, len(lines))
@@ -374,7 +371,7 @@ func TestThemeCycleRecolours(t *testing.T) {
 		m = mi.(ui.Model)
 		frame := m.View().Content
 
-		if normalizeFooterStatusLine(stripANSI(frame)) != normalizeFooterStatusLine(stripANSI(first)) {
+		if normalizeFooterStatusLine(ansi.Strip(frame)) != normalizeFooterStatusLine(ansi.Strip(first)) {
 			t.Errorf("after %d `t` presses: the frame's text layout changed, want only colours (and the footer's theme name) to change", i)
 		}
 		if i < len(names) {
