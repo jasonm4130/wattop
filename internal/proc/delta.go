@@ -116,11 +116,3 @@ func ProcStartWall(usec int64) time.Time {
 	}
 	return time.Unix(usec/1_000_000, (usec%1_000_000)*1000)
 }
-
-func StartWall(startTicks, nowTicks uint64, numer, denom uint32, nowWall time.Time) time.Time {
-	if startTicks > nowTicks {
-		return time.Time{}
-	}
-	elapsedNs := MachTicksToNs(nowTicks-startTicks, numer, denom)
-	return nowWall.Add(-time.Duration(elapsedNs))
-}
