@@ -13,10 +13,26 @@ import (
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
-// allowedFile is the positive allowlist of file names wattop-scrub handles.
-// ~/.claude and ~/.codex also hold session lock keys and credential caches
-// that must never be walked, redacted or copied.
-var allowedFile = regexp.MustCompile(`\.(jsonl|json)$`)
+// ~/.claude and ~/.codex also hold session lock keys, credential caches
+// (auth.json) and settings that must never be walked, redacted or copied, so
+// only the shapes the fixture corpus is made of are allowed.
+var (
+	transcriptFile = regexp.MustCompile(`\.jsonl$`)
+	subagentMeta   = regexp.MustCompile(`\.meta\.json$`)
+	sessionFile    = regexp.MustCompile(`^[0-9]+\.json$`)
+	mactopSnapshot = regexp.MustCompile(`^mactop-[\w-]+\.json$`)
+)
+
+func allowedFile(path string) bool {
+	name := filepath.Base(path)
+	switch {
+	case transcriptFile.MatchString(name), subagentMeta.MatchString(name), mactopSnapshot.MatchString(name):
+		return true
+	case sessionFile.MatchString(name):
+		return filepath.Base(filepath.Dir(path)) == "sessions"
+	}
+	return false
+}
 
 func main() {
 	src := flag.String("src", "", "source file or directory to scrub")
@@ -34,8 +50,8 @@ func main() {
 	}
 
 	if !info.IsDir() {
-		if !allowedFile.MatchString(filepath.Base(*src)) {
-			log.Fatalf("wattop-scrub: %s does not match the .json/.jsonl allowlist", *src)
+		if !allowedFile(*src) {
+			log.Fatalf("wattop-scrub: %s is not a transcript, subagent meta, session or mactop file", *src)
 		}
 		if err := scrubFile(*src, *dst); err != nil {
 			log.Fatalf("wattop-scrub: %v", err)
@@ -50,7 +66,7 @@ func main() {
 		if d.IsDir() {
 			return nil
 		}
-		if !allowedFile.MatchString(d.Name()) {
+		if !allowedFile(path) {
 			return nil
 		}
 
