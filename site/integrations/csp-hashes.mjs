@@ -38,10 +38,19 @@ export function writeCspHashes(dist) {
   return hashes;
 }
 
+export const INTEGRATION_NAME = 'wattop:csp-hashes';
+
+export const noInlineAssetsForCsp = { build: { assetsInlineLimit: 0 } };
+
 export default function cspHashes() {
   return {
-    name: 'wattop:csp-hashes',
+    name: INTEGRATION_NAME,
     hooks: {
+      'astro:config:setup': ({ config }) => {
+        if (config.integrations.at(-1)?.name !== INTEGRATION_NAME) {
+          throw new Error(`${INTEGRATION_NAME} must be the last integration: it hashes inline scripts only after every other integration has written its pages`);
+        }
+      },
       'astro:build:done': ({ dir, logger }) => {
         const hashes = writeCspHashes(fileURLToPath(dir));
         logger.info(`${hashes.size} inline script hash(es) written to dist/_headers`);

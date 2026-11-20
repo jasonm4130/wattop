@@ -3,14 +3,14 @@ import Base from '../layouts/Base.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import demoData from '../data/demo.json';
-import { renderDash, WINDOW, seq } from '../lib/dash';
+import { renderDash, WINDOW, pingPongFrame } from '../lib/dash';
 import type { Demo, Child } from '../lib/dash';
 import { VERSION, REPO, INSTALL as install, GO_INSTALL } from '../lib/site';
 import '../styles/dash.css';
 
 const demo = demoData as unknown as Demo;
 const tick = WINDOW - 1;
-const first = demo.frames[seq(tick, demo.frames.length)];
+const first = demo.frames[pingPongFrame(tick, demo.frames.length)];
 const dashHTML = renderDash(demo.frames, tick);
 const lead = first.sessions[0];
 const kids = lead.children;

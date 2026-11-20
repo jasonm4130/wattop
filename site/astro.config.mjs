@@ -1,13 +1,13 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import cspHashes from './integrations/csp-hashes.mjs';
+import cspHashes, { noInlineAssetsForCsp } from './integrations/csp-hashes.mjs';
 
 export default defineConfig({
   site: 'https://wattop.app',
   trailingSlash: 'ignore',
   build: { inlineStylesheets: 'never' },
-  vite: { build: { assetsInlineLimit: 0 } },
+  vite: noInlineAssetsForCsp,
   integrations: [
     starlight({
       title: 'wattop',

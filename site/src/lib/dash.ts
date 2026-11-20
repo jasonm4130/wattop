@@ -68,7 +68,10 @@ export type Demo = { meta: { source: string; soc: string; synthetic: boolean }; 
 
 export const WINDOW = 60;
 
-export function seq(t: number, n: number): number {
+export const SEVERITY_WARN_AT = 70;
+export const SEVERITY_HOT_AT = 90;
+
+export function pingPongFrame(t: number, n: number): number {
   const period = 2 * (n - 1);
   const m = ((t % period) + period) % period;
   return m < n ? m : period - m;
@@ -115,7 +118,7 @@ function gauge(pct: number, cls: string): string {
 }
 
 function ctxGauge(pct: number, exact: boolean): string {
-  const tone = pct >= 90 ? 'hot' : pct >= 70 ? 'waiting' : 'busy';
+  const tone = pct >= SEVERITY_HOT_AT ? 'hot' : pct >= SEVERITY_WARN_AT ? 'waiting' : 'busy';
   const text = pct > 100 ? '<span class="hot-c">&gt;100%</span>' : `${pct}%`;
   return `<td class="c-ctx"><span class="ctx ${exact ? 'exact' : 'est'}" title="${exact ? 'exact (Codex rate_limits)' : 'estimate (dashed edge)'}"><span class="ctx-m">${exact ? '' : '~'}</span><span class="ctx-g">${gauge(pct, tone)}</span><span class="ctx-n">${text}</span></span></td>`;
 }
@@ -214,10 +217,10 @@ function niceMax(v: number): number {
   return Math.ceil(v);
 }
 
-export function renderDash(frames: Frame[], tick: number): string {
+export function renderDash(frames: Frame[], newestTick: number): string {
   const n = frames.length;
   const hist: Frame[] = [];
-  for (let t = tick - WINDOW + 1; t <= tick; t++) hist.push(frames[seq(t, n)]);
+  for (let t = newestTick - WINDOW + 1; t <= newestTick; t++) hist.push(frames[pingPongFrame(t, n)]);
   const f = hist[hist.length - 1];
   const s = f.sys;
 
@@ -259,7 +262,7 @@ export function renderDash(frames: Frame[], tick: number): string {
     <h3 class="pnl-t">Compute / memory</h3>
     <dl class="meters">
       <dt>E (${s.e[0]})</dt><dd>${gauge(s.e[1], 'busy')}<span class="num">${s.e[1].toFixed(1)}%</span><span class="num dim">${s.e[2]} MHz</span></dd>
-      <dt>P (${s.p[0]})</dt><dd>${gauge(s.p[1], s.p[1] >= 70 ? 'waiting' : 'busy')}<span class="num">${s.p[1].toFixed(1)}%</span><span class="num dim">${s.p[2]} MHz</span></dd>
+      <dt>P (${s.p[0]})</dt><dd>${gauge(s.p[1], s.p[1] >= SEVERITY_WARN_AT ? 'waiting' : 'busy')}<span class="num">${s.p[1].toFixed(1)}%</span><span class="num dim">${s.p[2]} MHz</span></dd>
       <dt>GPU (${s.gpu[0]})</dt><dd>${gauge(s.gpu[1], 'gpu')}<span class="num">${s.gpu[1].toFixed(1)}%</span><span class="num dim">${s.gpu[2]} MHz</span></dd>
       <dt>Memory</dt><dd>${gauge(memPct, 'busy')}<span class="num">${memPct.toFixed(1)}%</span><span></span></dd>
     </dl>
