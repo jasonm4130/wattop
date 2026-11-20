@@ -246,10 +246,8 @@ func (s *Source) transcriptPath(cwd, sessionID string) string {
 	return filepath.Join(s.projectsDir, sanitizeCWD(cwd), sessionID+".jsonl")
 }
 
-// The derived path is tried first. When it does not exist the session's id
-// is looked for under every project directory instead: a session resumed in
-// a different cwd keeps its id but writes under the project directory it
-// was resumed in, so the id is the only identifier that survives.
+// A session resumed in a different cwd keeps its id but writes under the
+// project directory it was resumed in, so the id is the fallback key.
 func (s *Source) resolveTranscript(cwd, sessionID string) (string, bool) {
 	derived := s.transcriptPath(cwd, sessionID)
 	if _, err := os.Stat(derived); err == nil {

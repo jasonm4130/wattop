@@ -13,6 +13,9 @@ import (
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
+// allowedFile is the positive allowlist of file names wattop-scrub handles.
+// ~/.claude and ~/.codex also hold session lock keys and credential caches
+// that must never be walked, redacted or copied.
 var allowedFile = regexp.MustCompile(`\.(jsonl|json)$`)
 
 func main() {

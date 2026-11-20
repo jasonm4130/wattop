@@ -29,6 +29,8 @@ type SessionFile struct {
 	StatusUpdatedAt time.Time
 }
 
+// Raw status values seen on disk are idle, shell, busy and unknown; "waiting"
+// has never been observed.
 func normaliseStatus(raw string) string {
 	switch raw {
 	case "busy":

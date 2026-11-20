@@ -78,6 +78,9 @@ type journalState struct {
 	phase    string
 }
 
+// rawJournal decodes only the fields wattop needs. The `result` payload (PR
+// URLs, branch names, full outputs) is deliberately not decoded so it is
+// never held in memory.
 type rawJournal struct {
 	Type    string `json:"type"`
 	AgentID string `json:"agentId"`

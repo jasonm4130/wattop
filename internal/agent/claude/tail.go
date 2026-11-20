@@ -13,6 +13,11 @@ type TailState struct {
 	Offset int64
 }
 
+// TailResult is one Tail call's outcome. Reset means Lines start from byte 0
+// of a file the caller already read part of. Callers must discard anything
+// accumulated from earlier Lines when it is true. Offsets cannot detect this:
+// Claude Code compacts in place at the same path and the rewritten file is
+// often longer than the old offset.
 type TailResult struct {
 	State TailState
 	Lines [][]byte
@@ -46,6 +51,9 @@ func Tail(state TailState) (TailResult, error) {
 	defer f.Close()
 
 	if offset > 0 {
+		// Offset always follows a newline; if it does not, the file was rewritten
+		// in place with more content than the old offset, which size and inode
+		// checks cannot see.
 		ok, err := endsLineAt(f, offset)
 		if err != nil {
 			return TailResult{State: state}, err

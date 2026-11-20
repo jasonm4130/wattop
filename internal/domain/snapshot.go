@@ -16,23 +16,26 @@ type SysSample struct {
 	Temps        map[string]float64 `json:"temps"`
 	Fans         []Fan              `json:"fans"`
 	ThermalState int                `json:"thermal_state"`
-	Throttled    bool               `json:"throttled"`
-	Memory       MemorySample       `json:"memory"`
-	Net          NetSample          `json:"net"`
-	Disk         DiskSample         `json:"disk"`
-	Missing      []string           `json:"missing"`
+	// Throttled is true when ThermalState >= 1.
+	Throttled bool         `json:"throttled"`
+	Memory    MemorySample `json:"memory"`
+	Net       NetSample    `json:"net"`
+	Disk      DiskSample   `json:"disk"`
+	Missing   []string     `json:"missing"`
 }
 
 // Snapshot is the full state of one refresh tick — the headless JSON contract.
 type Snapshot struct {
-	TokenRate         *TokenRate `json:"token_rate,omitempty"`
-	At                time.Time  `json:"at"`
-	Sys               SysSample  `json:"sys"`
-	Sessions          []Session  `json:"sessions"`
-	TotalCostUSD      float64    `json:"total_cost_usd"`
-	TotalCostPartial  bool       `json:"total_cost_partial"`
-	TotalBurnUSDPerHr float64    `json:"total_burn_usd_per_hr"`
-	UnpricedModels    []string   `json:"unpriced_models"`
-	Degraded          []string   `json:"degraded"`
-	SelfCPUPct        float64    `json:"self_cpu_pct"`
+	TokenRate    *TokenRate `json:"token_rate,omitempty"`
+	At           time.Time  `json:"at"`
+	Sys          SysSample  `json:"sys"`
+	Sessions     []Session  `json:"sessions"`
+	TotalCostUSD float64    `json:"total_cost_usd"`
+	// TotalCostPartial marks TotalCostUSD as omitting an unpriced session or
+	// subagent; UnpricedModels names the models.
+	TotalCostPartial  bool     `json:"total_cost_partial"`
+	TotalBurnUSDPerHr float64  `json:"total_burn_usd_per_hr"`
+	UnpricedModels    []string `json:"unpriced_models"`
+	Degraded          []string `json:"degraded"`
+	SelfCPUPct        float64  `json:"self_cpu_pct"`
 }

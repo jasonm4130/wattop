@@ -107,12 +107,9 @@ func (t *tailState) readNewLines() ([][]byte, error) {
 }
 
 // Selection is by mtime, never by the YYYY/MM/DD folder or the filename's
-// embedded timestamp. Codex writes a rollout into the folder of the day the
-// session STARTED and keeps appending to it, so a resumed or multi-day
-// session lives in an old folder with a fresh mtime; and rollout filenames
-// are local time while the records inside are UTC, so the name's date can
-// disagree with the records near midnight. now is passed in so tests are
-// deterministic.
+// timestamp. Codex writes a rollout into the folder of the day the session
+// started and keeps appending to it, so a resumed session lives in an old
+// folder with a fresh mtime; filenames are local time while records are UTC.
 func ShortlistRollouts(root string, now time.Time, maxAge time.Duration) ([]string, error) {
 	matches, _, err := walkRollouts(root, now.Add(-maxAge))
 	return matches, err

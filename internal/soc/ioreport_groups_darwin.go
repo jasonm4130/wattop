@@ -1,5 +1,7 @@
 //go:build darwin && arm64 && cgo
 
+// This file calls IOReport directly so scripts/vendor-diff.sh stays clean.
+
 package soc
 
 /*

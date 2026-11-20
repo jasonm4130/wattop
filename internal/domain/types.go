@@ -48,6 +48,7 @@ type Fan struct {
 	MaxRPM *float64 `json:"max_rpm"`
 }
 
+// MemorySample is bytes throughout, never MB or pages.
 type MemorySample struct {
 	TotalBytes     uint64 `json:"total_bytes"`
 	UsedBytes      uint64 `json:"used_bytes"`
@@ -200,30 +201,32 @@ const (
 
 // Session.Subagents is flat; ParentID and WorkflowID carry the tree.
 type Subagent struct {
-	TokenRate      *TokenRate  `json:"token_rate,omitempty"`
-	ID             string      `json:"id"`
-	ParentID       string      `json:"parent_id,omitempty"`
-	WorkflowID     string      `json:"workflow_id,omitempty"`
-	Phase          string      `json:"phase,omitempty"`
-	Hash           string      `json:"hash"`
-	AgentType      string      `json:"agent_type"`
-	Description    string      `json:"description"`
-	Model          string      `json:"model"`
-	ToolUseID      string      `json:"tool_use_id"`
-	SpawnDepth     int         `json:"spawn_depth"`
-	Background     bool        `json:"background"`
-	Status         string      `json:"status"`
-	StartedAt      time.Time   `json:"started_at"`
-	LastActivityAt time.Time   `json:"last_activity_at"`
-	CurrentTool    string      `json:"current_tool,omitempty"`
-	ToolCalls      int         `json:"tool_calls"`
-	ContextUsed    int64       `json:"context_used"`
-	Usage          Usage       `json:"usage"`
-	Ledger         UsageLedger `json:"-"`
-	Live           bool        `json:"live"`
-	CostUSD        *float64    `json:"cost_usd"`
-	CostPartial    bool        `json:"cost_partial"`
-	BurnUSDPerHr   *float64    `json:"burn_usd_per_hr"`
+	TokenRate      *TokenRate `json:"token_rate,omitempty"`
+	ID             string     `json:"id"`
+	ParentID       string     `json:"parent_id,omitempty"`
+	WorkflowID     string     `json:"workflow_id,omitempty"`
+	Phase          string     `json:"phase,omitempty"`
+	Hash           string     `json:"hash"`
+	AgentType      string     `json:"agent_type"`
+	Description    string     `json:"description"`
+	Model          string     `json:"model"`
+	ToolUseID      string     `json:"tool_use_id"`
+	SpawnDepth     int        `json:"spawn_depth"`
+	Background     bool       `json:"background"`
+	Status         string     `json:"status"`
+	StartedAt      time.Time  `json:"started_at"`
+	LastActivityAt time.Time  `json:"last_activity_at"`
+	CurrentTool    string     `json:"current_tool,omitempty"`
+	ToolCalls      int        `json:"tool_calls"`
+	// ContextUsed is the last request's prompt size (input plus cache reads
+	// and writes).
+	ContextUsed  int64       `json:"context_used"`
+	Usage        Usage       `json:"usage"`
+	Ledger       UsageLedger `json:"-"`
+	Live         bool        `json:"live"`
+	CostUSD      *float64    `json:"cost_usd"`
+	CostPartial  bool        `json:"cost_partial"`
+	BurnUSDPerHr *float64    `json:"burn_usd_per_hr"`
 }
 
 type Workflow struct {
@@ -269,7 +272,9 @@ type Session struct {
 	ToolCounts   map[string]int `json:"tool_counts"`
 	Subagents    []Subagent     `json:"subagents"`
 	Workflows    []Workflow     `json:"workflows"`
-	LastUsageAt  time.Time      `json:"last_usage_at"`
-	Proc         *ProcSample    `json:"proc"`
-	RateLimits   []RateLimit    `json:"rate_limits"`
+	// LastUsageAt is the newest usage-record timestamp in this session or any
+	// child; the burn tracker times cost deltas by it.
+	LastUsageAt time.Time   `json:"last_usage_at"`
+	Proc        *ProcSample `json:"proc"`
+	RateLimits  []RateLimit `json:"rate_limits"`
 }
