@@ -28,7 +28,7 @@ const (
 	burnAlpha  = pricing.DefaultBurnAlpha
 )
 
-var replayStart = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+var replayStartPastCorpusUsage = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 const replayCycles = 60
 
@@ -117,7 +117,7 @@ func driveModel(ctx context.Context, t *testing.T, m ui.Model, clock replay.Cloc
 
 func TestReplayEndToEndGolden(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
@@ -125,9 +125,33 @@ func TestReplayEndToEndGolden(t *testing.T) {
 	golden.RequireEqual(t, []byte(m.View().Content))
 }
 
+func TestReplayStartsPastTheBurnWindowOfEveryCorpusUsage(t *testing.T) {
+	_, _, agent := newReplaySources(t)
+	sessions, err := agent.Poll(context.Background(), replayStartPastCorpusUsage, nil)
+	if err != nil {
+		t.Fatalf("agent.Poll: %v", err)
+	}
+	burnable := replayStartPastCorpusUsage.Add(-burnWindow)
+	check := func(what string, ts time.Time) {
+		if ts.After(burnable) {
+			t.Errorf("%s at %s is inside the burn window of the replay start %s, so the golden's $/HR cells would not all be $0.00",
+				what, ts.Format(time.RFC3339), replayStartPastCorpusUsage.Format(time.RFC3339))
+		}
+	}
+	for _, s := range sessions {
+		check(s.Agent+"/"+s.ID+" last usage", s.LastUsageAt)
+		for _, tc := range s.Tools {
+			check(s.Agent+"/"+s.ID+" tool "+tc.ID, tc.At)
+		}
+		for _, sa := range s.Subagents {
+			check(s.Agent+"/"+s.ID+" subagent "+sa.ID+" activity", sa.LastActivityAt)
+		}
+	}
+}
+
 func TestCoordinatedCycleInvariant(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	st := newTestState(t)
 
@@ -190,7 +214,7 @@ func TestStaleThenDropLifecycle(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	scripted := &staleThenDropAgent{inner: agent, dropAgent: dropAgent, dropID: dropID, dropAtCycle: dropAtCycle}
 	st := newTestState(t)
@@ -268,7 +292,7 @@ var frameCases = []struct {
 
 func TestFrameFitsTerminal(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
@@ -292,7 +316,7 @@ var overflowAt80 = map[string]int{"detail": 103}
 
 func TestDetailViewOverflowsAt80Columns(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
@@ -322,7 +346,7 @@ func TestEveryFrameCaseIsCovered(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, 1)
 
@@ -353,7 +377,7 @@ func TestEveryFrameCaseIsCovered(t *testing.T) {
 
 func TestThemeCycleRecolours(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
@@ -363,7 +387,7 @@ func TestThemeCycleRecolours(t *testing.T) {
 	}
 
 	first := m.View().Content
-	seen := map[string]int{first: 0}
+	pressesByFrame := map[string]int{first: 0}
 	prev := first
 
 	for i := 1; i <= len(names); i++ {
@@ -378,10 +402,10 @@ func TestThemeCycleRecolours(t *testing.T) {
 			if frame == prev {
 				t.Errorf("after %d `t` presses: frame is byte-identical to the previous theme's, want a re-colour", i)
 			}
-			if other, dup := seen[frame]; dup {
+			if other, dup := pressesByFrame[frame]; dup {
 				t.Errorf("the theme %d `t` presses in renders identically to the one %d presses in", i, other)
 			}
-			seen[frame] = i
+			pressesByFrame[frame] = i
 		} else if frame != first {
 			t.Errorf("after %d `t` presses (a full cycle): frame differs from the starting frame", i)
 		}
