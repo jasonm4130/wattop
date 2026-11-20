@@ -160,7 +160,7 @@ func (m *Model) cycleTheme(dir int) {
 }
 
 func dormant(s domain.Session) bool {
-	return s.Status == "stale" && (s.Proc == nil || s.BindConf == "unknown")
+	return s.Status == domain.StatusStale && !s.HasLiveProcess()
 }
 
 func (m Model) visibleSessions() []domain.Session {
@@ -275,7 +275,7 @@ func (m Model) View() tea.View {
 	}
 
 	if m.showHelp {
-		return tea.NewView(panel.HelpRender(m.roles, m.width, m.height, m.renderOpts()))
+		return tea.NewView(panel.HelpRender(helpEntries, m.roles, m.width, m.height, m.renderOpts()))
 	}
 
 	if m.showDetail {

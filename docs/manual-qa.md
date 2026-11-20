@@ -20,9 +20,9 @@ self-CPU figure in step 11 reflects the real binary.
 | `[ ]` | Not run: needs an interactive terminal plus a live agent this session could not create without disrupting other work. |
 
 Status after the 2026-09-06 hardening re-run: 6 pass, 3 partial, 1 fail,
-2 not run. Item 12 stays `[!]`: the session table now fits 80 columns, but
-the detail view still does not, and that is a code defect a user hits at an
-80-column terminal, not a residual awaiting a human. Items 1 and 6 gained
+2 not run. Item 12 was the fail: the session table fitted 80 columns but the
+detail view did not. The detail view was fixed on 2026-11-20, so item 12 is
+now `[x]` and the count is 7 pass, 3 partial, 0 fail, 2 not run. Items 1 and 6 gained
 observations from the re-run; the raw captures are in
 `docs/qa/2026-09-06-v0.1.md`, section "Re-QA after hardening".
 
@@ -205,15 +205,12 @@ before v0.1 ships.
       (`internal/proc` is Task 6's file, out of scope here) — flagged for
       follow-up.
 
-- [!] **12. Terminal resize.** Resize the terminal to 80×24 and to
+- [x] **12. Terminal resize.** Resize the terminal to 80×24 and to
       200×60. Confirm no wrapping corruption in either direction.
-      Observed: **the table half passes, the detail view still fails.**
-      `internal/e2e` drives the real model over the real corpus and measures
-      the widest rendered line at each size, split across two tests so a
-      passing suite cannot be misread as a fitting frame:
-      `TestFrameFitsTerminal` asserts the item's actual pass condition (the
-      frame fits its terminal) for every case that meets it, and
-      `TestDetailViewOverflowsAt80Columns` pins the one that does not.
+      Observed: **passes for the table, the detail view and help.**
+      `internal/e2e` drives the real model over the real corpus and
+      `TestFrameFitsTerminal` asserts the item's pass condition (the frame
+      fits its terminal in both axes) for every frame at every size.
 
       At 200×60 and 160×40 every frame fits exactly, as before. At 80×24 the
       **session table now renders 80 cells, 0 past the terminal** — it was
@@ -227,8 +224,9 @@ before v0.1 ships.
       rows, widest line 80 cells, nothing past the edge (captures in
       `docs/qa/2026-09-06-v0.1.md`).
 
-      **Residual:** the detail view (`enter`) still reserves **103 cells**
-      and has not been narrowed — 23 past an 80-column terminal, which the
-      live capture shows as the token line cut at `cache-wri`. Frame
-      *height* is fine at every size. Recorded in `docs/limitations.md`; the
-      fix is a responsive column set in `internal/ui/panel/detail.go`.
+      The detail view used to reserve **103 cells**, 23 past an 80-column
+      terminal (the live capture cut the token line at `cache-wri`). Since
+      2026-11-20 it wraps the token and process lines and truncates any
+      longer line with `…`; at 80×24 it renders 80 cells and 24 rows, and
+      `internal/ui/panel.TestDetailFitsEightyColumns` holds it to 80 with a
+      long id, a long cwd, Codex cached input and rate limits.

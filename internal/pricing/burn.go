@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,6 +71,9 @@ func (t *BurnTracker) Observe(sessionID string, cumulativeUSD float64, at, event
 		sb = &sessionBurn{}
 		t.byID[sessionID] = sb
 	}
+	if sb.baselined && cumulativeUSD == sb.lastUSD {
+		return
+	}
 
 	event := eventTimeOf(eventAt)
 	if sb.baselined {
@@ -109,10 +113,27 @@ func (t *BurnTracker) span(sb *sessionBurn, at time.Time, event eventTime) burnS
 	return burnSpan{kind: spanWall, elapsed: wall}
 }
 
+func (t *BurnTracker) Tracking(sessionID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.byID[sessionID]
+	return ok
+}
+
 func (t *BurnTracker) Forget(sessionID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.byID, sessionID)
+}
+
+func (t *BurnTracker) ForgetPrefix(prefix string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id := range t.byID {
+		if strings.HasPrefix(id, prefix) {
+			delete(t.byID, id)
+		}
+	}
 }
 
 func (t *BurnTracker) RatePerHour(sessionID string, at time.Time) float64 {

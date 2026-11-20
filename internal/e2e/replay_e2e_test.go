@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/jasonm4130/wattop/internal/collect/replay"
@@ -19,6 +20,7 @@ import (
 	"github.com/jasonm4130/wattop/internal/state"
 	"github.com/jasonm4130/wattop/internal/ui"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
+	"github.com/jasonm4130/wattop/internal/ui/uitest"
 )
 
 const (
@@ -26,7 +28,7 @@ const (
 	burnAlpha  = pricing.DefaultBurnAlpha
 )
 
-var replayStart = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+var replayStartPastCorpusUsage = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 
 const replayCycles = 60
 
@@ -115,7 +117,7 @@ func driveModel(ctx context.Context, t *testing.T, m ui.Model, clock replay.Cloc
 
 func TestReplayEndToEndGolden(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
@@ -123,9 +125,33 @@ func TestReplayEndToEndGolden(t *testing.T) {
 	golden.RequireEqual(t, []byte(m.View().Content))
 }
 
+func TestReplayStartsPastTheBurnWindowOfEveryCorpusUsage(t *testing.T) {
+	_, _, agent := newReplaySources(t)
+	sessions, err := agent.Poll(context.Background(), replayStartPastCorpusUsage, nil)
+	if err != nil {
+		t.Fatalf("agent.Poll: %v", err)
+	}
+	burnable := replayStartPastCorpusUsage.Add(-burnWindow)
+	check := func(what string, ts time.Time) {
+		if ts.After(burnable) {
+			t.Errorf("%s at %s is inside the burn window of the replay start %s, so the golden's $/HR cells would not all be $0.00",
+				what, ts.Format(time.RFC3339), replayStartPastCorpusUsage.Format(time.RFC3339))
+		}
+	}
+	for _, s := range sessions {
+		check(s.Agent+"/"+s.ID+" last usage", s.LastUsageAt)
+		for _, tc := range s.Tools {
+			check(s.Agent+"/"+s.ID+" tool "+tc.ID, tc.At)
+		}
+		for _, sa := range s.Subagents {
+			check(s.Agent+"/"+s.ID+" subagent "+sa.ID+" activity", sa.LastActivityAt)
+		}
+	}
+}
+
 func TestCoordinatedCycleInvariant(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	st := newTestState(t)
 
@@ -188,7 +214,7 @@ func TestStaleThenDropLifecycle(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	scripted := &staleThenDropAgent{inner: agent, dropAgent: dropAgent, dropID: dropID, dropAtCycle: dropAtCycle}
 	st := newTestState(t)
@@ -224,10 +250,6 @@ func TestStaleThenDropLifecycle(t *testing.T) {
 	}
 }
 
-var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
-
-func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
-
 var footerStatusLineRe = regexp.MustCompile(`(?m)^.*\? help$`)
 
 func normalizeFooterStatusLine(s string) string {
@@ -236,21 +258,11 @@ func normalizeFooterStatusLine(s string) string {
 	})
 }
 
-func keyMsg(s string) tea.KeyPressMsg {
-	switch s {
-	case "enter":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
-	default:
-		r := []rune(s)[0]
-		return tea.KeyPressMsg(tea.Key{Text: s, Code: r})
-	}
-}
-
 func sizedFrames(m ui.Model, w, h int) map[string]ui.Model {
 	mi, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	sized := mi.(ui.Model)
-	detail, _ := sized.Update(keyMsg("enter"))
-	help, _ := sized.Update(keyMsg("?"))
+	detail, _ := sized.Update(uitest.KeyPress("enter"))
+	help, _ := sized.Update(uitest.KeyPress("?"))
 	return map[string]ui.Model{
 		"table":  sized,
 		"detail": detail.(ui.Model),
@@ -280,46 +292,19 @@ var frameCases = []struct {
 
 func TestFrameFitsTerminal(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
 	for _, c := range frameCases {
-		if _, known := overflowAt80[c.frame]; known && c.w == 80 {
-			continue
-		}
 		widest, at, lines := measureFrame(sizedFrames(m, c.w, c.h)[c.frame])
 		t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", c.frame, c.w, c.h, widest, at, len(lines))
 		if widest > c.w {
 			t.Errorf("%s frame at %dx%d: widest line is %d cells, want at most %d (wraps in a real terminal):\n%q",
-				c.frame, c.w, c.h, widest, c.w, stripANSI(lines[at]))
+				c.frame, c.w, c.h, widest, c.w, ansi.Strip(lines[at]))
 		}
 		if len(lines) > c.h {
 			t.Errorf("%s frame at %dx%d: %d lines, want at most %d", c.frame, c.w, c.h, len(lines), c.h)
-		}
-	}
-}
-
-var overflowAt80 = map[string]int{"detail": 103}
-
-func TestDetailViewOverflowsAt80Columns(t *testing.T) {
-	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
-	sys, proc, agent := newReplaySources(t)
-	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
-
-	frames := sizedFrames(m, 80, 24)
-	for name, want := range overflowAt80 {
-		widest, at, lines := measureFrame(frames[name])
-		t.Logf("KNOWN DEFECT (manual-QA item 12): %s frame at 80x24 renders %d cells wide, %d cells past the terminal", name, widest, widest-80)
-		if widest != want {
-			t.Errorf("%s frame at 80x24: widest line is %d cells, pinned at %d.\n"+
-				"If it is now <= 80 the layout defect is fixed: delete TestDetailViewOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the detail-view paragraph from docs/limitations.md.\n"+
-				"If it grew, the layout regressed further:\n%q",
-				name, widest, want, stripANSI(lines[at]))
-		}
-		if len(lines) > 24 {
-			t.Errorf("%s frame at 80x24: %d lines, want at most 24", name, len(lines))
 		}
 	}
 }
@@ -334,7 +319,7 @@ func TestEveryFrameCaseIsCovered(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, 1)
 
@@ -350,22 +335,11 @@ func TestEveryFrameCaseIsCovered(t *testing.T) {
 			}
 		}
 	}
-	for name := range overflowAt80 {
-		found := false
-		for _, c := range frameCases {
-			if c.w == 80 && c.frame == name {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("overflowAt80 lists %q, which frameCases does not enumerate at 80x24", name)
-		}
-	}
 }
 
 func TestThemeCycleRecolours(t *testing.T) {
 	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStart)
+	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
 	sys, proc, agent := newReplaySources(t)
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
@@ -375,25 +349,25 @@ func TestThemeCycleRecolours(t *testing.T) {
 	}
 
 	first := m.View().Content
-	seen := map[string]int{first: 0}
+	pressesByFrame := map[string]int{first: 0}
 	prev := first
 
 	for i := 1; i <= len(names); i++ {
-		mi, _ := m.Update(keyMsg("t"))
+		mi, _ := m.Update(uitest.KeyPress("t"))
 		m = mi.(ui.Model)
 		frame := m.View().Content
 
-		if normalizeFooterStatusLine(stripANSI(frame)) != normalizeFooterStatusLine(stripANSI(first)) {
+		if normalizeFooterStatusLine(ansi.Strip(frame)) != normalizeFooterStatusLine(ansi.Strip(first)) {
 			t.Errorf("after %d `t` presses: the frame's text layout changed, want only colours (and the footer's theme name) to change", i)
 		}
 		if i < len(names) {
 			if frame == prev {
 				t.Errorf("after %d `t` presses: frame is byte-identical to the previous theme's, want a re-colour", i)
 			}
-			if other, dup := seen[frame]; dup {
+			if other, dup := pressesByFrame[frame]; dup {
 				t.Errorf("the theme %d `t` presses in renders identically to the one %d presses in", i, other)
 			}
-			seen[frame] = i
+			pressesByFrame[frame] = i
 		} else if frame != first {
 			t.Errorf("after %d `t` presses (a full cycle): frame differs from the starting frame", i)
 		}

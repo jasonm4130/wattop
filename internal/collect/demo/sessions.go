@@ -147,7 +147,7 @@ type session struct {
 	idx         int
 	spec        sessionSpec
 	tr          track
-	status      string
+	status      domain.SessionStatus
 	statusSince int
 	tools       []toolRec
 	toolCounts  map[string]int
@@ -182,12 +182,12 @@ func newSession(w *World, idx int, spec sessionSpec) *session {
 	return s
 }
 
-func (s *session) statusAt(w *World, t float64) string {
+func (s *session) statusAt(w *World, t float64) domain.SessionStatus {
 	k := math.Floor((t + s.spec.phase) / s.spec.segSec)
 	if rnd(w.seed, chSessBase+uint64(s.idx), int64(k)) < s.spec.busyFrac {
-		return "busy"
+		return domain.StatusBusy
 	}
-	return "waiting"
+	return domain.StatusWaiting
 }
 
 func activity(w *World, ch uint64, t float64) float64 {
@@ -206,7 +206,7 @@ func (s *session) advance(w *World, t, dt float64) {
 	s.status = status
 
 	codex := s.spec.agent == "codex"
-	if status == "busy" && w.tick > 0 {
+	if status == domain.StatusBusy && w.tick > 0 {
 		s.tr.accrue(s.spec.r, activity(w, chSessBase+700+uint64(s.idx), t), dt, w.tick)
 		s.tr.ctx = math.Min(s.tr.ctx+s.spec.ctxGrowth*dt, 0.93*float64(s.spec.ctxMax))
 		if !codex && rnd(w.seed, chToolBase+uint64(s.idx), int64(w.tick)) < 0.3*dt {
@@ -261,7 +261,7 @@ func (s *session) render(w *World, at time.Time) domain.Session {
 		Agent:        sp.agent,
 		ID:           sp.id,
 		PID:          &pid,
-		BindConf:     "exact",
+		BindConf:     domain.BindExact,
 		CWD:          sp.cwd,
 		Name:         sp.name,
 		Kind:         sp.kind,

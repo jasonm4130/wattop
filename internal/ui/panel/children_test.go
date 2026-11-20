@@ -25,7 +25,7 @@ func buildChildrenFixture() *domain.Snapshot {
 
 	sessions := []domain.Session{
 		{
-			Agent: "claude", ID: "sess-children", PID: &pid, BindConf: "exact",
+			Agent: "claude", ID: "sess-children", PID: &pid, BindConf: domain.BindExact,
 			CWD: "/home/u/tree", Name: "tree", Kind: "interactive", Status: "busy",
 			StatusSince: ago(3 * time.Minute), Model: "claude-opus-5",
 			Usage:   domain.Usage{Input: 120000, Output: 9000, CacheRead: 800000},
@@ -114,7 +114,7 @@ func buildChildrenFixture() *domain.Snapshot {
 			}},
 		},
 		{
-			Agent: "codex", ID: "sess-plain", BindConf: "unknown", CWD: "/home/u/repo",
+			Agent: "codex", ID: "sess-plain", BindConf: domain.BindUnknown, CWD: "/home/u/repo",
 			Kind: "interactive", Status: "waiting", Model: "gpt-5.6-terra",
 			CostUSD: f(0.02), BurnUSDPerHr: f(0), Priced: true, ContextExact: true,
 			ContextUsed: 10000, ContextMax: 272000,
@@ -181,18 +181,17 @@ func TestChildRowsOrderAndDepth(t *testing.T) {
 		t.Fatalf("ChildRows returned %d rows, want %d", len(rows), len(wants))
 	}
 	for i, w := range wants {
-		r := rows[i]
 		if w.wf {
-			if r.Workflow == nil || r.Subagent != nil || r.Workflow.ID != w.id {
-				t.Errorf("row %d = %+v, want workflow %s", i, r, w.id)
+			if r, ok := rows[i].(WorkflowRow); !ok || r.Workflow.ID != w.id {
+				t.Errorf("row %d = %+v, want workflow %s", i, rows[i], w.id)
 			}
 			continue
 		}
-		if r.Subagent == nil || r.Workflow != nil || r.Subagent.ID != w.id || r.Depth != w.depth {
-			t.Errorf("row %d = %+v, want subagent %s depth %d", i, r, w.id, w.depth)
+		if r, ok := rows[i].(SubagentRow); !ok || r.Subagent.ID != w.id || r.Depth != w.depth {
+			t.Errorf("row %d = %+v, want subagent %s depth %d", i, rows[i], w.id, w.depth)
 		}
 	}
-	if rows[0].Subagent != &s.Subagents[0] || rows[6].Workflow != &s.Workflows[0] {
+	if rows[0].(SubagentRow).Subagent != &s.Subagents[0] || rows[6].(WorkflowRow).Workflow != &s.Workflows[0] {
 		t.Errorf("ChildRows must point into s.Subagents / s.Workflows")
 	}
 }
@@ -208,11 +207,11 @@ func TestChildRowsUnresolvableParentAndCycle(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("got %d rows, want 4", len(rows))
 	}
-	if rows[0].Depth != 0 {
-		t.Errorf("unresolvable parent: depth = %d, want 0", rows[0].Depth)
+	if d := rows[0].(SubagentRow).Depth; d != 0 {
+		t.Errorf("unresolvable parent: depth = %d, want 0", d)
 	}
-	for _, r := range rows {
-		if r.Depth > len(s.Subagents) {
+	for _, row := range rows {
+		if r := row.(SubagentRow); r.Depth > len(s.Subagents) {
 			t.Errorf("depth %d exceeds bound for %s", r.Depth, r.Subagent.ID)
 		}
 	}

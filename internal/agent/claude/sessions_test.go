@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/fixture"
 )
 
@@ -130,7 +131,7 @@ func TestTornFileUnreadableStillSkipped(t *testing.T) {
 func TestStatusNormalisation(t *testing.T) {
 	cases := []struct {
 		raw  string
-		want string
+		want domain.SessionStatus
 	}{
 		{"busy", "busy"},
 		{"waiting", "waiting"},
@@ -154,7 +155,7 @@ func TestStatusNormalisationFixtures(t *testing.T) {
 	cases := []struct {
 		fixture    string
 		pid        string
-		wantStatus string
+		wantStatus domain.SessionStatus
 		wantRaw    string
 	}{
 		{"idle.json", "14106", "waiting", "idle"},

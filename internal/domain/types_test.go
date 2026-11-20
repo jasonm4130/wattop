@@ -93,7 +93,7 @@ func fullSubagent() Subagent {
 func fullSession() Session {
 	pid := 407
 	return Session{
-		Agent: "claude", ID: "sess-1", PID: &pid, BindConf: "exact", CWD: "/repo",
+		Agent: "claude", ID: "sess-1", PID: &pid, BindConf: BindExact, CWD: "/repo",
 		Name: "wattop work", Cmdline: "claude --resume", Kind: "interactive",
 		Status: "busy", StatusSince: fixedTime(3), Model: "claude-opus-5",
 		Usage: fullUsage(), CostUSD: fp(1.23), BurnUSDPerHr: fp(4.56), Priced: true,
@@ -255,5 +255,46 @@ func TestSnapshotJSONKeys(t *testing.T) {
 	}
 	if _, ok := bandwidth["dram_read_gbs"]; !ok {
 		t.Error("missing \"sys.bandwidth.dram_read_gbs\"")
+	}
+}
+
+func TestEnumsMarshalToWireStrings(t *testing.T) {
+	cases := []struct {
+		v    any
+		want string
+	}{
+		{BindExact, `"exact"`},
+		{BindInferred, `"inferred"`},
+		{BindUnknown, `"unknown"`},
+	}
+	for _, c := range cases {
+		got, err := json.Marshal(c.v)
+		if err != nil {
+			t.Fatalf("json.Marshal(%v): %v", c.v, err)
+		}
+		if string(got) != c.want {
+			t.Errorf("json.Marshal(%#v) = %s, want %s", c.v, got, c.want)
+		}
+	}
+}
+
+func TestHasLiveProcess(t *testing.T) {
+	pid := 7
+	proc := &ProcSample{PID: pid}
+	cases := []struct {
+		name string
+		s    Session
+		want bool
+	}{
+		{"bound with a proc", Session{BindConf: BindExact, PID: &pid, Proc: proc}, true},
+		{"inferred with a proc", Session{BindConf: BindInferred, PID: &pid, Proc: proc}, true},
+		{"bound, pid gone from the process table", Session{BindConf: BindExact, PID: &pid}, false},
+		{"unbound", Session{BindConf: BindUnknown}, false},
+		{"unbound with a stray proc", Session{BindConf: BindUnknown, Proc: proc}, false},
+	}
+	for _, c := range cases {
+		if got := c.s.HasLiveProcess(); got != c.want {
+			t.Errorf("%s: HasLiveProcess() = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

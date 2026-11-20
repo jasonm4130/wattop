@@ -8,14 +8,15 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/jasonm4130/wattop/internal/domain"
+	"github.com/jasonm4130/wattop/internal/state"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.Roles, width, height int, opts Options) string {
+func HistoryRender(s *domain.Snapshot, history func(state.Metric) []float64, r theme.Roles, width, height int, opts Options) string {
 	if height <= 0 {
 		return ""
 	}
-	times := history("time")
+	times := history(state.MetricTime)
 	end := float64(s.At.UnixMilli()) / 1000
 	input, output := "—", "—"
 	if s.TokenRate != nil {
@@ -25,7 +26,7 @@ func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.R
 	leftW := (width - 1) / 2
 	rightW := width - leftW - 1
 	plotH := max(1, (height-5)/2)
-	chart := func(key, title, color string, ceiling float64, w int) []string {
+	chart := func(key state.Metric, title, color string, ceiling float64, w int) []string {
 		values := history(key)
 		if ceiling == 0 {
 			ceiling = 1
@@ -39,12 +40,12 @@ func HistoryRender(s *domain.Snapshot, history func(string) []float64, r theme.R
 		lines := []string{styled(opts, color, label)}
 		return append(lines, areaGraph(values, times, end, ceiling, w, plotH, color, opts)...)
 	}
-	left := chart("tokens_out", "OUT "+output+" tok/s", r.ChartCost, 0, leftW-4)
-	left = append(left, chart("tokens_in", "IN  "+input+" tok/s", r.Accent, 0, leftW-4)...)
+	left := chart(state.MetricTokensOut, "OUT "+output+" tok/s", r.ChartCost, 0, leftW-4)
+	left = append(left, chart(state.MetricTokensIn, "IN  "+input+" tok/s", r.Accent, 0, leftW-4)...)
 	plotH = max(1, (height-6)/3)
-	right := chart("cpu", "CPU %", r.ChartCPU, 100, rightW-4)
-	right = append(right, chart("gpu", "GPU %", r.ChartGPU, 100, rightW-4)...)
-	right = append(right, chart("watts", "POWER W", r.ChartWatts, 0, rightW-4)...)
+	right := chart(state.MetricCPU, "CPU %", r.ChartCPU, 100, rightW-4)
+	right = append(right, chart(state.MetricGPU, "GPU %", r.ChartGPU, 100, rightW-4)...)
+	right = append(right, chart(state.MetricWatts, "POWER W", r.ChartWatts, 0, rightW-4)...)
 	a := card("TOKEN THROUGHPUT", left, r, leftW, height-1, opts)
 	b := card("HARDWARE HISTORY", right, r, rightW, height-1, opts)
 	axis := styled(opts, r.Muted, "120s ago → now · tok/s: recorded over 60s")

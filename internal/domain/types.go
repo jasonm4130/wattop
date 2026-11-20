@@ -246,17 +246,35 @@ type Workflow struct {
 	BurnUSDPerHr   *float64   `json:"burn_usd_per_hr"`
 }
 
+type BindConf string
+
+const (
+	BindExact    BindConf = "exact"
+	BindInferred BindConf = "inferred"
+	BindUnknown  BindConf = "unknown"
+)
+
+type SessionStatus string
+
+const (
+	StatusBusy        SessionStatus = "busy"
+	StatusWaiting     SessionStatus = "waiting"
+	StatusRateLimited SessionStatus = "rate-limited"
+	StatusUnknown     SessionStatus = "unknown"
+	StatusStale       SessionStatus = "stale"
+)
+
 type Session struct {
 	TokenRate    *TokenRate     `json:"token_rate,omitempty"`
 	Agent        string         `json:"agent"`
 	ID           string         `json:"id"`
 	PID          *int           `json:"pid"`
-	BindConf     string         `json:"bind_conf"`
+	BindConf     BindConf       `json:"bind_conf"`
 	CWD          string         `json:"cwd"`
 	Name         string         `json:"name"`
 	Cmdline      string         `json:"cmdline"`
 	Kind         string         `json:"kind"`
-	Status       string         `json:"status"`
+	Status       SessionStatus  `json:"status"`
 	StatusSince  time.Time      `json:"status_since"`
 	Model        string         `json:"model"`
 	Usage        Usage          `json:"usage"`
@@ -277,4 +295,8 @@ type Session struct {
 	LastUsageAt time.Time   `json:"last_usage_at"`
 	Proc        *ProcSample `json:"proc"`
 	RateLimits  []RateLimit `json:"rate_limits"`
+}
+
+func (s Session) HasLiveProcess() bool {
+	return s.BindConf != BindUnknown && s.Proc != nil
 }

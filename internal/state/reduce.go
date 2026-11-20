@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jasonm4130/wattop/internal/domain"
@@ -40,9 +39,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			st.tracked[key] = tr
 		}
 		tr.session = raw
-		tr.lastSeenAt = in.At
-		tr.ttlClock = in.At
-		tr.heldByOutage = false
+		tr.ttl.sighted(in.At)
 
 		enriched := raw
 		st.enrichSession(&enriched, procByPID, unpriced, in.At)
@@ -66,8 +63,7 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		tr := st.tracked[key]
 
 		if healthFailed[key.Agent] {
-			tr.ttlClock = in.At
-			tr.heldByOutage = true
+			tr.ttl.holdForOutage()
 			enriched := tr.session
 			clearTokenRates(&enriched)
 			st.enrichSession(&enriched, procByPID, unpriced, in.At)
@@ -75,24 +71,13 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 			continue
 		}
 
-		if tr.heldByOutage {
-			tr.ttlClock = in.At
-			tr.heldByOutage = false
-		}
-
-		if in.At.Sub(tr.ttlClock) > sessionTTL {
-			delete(st.tracked, key)
-			st.burn.Forget(key.Agent + ":" + key.ID)
-			delete(st.burnLastCost, key.Agent+":"+key.ID)
-			st.forgetSubagentBurn(key.Agent + ":" + key.ID)
-			delete(st.histories, key.Agent+":"+key.ID+":cpu")
-			delete(st.histories, key.Agent+":"+key.ID+":gpu")
-			delete(st.histories, key.Agent+":"+key.ID+":cost")
+		if tr.ttl.expiredWhenAbsent(in.At) {
+			st.forgetSession(key)
 			continue
 		}
 
-		if tr.session.Status != "stale" {
-			tr.session.Status = "stale"
+		if tr.session.Status != domain.StatusStale {
+			tr.session.Status = domain.StatusStale
 			tr.session.StatusSince = in.At
 		}
 
@@ -147,18 +132,18 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 	if snap.TokenRate != nil {
 		input, output = snap.TokenRate.InputPerSec, snap.TokenRate.OutputPerSec
 	}
-	st.recordHistory("tokens_in", input)
-	st.recordHistory("tokens_out", output)
-	st.recordHistory("time", float64(in.At.UnixMilli())/1000)
+	st.recordHistory(historyKey{metric: MetricTokensIn}, input)
+	st.recordHistory(historyKey{metric: MetricTokensOut}, output)
+	st.recordHistory(historyKey{metric: MetricTime}, float64(in.At.UnixMilli())/1000)
 
 	cpu, gpu, watts := machineCPUPct(sys.Clusters), derefOr(sys.GPU.ActivePct, math.NaN()), derefOr(sys.Power.SystemWatts, math.NaN())
 	if healthFailed["soc"] {
 		cpu, gpu, watts = math.NaN(), math.NaN(), math.NaN()
 	}
-	st.recordHistory("cpu", cpu)
-	st.recordHistory("gpu", gpu)
-	st.recordHistory("watts", watts)
-	st.recordHistory("cost", totalBurn)
+	st.recordHistory(historyKey{metric: MetricCPU}, cpu)
+	st.recordHistory(historyKey{metric: MetricGPU}, gpu)
+	st.recordHistory(historyKey{metric: MetricWatts}, watts)
+	st.recordHistory(historyKey{metric: MetricCost}, totalBurn)
 
 	for _, s := range sessions {
 		var cpu, gpu, cost float64
@@ -169,12 +154,23 @@ func (st *State) Reduce(in Inputs) *domain.Snapshot {
 		if s.BurnUSDPerHr != nil {
 			cost = *s.BurnUSDPerHr
 		}
-		st.recordHistory(s.Agent+":"+s.ID+":cpu", cpu)
-		st.recordHistory(s.Agent+":"+s.ID+":gpu", gpu)
-		st.recordHistory(s.Agent+":"+s.ID+":cost", cost)
+		key := sessionKey{Agent: s.Agent, ID: s.ID}
+		st.recordHistory(historyKey{key, MetricCPU}, cpu)
+		st.recordHistory(historyKey{key, MetricGPU}, gpu)
+		st.recordHistory(historyKey{key, MetricCost}, cost)
 	}
 
 	return snap
+}
+
+func (st *State) forgetSession(key sessionKey) {
+	delete(st.tracked, key)
+	burnKey := key.burnKey()
+	st.burn.Forget(burnKey)
+	st.burn.ForgetPrefix(subagentBurnKey(burnKey, ""))
+	for _, m := range sessionMetrics {
+		delete(st.histories, historyKey{key, m})
+	}
 }
 
 func clearTokenRates(s *domain.Session) {
@@ -211,17 +207,14 @@ func (st *State) enrichSession(s *domain.Session, procByPID map[int]domain.ProcS
 
 	st.priceSession(s, unpriced)
 
-	burnKey := s.Agent + ":" + s.ID
+	burnKey := sessionKey{Agent: s.Agent, ID: s.ID}.burnKey()
 	st.burnSubagents(s, burnKey, at)
 	summarizeWorkflows(s)
 	if s.CostUSD == nil {
 		s.BurnUSDPerHr = nil
 		return
 	}
-	if last, ok := st.burnLastCost[burnKey]; !ok || last != *s.CostUSD {
-		st.burn.Observe(burnKey, *s.CostUSD, at, lastTranscriptAt(s))
-		st.burnLastCost[burnKey] = *s.CostUSD
-	}
+	st.burn.Observe(burnKey, *s.CostUSD, at, lastTranscriptAt(s))
 	rate := st.burn.RatePerHour(burnKey, at)
 	s.BurnUSDPerHr = &rate
 }
@@ -253,31 +246,16 @@ func (st *State) burnSubagents(s *domain.Session, sessionBurnKey string, at time
 			continue
 		}
 		key := subagentBurnKey(sessionBurnKey, subagentKey(*sa, i))
-		last, seen := st.burnLastCost[key]
-		if !seen && !sa.StartedAt.IsZero() && !sa.LastActivityAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
+		if !st.burn.Tracking(key) && !sa.StartedAt.IsZero() && at.Sub(sa.StartedAt) <= childSeedWindow {
 			seedAt := sa.StartedAt
 			if floor := sa.LastActivityAt.Add(-childSeedMinSpan); floor.Before(seedAt) {
 				seedAt = floor
 			}
 			st.burn.Observe(key, 0, at, seedAt)
-			seen, last = true, 0
 		}
-		if !seen || last != *sa.CostUSD {
-			st.burn.Observe(key, *sa.CostUSD, at, sa.LastActivityAt)
-			st.burnLastCost[key] = *sa.CostUSD
-		}
+		st.burn.Observe(key, *sa.CostUSD, at, sa.LastActivityAt)
 		rate := st.burn.RatePerHour(key, at)
 		sa.BurnUSDPerHr = &rate
-	}
-}
-
-func (st *State) forgetSubagentBurn(sessionBurnKey string) {
-	prefix := sessionBurnKey + ":sub:"
-	for key := range st.burnLastCost {
-		if strings.HasPrefix(key, prefix) {
-			st.burn.Forget(key)
-			delete(st.burnLastCost, key)
-		}
 	}
 }
 
@@ -342,42 +320,61 @@ func lastTranscriptAt(s *domain.Session) time.Time {
 	return newest
 }
 
-func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
-	mainCost, mainOK, partial := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
+type priceStatus int
 
-	total := mainCost
+const (
+	priceNone priceStatus = iota
+	priceExact
+	pricePartial
+)
+
+type price struct {
+	usd    float64
+	status priceStatus
+}
+
+func (p price) priced() bool { return p.status != priceNone }
+
+func (p price) partial() bool { return p.status == pricePartial }
+
+func (p price) costUSD() *float64 {
+	if !p.priced() {
+		return nil
+	}
+	usd := p.usd
+	return &usd
+}
+
+func (p price) withChild(child price, billed bool) price {
+	if !p.priced() {
+		return p
+	}
+	switch {
+	case child.priced():
+		p.usd += child.usd
+		if child.partial() {
+			p.status = pricePartial
+		}
+	case billed:
+		p.status = pricePartial
+	}
+	return p
+}
+
+func (st *State) priceSession(s *domain.Session, unpriced map[string]struct{}) {
+	total := st.priceUsage(s.Model, s.Usage, s.ContextUsed, s.Ledger, unpriced)
 	s.Subagents = append([]domain.Subagent(nil), s.Subagents...)
 	for i := range s.Subagents {
 		sa := &s.Subagents[i]
-		cost, ok, saPartial := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
-		sa.CostPartial = ok && saPartial
-		if ok {
-			c := cost
-			sa.CostUSD = &c
-			total += cost
-			if saPartial {
-				partial = true
-			}
-		} else {
-			sa.CostUSD = nil
-			if childBilled(*sa) {
-				partial = true
-			}
-		}
+		p := st.priceUsage(sa.Model, sa.Usage, sa.ContextUsed, sa.Ledger, unpriced)
+		sa.CostUSD, sa.CostPartial = p.costUSD(), p.partial()
+		total = total.withChild(p, childBilled(*sa))
 	}
-
-	s.Priced = mainOK
-	if mainOK {
-		c := total
-		s.CostUSD = &c
-		s.CostPartial = partial
-	} else {
-		s.CostUSD = nil
-		s.CostPartial = false
-	}
+	s.Priced = total.priced()
+	s.CostUSD, s.CostPartial = total.costUSD(), total.partial()
 }
 
-func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) (cost float64, ok, partial bool) {
+func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l domain.UsageLedger, unpriced map[string]struct{}) price {
 	if len(l) > 0 {
 		usd, missing, anyPriced := st.book.CostLedger(l)
 		for _, m := range missing {
@@ -385,13 +382,23 @@ func (st *State) priceUsage(model string, u domain.Usage, contextUsed int64, l d
 				unpriced[m] = struct{}{}
 			}
 		}
-		return usd, anyPriced, anyPriced && len(missing) > 0
+		switch {
+		case !anyPriced:
+			return price{}
+		case len(missing) > 0:
+			return price{usd: usd, status: pricePartial}
+		default:
+			return price{usd: usd, status: priceExact}
+		}
 	}
-	usd, priced := st.book.Cost(model, u, contextUsed)
-	if !priced && model != "" {
-		unpriced[model] = struct{}{}
+	usd, ok := st.book.Cost(model, u, contextUsed)
+	if !ok {
+		if model != "" {
+			unpriced[model] = struct{}{}
+		}
+		return price{}
 	}
-	return usd, priced, false
+	return price{usd: usd, status: priceExact}
 }
 
 func machineCPUPct(clusters []domain.Cluster) float64 {

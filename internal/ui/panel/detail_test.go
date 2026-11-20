@@ -30,7 +30,7 @@ func sessionWithHistogram() domain.Session {
 	return domain.Session{
 		Agent:        "claude",
 		ID:           "sess-detail",
-		BindConf:     "exact",
+		BindConf:     domain.BindExact,
 		CWD:          "/home/u/project",
 		Model:        "claude-opus-5",
 		Priced:       true,
@@ -94,7 +94,7 @@ func TestDetailHistogramCovers12Entries(t *testing.T) {
 func TestDetailHistogramBarFitsWidthWithBusySession(t *testing.T) {
 	r := loadDarkRoles(t)
 	s := domain.Session{
-		Agent: "claude", ID: "sess-busy", BindConf: "exact",
+		Agent: "claude", ID: "sess-busy", BindConf: domain.BindExact,
 		ToolCounts: map[string]int{
 			"Bash":                        521,
 			"mcp__tavily__tavily_extract": 3,
@@ -146,7 +146,7 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 	r := loadDarkRoles(t)
 
 	bound := DetailRender(sessionWithHistogram(), r, 120, 40, time.Time{}, Options{})
-	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}, r, 120, 40, time.Time{}, Options{})
+	unbound := DetailRender(domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: domain.BindUnknown}, r, 120, 40, time.Time{}, Options{})
 
 	for name, out := range map[string]string{"bound": bound, "unbound": unbound} {
 		if !strings.Contains(out, "disk (cumulative)") {
@@ -164,7 +164,7 @@ func TestDetailDiskIOLabelledCumulativeNotRate(t *testing.T) {
 
 func TestDetailUnboundShowsPidUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
-	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: "unknown"}
+	s := domain.Session{Agent: "codex", ID: "sess-unbound", BindConf: domain.BindUnknown}
 	out := DetailRender(s, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "(pid unknown)") {
 		t.Errorf("expected %q in the render, got:\n%s", "(pid unknown)", out)
@@ -343,11 +343,35 @@ func TestFooterKeepsEverySegmentWhenItFits(t *testing.T) {
 
 func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
 	r := loadDarkRoles(t)
-	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: "exact", CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})
+	out := DetailRender(domain.Session{Agent: "claude", ID: "sess-headless", BindConf: domain.BindExact, CWD: "/repo/x"}, r, 120, 40, time.Time{}, Options{})
 	if !strings.Contains(out, "Model    —") {
 		t.Errorf("an unresolved model must render as a dash, got:\n%s", out)
 	}
 	if !strings.Contains(out, "no transcript on disk") {
 		t.Errorf("the detail view must say why the model is unknown, got:\n%s", out)
+	}
+}
+
+func TestDetailFitsEightyColumns(t *testing.T) {
+	r := loadDarkRoles(t)
+	s := sessionWithHistogram()
+	s.Agent = "codex"
+	s.ID = "019a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8#rollout-2026-09-06T09-00-00-019a2b3c.jsonl"
+	s.CWD = "/home/u/src/github.com/some-org/a-repository-with-a-long-name/services/backend"
+	s.Usage.Input, s.Usage.CachedInput = 12_345_678, 9_876_543
+	s.TokenRate = &domain.TokenRate{InputPerSec: 123456.7, OutputPerSec: 2345.6, CacheReadPerSec: 98765.4}
+	s.Proc.GPUMsPerSec = floatPtr(123.4)
+	s.Proc.DiskReadB, s.Proc.DiskWriteB = 123_456_789_012, 98_765_432_109
+
+	out := DetailRender(s, r, 80, 80, time.Date(2026, 9, 6, 9, 30, 0, 0, time.UTC), Options{})
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line %d is %d cells wide, want at most 80: %q", i, w, line)
+		}
+	}
+	for _, want := range []string{"thinking 200", "cached-input(Codex) 9.9M", "cache-read 98765.4", "disk (cumulative) r", "secondary"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("80-column detail lost %q:\n%s", want, out)
+		}
 	}
 }

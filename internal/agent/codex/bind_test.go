@@ -40,7 +40,7 @@ func TestBindRefusesDoubleBind(t *testing.T) {
 	if *b.PID != 100 {
 		t.Fatalf("bound pid = %d, want 100 (nearest-and-not-before session_meta)", *b.PID)
 	}
-	if b.Conf != "inferred" {
+	if b.Conf != domain.BindInferred {
 		t.Fatalf("BindConf = %q, want inferred (the time tiebreaker decided)", b.Conf)
 	}
 
@@ -75,7 +75,7 @@ func TestExactBindWhenCWDUnique(t *testing.T) {
 	if b.PID == nil || *b.PID != 100 {
 		t.Fatalf("binding = %+v, want pid 100 bound", b)
 	}
-	if b.Conf != "exact" {
+	if b.Conf != domain.BindExact {
 		t.Fatalf("BindConf = %q, want exact", b.Conf)
 	}
 }
@@ -93,7 +93,7 @@ func TestZeroStartTimeUnmatched(t *testing.T) {
 	if b.PID != nil {
 		t.Fatalf("binding = %+v, want unmatched (zero StartTime)", b)
 	}
-	if b.Conf != "unknown" {
+	if b.Conf != domain.BindUnknown {
 		t.Fatalf("BindConf = %q, want unknown", b.Conf)
 	}
 }
@@ -132,7 +132,7 @@ func TestUnboundRolloutStillRendered(t *testing.T) {
 	if sess.PID != nil {
 		t.Fatalf("Session.PID = %v, want nil", *sess.PID)
 	}
-	if sess.BindConf != "unknown" {
+	if sess.BindConf != domain.BindUnknown {
 		t.Fatalf("Session.BindConf = %q, want unknown", sess.BindConf)
 	}
 	if sess.Agent != "codex" {
@@ -145,7 +145,7 @@ func TestUnboundRolloutStillRendered(t *testing.T) {
 
 func TestSessionIDFallsBackToPathWhenNoSessionMeta(t *testing.T) {
 	r := Rollout{Path: "/r/no-meta.jsonl", CWD: "/home/u/proj"}
-	sess := sessionFromRollout(r, binding{Conf: "unknown"}, "waiting", nil)
+	sess := sessionFromRollout(r, binding{Conf: domain.BindUnknown}, "waiting", nil)
 	if sess.ID != "/r/no-meta.jsonl" {
 		t.Fatalf("Session.ID = %q, want the rollout path as a fallback", sess.ID)
 	}
@@ -162,7 +162,7 @@ func TestAppServerDaemonNeverBinds(t *testing.T) {
 	}
 
 	got := bindAll(rollouts, []domain.ProcSample{daemon}, "")
-	if b := got["/r/home.jsonl"]; b.PID != nil || b.Conf != "unknown" {
+	if b := got["/r/home.jsonl"]; b.PID != nil || b.Conf != domain.BindUnknown {
 		t.Fatalf("binding = {pid %v, %q}, want unbound: the daemon owns no session", derefAll(map[string]*int{"pid": b.PID}), b.Conf)
 	}
 	if anyCodexCandidate([]domain.ProcSample{daemon}, "") {
@@ -171,7 +171,7 @@ func TestAppServerDaemonNeverBinds(t *testing.T) {
 
 	session := codexProc(500, "/Users/u", metaAt.Add(-3*time.Second))
 	got = bindAll(rollouts, []domain.ProcSample{daemon, session}, "")
-	if b := got["/r/home.jsonl"]; b.PID == nil || *b.PID != 500 || b.Conf != "exact" {
+	if b := got["/r/home.jsonl"]; b.PID == nil || *b.PID != 500 || b.Conf != domain.BindExact {
 		t.Fatalf("with a real session beside the daemon: binding = %+v, want pid 500 exact", b)
 	}
 }

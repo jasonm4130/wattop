@@ -215,7 +215,7 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 	s := domain.Session{
 		Agent:    "codex",
 		ID:       "sess-stale-binding",
-		BindConf: "unknown",
+		BindConf: domain.BindUnknown,
 		Status:   "unknown",
 		Proc: &domain.ProcSample{
 			PID:         999,
@@ -234,7 +234,7 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 		t.Errorf("BindConf==unknown row rendered live Proc data instead of dashes:\n%s", out)
 	}
 
-	fixtureRow := domain.Session{Agent: "codex", ID: "sess-unbound-rollout", BindConf: "unknown", Status: "unknown"}
+	fixtureRow := domain.Session{Agent: "codex", ID: "sess-unbound-rollout", BindConf: domain.BindUnknown, Status: "unknown"}
 	fixtureOut := SessionsRender([]domain.Session{fixtureRow}, r, 120, 3, -1, time.Time{}, Options{})
 	if !strings.Contains(fixtureOut, unknownPID) {
 		t.Errorf("expected %q for a nil-Proc unbound row too, got:\n%s", unknownPID, fixtureOut)
@@ -246,7 +246,7 @@ func TestAllFiveStatusesRender(t *testing.T) {
 	since := fixtureAt.Add(-90 * time.Second)
 
 	statuses := []struct {
-		status string
+		status domain.SessionStatus
 		want   string
 	}{
 		{"busy", "Busy"},
@@ -258,8 +258,8 @@ func TestAllFiveStatusesRender(t *testing.T) {
 	}
 
 	for _, tc := range statuses {
-		t.Run(tc.status, func(t *testing.T) {
-			s := domain.Session{Agent: "claude", ID: "s-" + tc.status, Status: tc.status, StatusSince: since}
+		t.Run(string(tc.status), func(t *testing.T) {
+			s := domain.Session{Agent: "claude", ID: "s-" + string(tc.status), Status: tc.status, StatusSince: since}
 			out := SessionsRender([]domain.Session{s}, r, 120, 3, -1, fixtureAt, Options{})
 			if !strings.Contains(out, tc.want) {
 				t.Errorf("status %q: expected %q in render, got:\n%s", tc.status, tc.want, out)
@@ -396,7 +396,7 @@ func TestHumanBytesScalesToMAndG(t *testing.T) {
 func manySessions(n int) []domain.Session {
 	out := make([]domain.Session, n)
 	for i := range out {
-		out[i] = domain.Session{Agent: "claude", ID: fmt.Sprintf("s%d", i), Status: fmt.Sprintf("row%d", i)}
+		out[i] = domain.Session{Agent: "claude", ID: fmt.Sprintf("s%d", i), Status: domain.SessionStatus(fmt.Sprintf("row%d", i))}
 	}
 	return out
 }
@@ -562,7 +562,7 @@ func TestSessionsWide200ColsWidensCWDAndModel(t *testing.T) {
 func TestUnknownModelRendersDash(t *testing.T) {
 	r := loadDarkRoles(t)
 	out := SessionsRender([]domain.Session{
-		{Agent: "claude", ID: "sess-1", Status: "busy", BindConf: "exact", CWD: "/repo/x"},
+		{Agent: "claude", ID: "sess-1", Status: "busy", BindConf: domain.BindExact, CWD: "/repo/x"},
 	}, r, 120, 3, -1, time.Time{}, Options{NoColor: true})
 
 	row := strings.Split(out, "\n")[1]

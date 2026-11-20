@@ -221,33 +221,6 @@ static after the launch backfill, so `total_cost` never moved. The positive
 path rests on `internal/pricing`'s unit tests ($3.60/hr and $60.00/hr
 exactly, against controlled timestamps), not on live data.
 
-## The detail view does not fit a terminal narrower than 103 columns
-
-The **session table** used to be here and is not any more. It narrows:
-columns shrink, the context gauge collapses to `~ 55%`, the token triple
-collapses to a single figure, surplus rows become a `▼ N more` marker, and
-`$`, `$/HR`, `CPU%` and `RSS` survive at every width. Measured on the v0.1
-corpus it renders 80 cells at 80x24 (was 153), and a live capture at 80x24
-against four real Claude sessions comes back 80 cells with nothing past the
-terminal edge (`docs/qa/2026-09-06-v0.1.md`, "Re-QA after hardening"). The
-`Machine` footer narrows the same way, dropping whole segments rather than
-cutting a figure in half.
-
-The **detail view** (`enter`) was never given that treatment. It reserves
-103 cells and does not adapt, so at 80 columns a real terminal cuts it
-mid-token — the live capture loses the tail of the token line at
-`cache-wri`. The fix is the same shape as the table's: a responsive column
-set in `internal/ui/panel/detail.go`.
-
-`internal/e2e` splits the two so the suite cannot report "pass" for a frame
-that does not fit. `TestFrameFitsTerminal` asserts the real pass condition —
-the frame fits its terminal in both axes — for every size and frame that
-meets it, which now includes the session table at 80x24.
-`TestDetailViewOverflowsAt80Columns` pins the one that does not (103 cells
-against a terminal of 80) with `==`, so it fails both if the overflow grows
-and once the layout is fixed. When it is fixed, delete that test and
-`overflowAt80`, tick `docs/manual-qa.md` item 12, and delete this section.
-
 ## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
 
 Cross-checked on 2026-09-06 against `ccusage session --json` over the same

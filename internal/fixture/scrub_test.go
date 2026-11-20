@@ -270,3 +270,31 @@ func TestScrubKeepsHTMLCharactersLiteral(t *testing.T) {
 		t.Fatalf("Scrub(%s) = %s, want it unchanged", line, out)
 	}
 }
+
+func TestScrubKeepsLineAndParagraphSeparatorsLiteral(t *testing.T) {
+	line := []byte("{\"model\":\"a\u2028b\u2029c\",\"k\u2028ey\":\"v\",\"text\":\"p\u2028q\"}")
+
+	out, err := Scrub(line)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if len(out) != len(line) {
+		t.Fatalf("len(Scrub(line)) = %d, want %d (in=%q out=%q)", len(out), len(line), line, out)
+	}
+	want := []byte("{\"model\":\"a\u2028b\u2029c\",\"k\u2028ey\":\"v\",\"text\":\"xxxxx\"}")
+	if !bytes.Equal(out, want) {
+		t.Fatalf("Scrub(%q) = %q, want %q", line, out, want)
+	}
+}
+
+func TestScrubKeepsUnchangedStringsByteForByte(t *testing.T) {
+	line := []byte(`{"model":"caf\u00e9 \/ \\u2028","cwd":"/home/u/x"}`)
+
+	out, err := Scrub(line)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if !bytes.Equal(out, line) {
+		t.Fatalf("Scrub(%s) = %s, want it unchanged", line, out)
+	}
+}

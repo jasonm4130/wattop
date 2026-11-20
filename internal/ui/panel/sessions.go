@@ -129,9 +129,10 @@ func sessionRows(sessions []domain.Session, r theme.Roles, at time.Time, opts Op
 			isSel = row == selected
 			o := plainIfSelected(opts, isSel)
 			var line string
-			if c.Workflow != nil {
+			switch c := c.(type) {
+			case WorkflowRow:
 				line = workflowRow(r, c.Workflow, o, cols)
-			} else {
+			case SubagentRow:
 				line = subagentRow(r, c.Subagent, c.Depth, o, cols)
 			}
 			lines = append(lines, styleSelected(line, isSel, r, opts))
@@ -258,7 +259,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 	burn = padLine(truncate(burn, cols.Burn), cols.Burn)
 
 	cpu, gpu, rss := "—", "—", "—"
-	if s.BindConf != "unknown" && s.Proc != nil {
+	if s.HasLiveProcess() {
 		cpu = fdash(s.Proc.CPUPct, "%.1f%%")
 		gpu = fdash(s.Proc.GPUMsPerSec, "%.1f")
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
@@ -288,7 +289,7 @@ func modelLabel(model string) string {
 
 func pidCell(s domain.Session, width int) string {
 	verbose := unknownPID
-	if s.BindConf != "unknown" {
+	if s.BindConf != domain.BindUnknown {
 		if s.PID != nil {
 			verbose = fmt.Sprintf("pid %d", *s.PID)
 		} else {
@@ -299,7 +300,7 @@ func pidCell(s domain.Session, width int) string {
 		return verbose
 	}
 	compact := "—"
-	if s.BindConf != "unknown" && s.PID != nil {
+	if s.BindConf != domain.BindUnknown && s.PID != nil {
 		compact = fmt.Sprintf("%d", *s.PID)
 	}
 	return truncate(compact, width)
@@ -392,22 +393,22 @@ func workflowRow(r theme.Roles, w *domain.Workflow, opts Options, cols sessionCo
 
 func statusInfo(r theme.Roles, s domain.Session, at time.Time) (color, label string) {
 	switch s.Status {
-	case "busy":
+	case domain.StatusBusy:
 		return r.Busy, spinnerGlyph + " Busy"
-	case "waiting":
+	case domain.StatusWaiting:
 		return r.Waiting, "Waiting"
-	case "rate-limited":
+	case domain.StatusRateLimited:
 		return r.Warn, "RateLimited"
-	case "unknown":
+	case domain.StatusUnknown:
 		return r.Muted, "Unknown"
-	case "stale":
+	case domain.StatusStale:
 		age := "—"
 		if !s.StatusSince.IsZero() && !at.IsZero() {
 			age = formatAge(at.Sub(s.StatusSince))
 		}
 		return r.Muted, "Stale " + age
 	default:
-		return r.Muted, s.Status
+		return r.Muted, string(s.Status)
 	}
 }
 

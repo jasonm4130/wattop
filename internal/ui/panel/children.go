@@ -8,11 +8,21 @@ import (
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
-type ChildRow struct {
+type ChildRow interface {
+	childRow()
+}
+
+type SubagentRow struct {
 	Subagent *domain.Subagent
 	Depth    int
+}
+
+type WorkflowRow struct {
 	Workflow *domain.Workflow
 }
+
+func (SubagentRow) childRow() {}
+func (WorkflowRow) childRow() {}
 
 func ChildRows(s domain.Session) []ChildRow {
 	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
@@ -30,10 +40,10 @@ func ChildRows(s domain.Session) []ChildRow {
 		if sa.WorkflowID != "" {
 			continue
 		}
-		out = append(out, ChildRow{Subagent: sa, Depth: subagentDepth(s.Subagents, byID, i)})
+		out = append(out, SubagentRow{Subagent: sa, Depth: subagentDepth(s.Subagents, byID, i)})
 	}
 	for i := range s.Workflows {
-		out = append(out, ChildRow{Workflow: &s.Workflows[i]})
+		out = append(out, WorkflowRow{Workflow: &s.Workflows[i]})
 	}
 	return out
 }

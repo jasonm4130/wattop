@@ -178,26 +178,27 @@ func (r *Rollout) Apply(line []byte) error {
 		}
 		switch p.Type {
 		case "task_started":
-			r.Status = "busy"
+			r.Status = domain.StatusBusy
 			r.TaskCompleted = false
 			if r.ContextMax == 0 && p.ModelContextWindow > 0 {
 				r.ContextMax = p.ModelContextWindow
 			}
 		case "task_complete":
-			r.Status = "waiting"
+			r.Status = domain.StatusWaiting
 			r.TaskCompleted = true
 		case "token_count":
 			if !recAt.IsZero() && recAt.Before(r.lastUsageAt) {
 				break // replayed prefix after file rotation, not new usage
 			}
 			if p.Info != nil {
+				prev, hadUsage := r.Usage, r.hasUsage
 				u := p.Info.TotalTokenUsage
-				input, output, cached := u.InputTokens-r.Usage.Input, u.OutputTokens-r.Usage.Output, u.CachedInputTokens-r.Usage.CachedInput
-				if !r.hasUsage || input < 0 || output < 0 || cached < 0 {
+				input, output, cached := u.InputTokens-prev.Input, u.OutputTokens-prev.Output, u.CachedInputTokens-prev.CachedInput
+				if !hadUsage || input < 0 || output < 0 || cached < 0 {
 					last := p.Info.LastTokenUsage
 					input, output, cached = last.InputTokens, last.OutputTokens, last.CachedInputTokens
 				}
-				if !r.hasUsage || input != 0 || output != 0 || cached != 0 {
+				if !hadUsage || input != 0 || output != 0 || cached != 0 {
 					r.tokens.Add(recAt, input, output, cached)
 				}
 				total := domain.Usage{
@@ -207,7 +208,7 @@ func (r *Rollout) Apply(line []byte) error {
 					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier
 					Thinking:      u.ReasoningOutputTokens,
 				}
-				r.fileLedger(p.Info, total)
+				r.Ledger = nextLedger(r.Ledger, r.Model, requestPrompt(p.Info), prev, total, hadUsage)
 				r.hasUsage = true
 				if !recAt.IsZero() {
 					r.lastUsageAt = recAt
@@ -257,24 +258,27 @@ func (r *Rollout) Apply(line []byte) error {
 	return nil
 }
 
-func (r *Rollout) fileLedger(info *tokenCountInfo, total domain.Usage) {
-	prompt := info.LastTokenUsage.InputTokens
-	if prompt <= 0 {
-		prompt = info.LastTokenUsage.TotalTokens
-		if prompt <= 0 {
-			prompt = info.TotalTokenUsage.TotalTokens
-		}
+func requestPrompt(info *tokenCountInfo) int64 {
+	if p := info.LastTokenUsage.InputTokens; p > 0 {
+		return p
 	}
-	delta := total.Minus(r.Usage)
+	if p := info.LastTokenUsage.TotalTokens; p > 0 {
+		return p
+	}
+	return info.TotalTokenUsage.TotalTokens
+}
+
+func nextLedger(l domain.UsageLedger, model string, prompt int64, prev, total domain.Usage, hadUsage bool) domain.UsageLedger {
+	delta := total.Minus(prev)
 	reset := delta.Input < 0 || delta.Output < 0 || delta.CachedInput < 0
-	if !r.hasUsage || reset || r.Ledger == nil {
-		r.Ledger = make(domain.UsageLedger)
+	if !hadUsage || reset || l == nil {
+		l = make(domain.UsageLedger)
 		delta = total
 	}
-	if delta.IsZero() {
-		return
+	if !delta.IsZero() {
+		l.Add(model, prompt, delta)
 	}
-	r.Ledger.Add(r.Model, prompt, delta)
+	return l
 }
 
 func rateLimitsToDomain(p *rateLimitsPayload) []domain.RateLimit {
@@ -309,12 +313,12 @@ func parseCodexTime(s string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-func inferStatus(base string, mtime, now time.Time, idleThreshold time.Duration) string {
+func inferStatus(base domain.SessionStatus, mtime, now time.Time, idleThreshold time.Duration) domain.SessionStatus {
 	if base == "" {
-		base = "unknown"
+		base = domain.StatusUnknown
 	}
 	if !mtime.IsZero() && now.Sub(mtime) > idleThreshold {
-		return "stale"
+		return domain.StatusStale
 	}
 	return base
 }

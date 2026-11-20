@@ -230,7 +230,7 @@ func TestHistoryRingCaps(t *testing.T) {
 		})
 	}
 
-	watts := st.History("watts")
+	watts := st.History(MetricWatts)
 	if len(watts) != historyCap {
 		t.Fatalf("len(History(\"watts\")) = %d, want %d", len(watts), historyCap)
 	}
@@ -552,5 +552,22 @@ func TestExpiredSessionIsForgottenByTheBurnTracker(t *testing.T) {
 	s := findSession(t, snap, "claude", "s1")
 	if s.BurnUSDPerHr == nil || *s.BurnUSDPerHr != 0 {
 		t.Fatalf("returning session: BurnUSDPerHr = %v, want 0 — it must baseline again, not diff against pre-drop cost", s.BurnUSDPerHr)
+	}
+}
+
+func TestTTLClockTransitions(t *testing.T) {
+	var c ttlClock
+	c.sighted(at(0))
+	if c.expiredWhenAbsent(at(30)) || !c.expiredWhenAbsent(at(31)) {
+		t.Fatalf("counting from a sighting at t=0: want alive at t=30 and expired at t=31")
+	}
+
+	c.sighted(at(0))
+	c.holdForOutage()
+	if c.expiredWhenAbsent(at(100)) {
+		t.Fatalf("first healthy absence after an outage expired the row, want the countdown restarted at t=100")
+	}
+	if c.expiredWhenAbsent(at(130)) || !c.expiredWhenAbsent(at(131)) {
+		t.Fatalf("after re-anchoring at t=100: want alive at t=130 and expired at t=131")
 	}
 }

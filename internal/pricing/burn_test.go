@@ -156,3 +156,35 @@ func TestSameInstantUsageFallsBackToWallClock(t *testing.T) {
 		t.Fatalf("RatePerHour for $0.01 over a zero-length event span = %v, want the wall-clock %v", got, want)
 	}
 }
+
+func TestBurnRateUnchangedTotalDoesNotKeepItAlive(t *testing.T) {
+	window := 60 * time.Second
+	tr := NewBurnTracker(window, 0.3)
+	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+
+	tr.Observe("s1", 0.00, t0, time.Time{})
+	tr.Observe("s1", 0.05, t0.Add(10*time.Second), time.Time{})
+	for sec := 20; sec <= 80; sec += 10 {
+		tr.Observe("s1", 0.05, t0.Add(time.Duration(sec)*time.Second), time.Time{})
+	}
+
+	if rate := tr.RatePerHour("s1", t0.Add(80*time.Second)); rate != 0 {
+		t.Fatalf("RatePerHour = %v after a total unchanged for longer than the window, want 0", rate)
+	}
+}
+
+func TestForgetPrefixDropsOnlyMatchingIDs(t *testing.T) {
+	tr := NewBurnTracker(60*time.Second, 0.3)
+	t0 := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"claude:s1", "claude:s1:sub:a", "claude:s1:sub:b", "claude:s2:sub:a"} {
+		tr.Observe(id, 1, t0, time.Time{})
+	}
+
+	tr.ForgetPrefix("claude:s1:sub:")
+
+	for id, want := range map[string]bool{"claude:s1": true, "claude:s1:sub:a": false, "claude:s1:sub:b": false, "claude:s2:sub:a": true} {
+		if got := tr.Tracking(id); got != want {
+			t.Errorf("Tracking(%q) = %v, want %v", id, got, want)
+		}
+	}
+}

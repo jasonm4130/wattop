@@ -8,14 +8,15 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/jasonm4130/wattop/internal/domain"
+	"github.com/jasonm4130/wattop/internal/state"
 	"github.com/jasonm4130/wattop/internal/ui/theme"
 )
 
 func TestGraphsFitAllThemesAndSizes(t *testing.T) {
 	now := time.Unix(1000, 0)
 	s := &domain.Snapshot{At: now, TokenRate: &domain.TokenRate{InputPerSec: 1200, OutputPerSec: 42}}
-	history := func(key string) []float64 {
-		if key == "time" {
+	history := func(m state.Metric) []float64 {
+		if m == state.MetricTime {
 			return []float64{900, 930, 960, 990, 1000}
 		}
 		return []float64{10, 30, 70, 20, 42}

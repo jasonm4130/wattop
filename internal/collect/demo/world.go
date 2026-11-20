@@ -83,7 +83,7 @@ func (w *World) computeTick() {
 	w.nBusy = 0
 	for _, s := range w.sessions {
 		s.advance(w, t, dt)
-		if s.status == "busy" {
+		if s.status == domain.StatusBusy {
 			w.nBusy++
 		}
 	}
@@ -204,7 +204,7 @@ func (w *World) Procs(at time.Time) []domain.ProcSample {
 	for i, s := range w.sessions {
 		sp := s.spec
 		cpu := 0.4 + 1.6*smooth(w.seed, chSessBase+100+uint64(i), t, 3)
-		if s.status == "busy" {
+		if s.status == domain.StatusBusy {
 			cpu = 7 + 28*smooth(w.seed, chSessBase+100+uint64(i), t, 2)
 		}
 		rss := sp.rssMB*1e6 + 40e6*smooth(w.seed, chSessBase+200+uint64(i), t, 15) + float64(len(s.tools))*0.15e6

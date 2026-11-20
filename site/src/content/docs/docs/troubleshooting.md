@@ -52,10 +52,6 @@ On the M5 Max no IOReport DRAM byte counter produces data, so wattop shows a tot
 
 Claude's transcript carries no context-window size, so wattop estimates it (dashed bar edge) as 200,000 or 1,000,000 tokens. If you know the real window, set it per session id or cwd with `context_window_overrides` in [`config.toml`](/docs/config/). Codex's context fill is exact.
 
-## The detail view is cut off
-
-The dashboard fits at 80 columns and above, but the detail view (<kbd>enter</kbd>) needs **103 columns** and is cut off below that. Widen the terminal. See [limitations](/docs/limitations/#the-detail-view-does-not-fit-a-terminal-narrower-than-103-columns).
-
 ## I see no graphs, only meters
 
 The history graphs need a terminal of at least 80x24; below that wattop shows the full hardware meters. <kbd>g</kbd> toggles between the two. See [Usage](/docs/usage/#keybindings).

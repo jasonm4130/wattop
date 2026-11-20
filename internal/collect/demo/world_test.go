@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jasonm4130/wattop/internal/domain"
 )
 
 var epoch = time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
@@ -50,7 +52,7 @@ func TestWorldSeedMatters(t *testing.T) {
 
 func TestWorldIsPlausible(t *testing.T) {
 	w := New(DefaultSeed, time.Second)
-	statuses := map[string]bool{}
+	statuses := map[domain.SessionStatus]bool{}
 	var lastCost = map[string]int64{}
 	for i := 0; i < 600; i++ {
 		w.Advance()

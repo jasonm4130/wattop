@@ -23,16 +23,6 @@ file, and `make vendor-diff` for re-checking the copy against upstream.
 
 --------------------------------------------------------------------------
 
-ntcharts
-Copyright (c) 2024-2026 Neomantra Corp
-https://github.com/NimbleMarkets/ntcharts
-Licensed under the MIT License.
-
-Used as a normal Go module dependency (github.com/NimbleMarkets/ntcharts/v2)
-for the braille sparkline helper in internal/ui/panel/spark.go.
-
---------------------------------------------------------------------------
-
 wattop also depends on the Charm libraries (charm.land/bubbletea/v2,
 charm.land/lipgloss/v2, charm.land/bubbles/v2, github.com/charmbracelet/*),
 github.com/BurntSushi/toml, and golang.org/x/term, each under its own
