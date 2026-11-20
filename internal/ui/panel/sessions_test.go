@@ -219,7 +219,7 @@ func TestUnboundPidRendersDashes(t *testing.T) {
 		Status:   "unknown",
 		Proc: &domain.ProcSample{
 			PID:         999,
-			CPUPct:      55.5,
+			CPUPct:      floatPtr(55.5),
 			RSSBytes:    100_000_000,
 			GPUMsPerSec: &gpu,
 		},

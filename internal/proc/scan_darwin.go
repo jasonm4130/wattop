@@ -140,7 +140,10 @@ func (s *Scanner) Scan(ctx context.Context) ([]domain.ProcSample, error) {
 
 		cpuNs := MachTicksToNs(uint64(cpuTicks), s.timebaseNum, s.timebaseDen)
 
-		cpuPct, _ := s.cpu.Update(pid, cpuNs, nowWall)
+		var cpuPct *float64
+		if pct, measured := s.cpu.Update(pid, cpuNs, nowWall); measured {
+			cpuPct = &pct
+		}
 
 		ps := domain.ProcSample{
 			PID:        pid,

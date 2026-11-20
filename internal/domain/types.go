@@ -87,7 +87,7 @@ type ProcSample struct {
 	Argv         []string  `json:"argv"`
 	CWD          string    `json:"cwd"`
 	RSSBytes     uint64    `json:"rss_bytes"`
-	CPUPct       float64   `json:"cpu_pct"`
+	CPUPct       *float64  `json:"cpu_pct"`
 	DiskReadB    uint64    `json:"disk_read_b"`
 	DiskWriteB   uint64    `json:"disk_write_b"`
 	StartTime    time.Time `json:"start_time"`

@@ -60,7 +60,7 @@ func TestStateHistoryPerSessionKeys(t *testing.T) {
 	session := domain.Session{
 		Agent: "claude", ID: "s1", PID: &pid, Status: "busy", Model: "claude-opus-5",
 	}
-	proc := domain.ProcSample{PID: pid, CPUPct: 42}
+	proc := domain.ProcSample{PID: pid, CPUPct: floatp(42)}
 	watts := 30.0
 
 	st.Reduce(Inputs{
@@ -86,7 +86,7 @@ func TestStateHistoryDroppedOnSessionTTLExpiry(t *testing.T) {
 	session := domain.Session{
 		Agent: "claude", ID: "s1", PID: &pid, Status: "busy", Model: "claude-opus-5",
 	}
-	proc := domain.ProcSample{PID: pid, CPUPct: 42}
+	proc := domain.ProcSample{PID: pid, CPUPct: floatp(42)}
 
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{session}, Procs: []domain.ProcSample{proc}})
 
@@ -116,8 +116,8 @@ func TestStateHistoryPerSessionKeysDistinguishAgent(t *testing.T) {
 	claude := domain.Session{Agent: "claude", ID: "dup", PID: &claudePID, Status: "busy", Model: "claude-opus-5"}
 	codex := domain.Session{Agent: "codex", ID: "dup", PID: &codexPID, Status: "busy", Model: "claude-opus-5"}
 	procs := []domain.ProcSample{
-		{PID: claudePID, CPUPct: 11},
-		{PID: codexPID, CPUPct: 22},
+		{PID: claudePID, CPUPct: floatp(11)},
+		{PID: codexPID, CPUPct: floatp(22)},
 	}
 
 	st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{claude, codex}, Procs: procs})
@@ -129,7 +129,7 @@ func TestStateHistoryPerSessionKeysDistinguishAgent(t *testing.T) {
 		t.Fatalf("History(\"codex:dup:cpu\") = %v, want [22]", got)
 	}
 
-	st.Reduce(Inputs{At: at(31), Sessions: []domain.Session{codex}, Procs: []domain.ProcSample{{PID: codexPID, CPUPct: 22}}})
+	st.Reduce(Inputs{At: at(31), Sessions: []domain.Session{codex}, Procs: []domain.ProcSample{{PID: codexPID, CPUPct: floatp(22)}}})
 
 	if got := st.History("claude:dup:cpu"); got != nil {
 		t.Fatalf("History(\"claude:dup:cpu\") = %v after TTL drop, want nil", got)

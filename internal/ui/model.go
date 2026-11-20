@@ -229,10 +229,10 @@ func burnOrZero(s domain.Session) float64 {
 }
 
 func cpuOrZero(s domain.Session) float64 {
-	if s.Proc == nil {
+	if s.Proc == nil || s.Proc.CPUPct == nil {
 		return 0
 	}
-	return s.Proc.CPUPct
+	return *s.Proc.CPUPct
 }
 
 func (m Model) flatRowCount() int {

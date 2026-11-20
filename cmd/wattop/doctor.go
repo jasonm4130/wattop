@@ -57,7 +57,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 			if p.GPUMsPerSec != nil {
 				gpuRows++
 			}
-			if p.CPUPct > 0 {
+			if p.CPUPct != nil && *p.CPUPct > 0 {
 				cpuRows++
 			}
 		}

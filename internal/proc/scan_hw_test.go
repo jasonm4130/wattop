@@ -89,8 +89,8 @@ func TestScanHardware(t *testing.T) {
 	sawOtherArgv := false
 
 	for _, ps := range second {
-		fmt.Printf("pid=%d comm=%s rss=%dKB cpu=%.2f%%\n", ps.PID, ps.Comm, ps.RSSBytes/1024, ps.CPUPct)
-		if ps.CPUPct > 0 {
+		fmt.Printf("pid=%d comm=%s rss=%dKB cpu=%.2f%%\n", ps.PID, ps.Comm, ps.RSSBytes/1024, pctOrZero(ps.CPUPct))
+		if pctOrZero(ps.CPUPct) > 0 {
 			anyCPUNonZero = true
 		}
 		if ps.GPUMsPerSec != nil {
@@ -118,13 +118,16 @@ func TestScanHardware(t *testing.T) {
 	if !ok {
 		t.Fatalf("the busy-loop child (pid %d) did not appear in the second scan", spinPID)
 	}
-	if spin.CPUPct < 50 || spin.CPUPct > 200 {
+	if spin.CPUPct == nil {
+		t.Fatalf("busy-loop child (pid %d) has no CPU percentage on its second scan", spinPID)
+	}
+	if *spin.CPUPct < 50 || *spin.CPUPct > 200 {
 		t.Fatalf("busy-loop child (pid %d) reported cpu=%.2f%%, want ~100%% (50-200): "+
 			"a value near 2.4%% means CPU ticks are being read as nanoseconds without the mach timebase",
-			spinPID, spin.CPUPct)
+			spinPID, *spin.CPUPct)
 	}
 	fmt.Printf("pid=%d comm=%s rss=%dKB cpu=%.2f%% (busy-loop child, want ~100%%)\n",
-		spin.PID, spin.Comm, spin.RSSBytes/1024, spin.CPUPct)
+		spin.PID, spin.Comm, spin.RSSBytes/1024, *spin.CPUPct)
 	if !sawSelf {
 		t.Fatalf("this test's own pid (%d) did not appear in the second scan", selfPID)
 	}
@@ -248,4 +251,11 @@ func psStartTimes(t *testing.T) map[int]time.Time {
 		t.Fatalf("ps reported start times for only %d pids, want >= 50 — the oracle did not parse", len(m))
 	}
 	return m
+}
+
+func pctOrZero(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }

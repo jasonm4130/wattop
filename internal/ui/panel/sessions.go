@@ -259,7 +259,7 @@ func sessionRow(r theme.Roles, s domain.Session, at time.Time, opts Options, col
 
 	cpu, gpu, rss := "—", "—", "—"
 	if s.BindConf != "unknown" && s.Proc != nil {
-		cpu = fmt.Sprintf("%.1f%%", s.Proc.CPUPct)
+		cpu = fdash(s.Proc.CPUPct, "%.1f%%")
 		gpu = fdash(s.Proc.GPUMsPerSec, "%.1f")
 		rss = fmt.Sprintf("%.0fM", float64(s.Proc.RSSBytes)/1e6)
 	}

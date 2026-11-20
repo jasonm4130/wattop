@@ -322,8 +322,8 @@ func processLines(s domain.Session) []string {
 		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}
 	}
 	p := s.Proc
-	return []string{fmt.Sprintf("  pid %d  cpu %.1f%%  gpu %s ms/s  rss %.0fM  disk (cumulative) r %s  w %s",
-		p.PID, p.CPUPct, fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, humanBytes(p.DiskReadB), humanBytes(p.DiskWriteB))}
+	return []string{fmt.Sprintf("  pid %d  cpu %s  gpu %s ms/s  rss %.0fM  disk (cumulative) r %s  w %s",
+		p.PID, fdash(p.CPUPct, "%.1f%%"), fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, humanBytes(p.DiskReadB), humanBytes(p.DiskWriteB))}
 }
 
 func rateLimitLines(r theme.Roles, opts Options, limits []domain.RateLimit) []string {

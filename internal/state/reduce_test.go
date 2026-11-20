@@ -93,11 +93,11 @@ func TestPidDisappearsRowSurvives(t *testing.T) {
 		Model:  "claude-opus-5",
 		Usage:  domain.Usage{Input: 100},
 	}
-	proc := domain.ProcSample{PID: pid, CPUPct: 12.5}
+	proc := domain.ProcSample{PID: pid, CPUPct: floatp(12.5)}
 
 	snap := st.Reduce(Inputs{At: at(0), Sessions: []domain.Session{session}, Procs: []domain.ProcSample{proc}})
 	s := findSession(t, snap, "claude", "s1")
-	if s.Proc == nil || s.Proc.CPUPct != 12.5 {
+	if s.Proc == nil || s.Proc.CPUPct == nil || *s.Proc.CPUPct != 12.5 {
 		t.Fatalf("Proc = %+v, want bound to pid %d", s.Proc, pid)
 	}
 

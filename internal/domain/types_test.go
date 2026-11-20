@@ -69,7 +69,7 @@ func fullRateLimit() RateLimit {
 func fullProcSample() ProcSample {
 	return ProcSample{
 		PID: 407, Comm: "2.1.261", Argv: []string{"claude", "--resume"}, CWD: "/repo",
-		RSSBytes: 987654321, CPUPct: 12.3, DiskReadB: 111, DiskWriteB: 222,
+		RSSBytes: 987654321, CPUPct: fp(12.3), DiskReadB: 111, DiskWriteB: 222,
 		StartTime: fixedTime(1), GPUMsPerSec: fp(20.026), GPUPctApprox: fp(1.6),
 	}
 }

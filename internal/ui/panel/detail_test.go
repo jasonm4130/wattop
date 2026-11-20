@@ -47,7 +47,7 @@ func sessionWithHistogram() domain.Session {
 			{AgentType: "worker", Description: "implement task 4", Model: "claude-sonnet-5", Live: true},
 		},
 		Proc: &domain.ProcSample{
-			PID: 1234, CPUPct: 12.5, RSSBytes: 512_000_000,
+			PID: 1234, CPUPct: floatPtr(12.5), RSSBytes: 512_000_000,
 			DiskReadB: 1048576, DiskWriteB: 262144,
 		},
 		RateLimits: []domain.RateLimit{
