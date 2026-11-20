@@ -144,9 +144,9 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		}
 	}
 
-	usedThreadIDs := make(map[string]bool, len(filtered))
 	sessionIdxByThreadID := make(map[string]int, len(filtered))
 	var sessions []domain.Session
+	var owners []Rollout
 	var children []Rollout
 
 	for _, r := range filtered {
@@ -157,9 +157,9 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		b := binds[r.Path]
 		status := inferStatus(r.Status, r.ModTime, now, s.idleThreshold)
 		sess := sessionFromRollout(r, b, status, procs)
-		sess.ID = dedupSessionID(r, sess.ID, usedThreadIDs)
 		sess.TokenRate = r.tokens.Rate(now)
 		sessions = append(sessions, sess)
+		owners = append(owners, r)
 		if r.ThreadID != "" {
 			sessionIdxByThreadID[r.ThreadID] = len(sessions) - 1
 		}
@@ -186,10 +186,11 @@ func (s *Source) Poll(ctx context.Context, now time.Time, procs []domain.ProcSam
 		status := inferStatus(c.Status, c.ModTime, now, s.idleThreshold)
 		sess := sessionFromRollout(c, binding{Conf: domain.BindUnknown}, status, procs)
 		sess.Kind = "subagent"
-		sess.ID = dedupSessionID(c, sess.ID, usedThreadIDs)
 		sess.TokenRate = c.tokens.Rate(now)
 		sessions = append(sessions, sess)
+		owners = append(owners, c)
 	}
+	dedupSessionIDs(sessions, owners)
 
 	for idx, subs := range pending {
 		sessions[idx].Subagents = append(sessions[idx].Subagents, sortSubagentsTree(subs)...)
@@ -240,15 +241,30 @@ func (s *Source) repin(binds map[string]binding, procs []domain.ProcSample) {
 	}
 }
 
-func dedupSessionID(r Rollout, id string, used map[string]bool) string {
-	if r.ThreadID == "" {
-		return id
+func dedupSessionIDs(sessions []domain.Session, owners []Rollout) {
+	claimOrder := make([]int, len(sessions))
+	for i := range claimOrder {
+		claimOrder[i] = i
 	}
-	if used[r.ThreadID] {
-		return r.ThreadID + "#" + filepath.Base(r.Path)
+	sort.Slice(claimOrder, func(a, b int) bool {
+		ra, rb := owners[claimOrder[a]], owners[claimOrder[b]]
+		if aChild, bChild := ra.ParentThreadID != "", rb.ParentThreadID != ""; aChild != bChild {
+			return bChild
+		}
+		return ra.Path < rb.Path
+	})
+	claimed := make(map[string]bool, len(sessions))
+	for _, i := range claimOrder {
+		r := owners[i]
+		if r.ThreadID == "" {
+			continue
+		}
+		if claimed[r.ThreadID] {
+			sessions[i].ID = r.ThreadID + "#" + filepath.Base(r.Path)
+			continue
+		}
+		claimed[r.ThreadID] = true
 	}
-	used[r.ThreadID] = true
-	return id
 }
 
 func sessionFromRollout(r Rollout, b binding, status domain.SessionStatus, procs []domain.ProcSample) domain.Session {
