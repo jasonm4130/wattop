@@ -7,12 +7,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jasonm4130/wattop/internal/domain"
 	"github.com/jasonm4130/wattop/internal/pricing"
 	"github.com/jasonm4130/wattop/internal/soc"
 )
 
 func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Duration, book *pricing.Book, themeName string, groups bool) {
-	_, _ = safeScan(ctx, src.Proc)
+	primeProcBaseline(ctx, src.Proc)
 	sys, errSys := safeSample(ctx, src.Sys, interval)
 	procs, errProc := safeScan(ctx, src.Proc)
 	now := time.Now()
@@ -92,7 +93,7 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 	fmt.Fprintf(w, "  sha256: %s\n", sha)
 	fmt.Fprintf(w, "  entries: %d\n", book.Entries())
 	fmt.Fprintf(w, "  age: %s\n", formatAge(fetchedAt, now))
-	if ok, err := pricingHealth(book.Entries(), fetchedAt, now); ok {
+	if ok, err := pricingHealth(book.Entries(), fetchedAt, book.RefreshErr(), now); ok {
 		fmt.Fprintln(w, "  status: ok")
 	} else {
 		fmt.Fprintf(w, "  status: degraded (%v)\n", err)
@@ -100,6 +101,10 @@ func runDoctor(ctx context.Context, w io.Writer, src Sources, interval time.Dura
 
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "theme: %s\n", themeName)
+}
+
+func primeProcBaseline(ctx context.Context, p domain.ProcSource) {
+	_, _ = safeScan(ctx, p)
 }
 
 func printIOReportGroups(w io.Writer, enumerate func() ([]soc.Group, bool, error)) {

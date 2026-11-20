@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
-	"log"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -134,7 +132,7 @@ func (l *Loop) Cycle(ctx context.Context) state.Inputs {
 
 	if l.Sources.Pricing != nil {
 		_, _, fetchedAt := l.Sources.Pricing.Source()
-		pricingOK, errPricing := pricingHealth(l.Sources.Pricing.Entries(), fetchedAt, at)
+		pricingOK, errPricing := pricingHealth(l.Sources.Pricing.Entries(), fetchedAt, l.Sources.Pricing.RefreshErr(), at)
 		health = append(health, l.health("pricing", pricingOK, errPricing, at))
 	}
 
@@ -153,15 +151,18 @@ func (l *Loop) Cycle(ctx context.Context) state.Inputs {
 	return in
 }
 
-func pricingHealth(entries int, fetchedAt, now time.Time) (bool, error) {
+func pricingHealth(entries int, fetchedAt time.Time, refreshErr error, now time.Time) (bool, error) {
 	if entries == 0 {
 		return false, fmt.Errorf("pricing table is empty")
+	}
+	if refreshErr != nil {
+		return false, refreshErr
 	}
 	if fetchedAt.IsZero() {
 		return false, fmt.Errorf("pricing table has no generation stamp")
 	}
 	if age := now.Sub(fetchedAt); age > pricingMaxAge {
-		return false, fmt.Errorf("pricing table is %d days old; refresh is failing", int(age.Hours()/24))
+		return false, fmt.Errorf("pricing table is %d days old", int(age.Hours()/24))
 	}
 	return true, nil
 }
@@ -198,15 +199,7 @@ func recoverToErr(err *error) {
 	}
 }
 
-func discardStdLog() (restore func()) {
-	prev := log.Writer()
-	log.SetOutput(io.Discard)
-	return func() { log.SetOutput(prev) }
-}
-
 func runInteractive(ctx context.Context, loop *Loop, model ui.Model) error {
-	defer discardStdLog()()
-
 	p := tea.NewProgram(model, tea.WithContext(ctx))
 
 	loop.Send = func(in state.Inputs) {

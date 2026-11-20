@@ -19,30 +19,41 @@ var (
 func (b *Book) Resolve(model string) (Rates, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	models := b.snap.Models
 
+	key, e, ok := matchModel(b.snap.Models, model)
+	if !ok {
+		return Rates{}, false
+	}
+	c, _ := b.cards.Load(key)
+	if c == nil {
+		c, _ = b.cards.LoadOrStore(key, parseRateCard(e))
+	}
+	return Rates{model: key, entry: e, card: c.(*rateCard)}, true
+}
+
+func matchModel(models modelTable, model string) (string, modelEntry, bool) {
 	if e, ok := models[model]; ok {
-		return b.rates(model, e), true
+		return model, e, true
 	}
 
 	stripped := bracketSuffixRe.ReplaceAllString(model, "")
 	if stripped != model {
 		if e, ok := models[stripped]; ok {
-			return b.rates(stripped, e), true
+			return stripped, e, true
 		}
 	}
 
 	noDate := dateSuffixRe.ReplaceAllString(stripped, "")
 	if noDate != stripped {
 		if e, ok := models[noDate]; ok {
-			return b.rates(noDate, e), true
+			return noDate, e, true
 		}
 	}
 
 	for _, prefix := range [...]string{"anthropic.", "openai."} {
 		candidate := prefix + noDate
 		if e, ok := models[candidate]; ok {
-			return b.rates(candidate, e), true
+			return candidate, e, true
 		}
 	}
 
@@ -53,16 +64,8 @@ func (b *Book) Resolve(model string) (Rates, bool) {
 		}
 	}
 	if bestKey != "" {
-		return b.rates(bestKey, models[bestKey]), true
+		return bestKey, models[bestKey], true
 	}
 
-	return Rates{}, false
-}
-
-func (b *Book) rates(model string, e modelEntry) Rates {
-	if c, ok := b.cards.Load(model); ok {
-		return Rates{model: model, entry: e, card: c.(*rateCard)}
-	}
-	c, _ := b.cards.LoadOrStore(model, parseRateCard(e))
-	return Rates{model: model, entry: e, card: c.(*rateCard)}
+	return "", nil, false
 }

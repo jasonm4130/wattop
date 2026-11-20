@@ -14,11 +14,11 @@ import (
 var homeUserGuardRe = regexp.MustCompile(`/Users/[^/"]+`)
 
 func TestNoRealPathsInCommittedFixtures(t *testing.T) {
-	root := filepath.Dir(CorpusDir())
+	repoRoot := filepath.Dir(CorpusDir())
 	bannedLiterals := []string{"jasonm4130", "jasonm4130@gmail.com"}
 	skipDirs := map[string]bool{".git": true, "docs": true, "dist": true}
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -49,7 +49,7 @@ func TestNoRealPathsInCommittedFixtures(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking %s: %v", root, err)
+		t.Fatalf("walking %s: %v", repoRoot, err)
 	}
 }
 
@@ -256,5 +256,17 @@ func TestScrubStreamPreservesCorpusLineFraming(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walking %s: %v", root, err)
+	}
+}
+
+func TestScrubKeepsHTMLCharactersLiteral(t *testing.T) {
+	line := []byte(`{"a<b>&c":"x < y && y > z","model":"<tag>&"}`)
+
+	out, err := Scrub(line)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if !bytes.Equal(out, line) {
+		t.Fatalf("Scrub(%s) = %s, want it unchanged", line, out)
 	}
 }

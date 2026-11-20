@@ -11,8 +11,8 @@ import (
 
 func regexTieredRate(e modelEntry, base string, promptTokens int64) float64 {
 	type tier struct {
-		threshold int64
-		rate      float64
+		aboveTokens int64
+		rate        float64
 	}
 	var tiers []tier
 	for k, v := range e {
@@ -28,12 +28,12 @@ func regexTieredRate(e modelEntry, base string, promptTokens int64) float64 {
 		if !ok {
 			continue
 		}
-		tiers = append(tiers, tier{threshold: n * 1000, rate: rate})
+		tiers = append(tiers, tier{aboveTokens: n * 1000, rate: rate})
 	}
 	baseRate, _ := asFloat(e[base])
-	sort.Slice(tiers, func(i, j int) bool { return tiers[i].threshold < tiers[j].threshold })
+	sort.Slice(tiers, func(i, j int) bool { return tiers[i].aboveTokens < tiers[j].aboveTokens })
 	for i := len(tiers) - 1; i >= 0; i-- {
-		if promptTokens > tiers[i].threshold {
+		if promptTokens > tiers[i].aboveTokens {
 			return tiers[i].rate
 		}
 	}

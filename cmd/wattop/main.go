@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,11 +31,6 @@ const defaultInterval = time.Second
 const (
 	minInterval = 500 * time.Millisecond
 	maxInterval = 5 * time.Second
-)
-
-const (
-	burnWindow = 60 * time.Second
-	burnAlpha  = 0.3
 )
 
 type cliFlags struct {
@@ -145,9 +141,9 @@ func main() {
 		}
 		sysAvailable = true
 	} else {
-		src, book, sysAvailable = buildSources(ctx, cfg)
+		src, book, sysAvailable = buildSources(ctx, cfg, pricingLogger(!flags.json))
 	}
-	burn := pricing.NewBurnTracker(burnWindow, burnAlpha)
+	burn := pricing.NewBurnTracker(pricing.DefaultBurnWindow, pricing.DefaultBurnAlpha)
 	st := state.New(book, burn)
 	if world != nil {
 		prewarmDemo(st, world, time.Now(), demoPrewarm)
@@ -192,11 +188,18 @@ func runDoctorCommand(args []string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	src, book, _ := buildSources(ctx, cfg)
+	src, book, _ := buildSources(ctx, cfg, pricingLogger(false))
 	runDoctor(ctx, os.Stdout, src, interval, book, resolvedThemeName, *groups)
 }
 
-func buildSources(ctx context.Context, cfg Config) (Sources, *pricing.Book, bool) {
+func pricingLogger(tuiOwnsTerminal bool) *log.Logger {
+	if tuiOwnsTerminal {
+		return log.New(io.Discard, "", 0)
+	}
+	return log.New(os.Stderr, "", log.LstdFlags)
+}
+
+func buildSources(ctx context.Context, cfg Config, pricingLog *log.Logger) (Sources, *pricing.Book, bool) {
 	sampler := soc.NewSampler()
 	sysAvailable := true
 	if err := sampler.Init(); err != nil {
@@ -223,7 +226,7 @@ func buildSources(ctx context.Context, cfg Config) (Sources, *pricing.Book, bool
 		fmt.Fprintf(os.Stderr, "wattop: loading pricing table: %v\n", err)
 		os.Exit(1)
 	}
-	book.Refresh(ctx)
+	book.Refresh(ctx, pricingLog)
 
 	src := Sources{
 		Sys:  sampler,

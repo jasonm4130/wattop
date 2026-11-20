@@ -30,9 +30,10 @@ type snapshot struct {
 }
 
 type Book struct {
-	mu    sync.RWMutex
-	snap  snapshot
-	cards sync.Map
+	mu         sync.RWMutex
+	snap       snapshot
+	cards      sync.Map
+	refreshErr error
 }
 
 func Load() (*Book, error) {

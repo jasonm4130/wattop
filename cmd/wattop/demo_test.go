@@ -35,7 +35,7 @@ func demoSnapshot(t *testing.T) (string, domain.Snapshot) {
 	if err != nil {
 		t.Fatalf("buildDemoSources: %v", err)
 	}
-	st := state.New(book, pricing.NewBurnTracker(burnWindow, burnAlpha))
+	st := state.New(book, pricing.NewBurnTracker(pricing.DefaultBurnWindow, pricing.DefaultBurnAlpha))
 	prewarmDemo(st, world, time.Now(), demoPrewarm)
 	loop := NewLoop(src, time.Second, st, true)
 

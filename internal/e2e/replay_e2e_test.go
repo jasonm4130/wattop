@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	burnWindow = 60 * time.Second
-	burnAlpha  = 0.3
+	burnWindow = pricing.DefaultBurnWindow
+	burnAlpha  = pricing.DefaultBurnAlpha
 )
 
 var replayStart = time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
