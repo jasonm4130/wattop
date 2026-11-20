@@ -11,9 +11,9 @@ type Spec =
   | 'number'
   | 'string'
   | 'boolean'
-  | 'number?'
-  | 'string?'
-  | 'boolean?'
+  | 'number|null'
+  | 'string|null|absent'
+  | 'boolean|absent'
   | Spec[]
   | { array: Spec }
   | { [k: string]: Spec };
@@ -21,11 +21,11 @@ type Spec =
 const child: Spec = {
   k: 'string',
   st: 'string',
-  out: 'number?',
-  cost: 'number?',
-  burn: 'number?',
+  out: 'number|null',
+  cost: 'number|null',
+  burn: 'number|null',
 };
-const subagent: Spec = { ...child, type: 'string', desc: 'string', model: 'string?', tool: 'string?', depth: 'number', bg: 'boolean' };
+const subagent: Spec = { ...child, type: 'string', desc: 'string', model: 'string|null|absent', tool: 'string|null|absent', depth: 'number', bg: 'boolean' };
 const workflow: Spec = { ...child, id: 'string', phase: 'string', agents: 'number', running: 'number', done: 'number', failed: 'number', partial: 'boolean' };
 
 const frameSpec: Spec = {
@@ -42,7 +42,7 @@ const frameSpec: Spec = {
     thermal: 'number',
     throttled: 'boolean',
     mem: ['number', 'number', 'number', 'number'],
-    dram: 'number?',
+    dram: 'number|null',
     dramEst: 'boolean',
     net: ['number', 'number'],
     disk: ['number', 'number'],
@@ -52,22 +52,22 @@ const frameSpec: Spec = {
     array: {
       agent: 'string',
       kind: 'string',
-      pid: 'number?',
+      pid: 'number|null',
       bind: 'string',
       cwd: 'string',
       model: 'string',
       st: 'string',
       ctx: 'number',
       exact: 'boolean',
-      out: 'number?',
-      cost: 'number?',
+      out: 'number|null',
+      cost: 'number|null',
       partial: 'boolean',
-      burn: 'number?',
+      burn: 'number|null',
       tl: 'number',
       sa: ['number', 'number'],
-      cpu: 'number?',
-      gpu: 'number?',
-      rss: 'number?',
+      cpu: 'number|null',
+      gpu: 'number|null',
+      rss: 'number|null',
       children: { array: 'CHILD' as unknown as Spec },
     },
   },
@@ -83,9 +83,10 @@ function check(v: unknown, spec: Spec, path: string, errs: string[]): void {
       spec === 'number' ? typeof v === 'number' && Number.isFinite(v)
       : spec === 'string' ? typeof v === 'string'
       : spec === 'boolean' ? typeof v === 'boolean'
-      : spec === 'number?' ? v === null || (typeof v === 'number' && Number.isFinite(v))
-      : spec === 'string?' ? v == null || typeof v === 'string'
-      : v === undefined || typeof v === 'boolean';
+      : spec === 'number|null' ? v === null || (typeof v === 'number' && Number.isFinite(v))
+      : spec === 'string|null|absent' ? v == null || typeof v === 'string'
+      : spec === 'boolean|absent' ? v === undefined || typeof v === 'boolean'
+      : false;
     if (!ok) errs.push(`${path}: expected ${spec}, got ${JSON.stringify(v)}`);
     return;
   }
