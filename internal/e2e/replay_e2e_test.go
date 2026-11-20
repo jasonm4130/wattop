@@ -297,9 +297,6 @@ func TestFrameFitsTerminal(t *testing.T) {
 	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
 
 	for _, c := range frameCases {
-		if _, known := overflowAt80[c.frame]; known && c.w == 80 {
-			continue
-		}
 		widest, at, lines := measureFrame(sizedFrames(m, c.w, c.h)[c.frame])
 		t.Logf("%s frame at %dx%d: widest line %d cells (line %d), %d lines", c.frame, c.w, c.h, widest, at, len(lines))
 		if widest > c.w {
@@ -308,30 +305,6 @@ func TestFrameFitsTerminal(t *testing.T) {
 		}
 		if len(lines) > c.h {
 			t.Errorf("%s frame at %dx%d: %d lines, want at most %d", c.frame, c.w, c.h, len(lines), c.h)
-		}
-	}
-}
-
-var overflowAt80 = map[string]int{"detail": 103}
-
-func TestDetailViewOverflowsAt80Columns(t *testing.T) {
-	ctx := context.Background()
-	clock := replay.NewVirtualClock(replayStartPastCorpusUsage)
-	sys, proc, agent := newReplaySources(t)
-	m := driveModel(ctx, t, newGoldenModel(t, "wattop-dark"), clock, sys, proc, agent, replayCycles)
-
-	frames := sizedFrames(m, 80, 24)
-	for name, want := range overflowAt80 {
-		widest, at, lines := measureFrame(frames[name])
-		t.Logf("KNOWN DEFECT (manual-QA item 12): %s frame at 80x24 renders %d cells wide, %d cells past the terminal", name, widest, widest-80)
-		if widest != want {
-			t.Errorf("%s frame at 80x24: widest line is %d cells, pinned at %d.\n"+
-				"If it is now <= 80 the layout defect is fixed: delete TestDetailViewOverflowsAt80Columns and overflowAt80, tick manual-QA item 12, and drop the detail-view paragraph from docs/limitations.md.\n"+
-				"If it grew, the layout regressed further:\n%q",
-				name, widest, want, ansi.Strip(lines[at]))
-		}
-		if len(lines) > 24 {
-			t.Errorf("%s frame at 80x24: %d lines, want at most 24", name, len(lines))
 		}
 	}
 }
@@ -360,17 +333,6 @@ func TestEveryFrameCaseIsCovered(t *testing.T) {
 			if !widths[w] {
 				t.Errorf("frame %q is not enumerated at %d columns", name, w)
 			}
-		}
-	}
-	for name := range overflowAt80 {
-		found := false
-		for _, c := range frameCases {
-			if c.w == 80 && c.frame == name {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("overflowAt80 lists %q, which frameCases does not enumerate at 80x24", name)
 		}
 	}
 }

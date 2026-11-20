@@ -351,3 +351,27 @@ func TestDetailSaysWhyTheModelIsUnknown(t *testing.T) {
 		t.Errorf("the detail view must say why the model is unknown, got:\n%s", out)
 	}
 }
+
+func TestDetailFitsEightyColumns(t *testing.T) {
+	r := loadDarkRoles(t)
+	s := sessionWithHistogram()
+	s.Agent = "codex"
+	s.ID = "019a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8#rollout-2026-09-06T09-00-00-019a2b3c.jsonl"
+	s.CWD = "/home/u/src/github.com/some-org/a-repository-with-a-long-name/services/backend"
+	s.Usage.Input, s.Usage.CachedInput = 12_345_678, 9_876_543
+	s.TokenRate = &domain.TokenRate{InputPerSec: 123456.7, OutputPerSec: 2345.6, CacheReadPerSec: 98765.4}
+	s.Proc.GPUMsPerSec = floatPtr(123.4)
+	s.Proc.DiskReadB, s.Proc.DiskWriteB = 123_456_789_012, 98_765_432_109
+
+	out := DetailRender(s, r, 80, 80, time.Date(2026, 9, 6, 9, 30, 0, 0, time.UTC), Options{})
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("line %d is %d cells wide, want at most 80: %q", i, w, line)
+		}
+	}
+	for _, want := range []string{"thinking 200", "cached-input(Codex) 9.9M", "cache-read 98765.4", "disk (cumulative) r", "secondary"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("80-column detail lost %q:\n%s", want, out)
+		}
+	}
+}

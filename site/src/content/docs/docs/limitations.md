@@ -73,12 +73,6 @@ A parent session blocked in a long `Agent` call used to read `$0.00/hr` while it
 
 A nonzero live burn has still not been observed end to end: across two 30-second and one 3-minute `--json` capture, every watched transcript was static after the launch backfill, so `total_cost` never moved. The positive path rests on `internal/pricing`'s unit tests ($3.60/hr and $60.00/hr exactly, against controlled timestamps), not on live data.
 
-## The detail view does not fit a terminal narrower than 103 columns
-
-The **session table** used to be here and is not any more. It narrows: columns shrink, the context gauge collapses to `~ 55%`, the token triple collapses to a single figure, surplus rows become a `▼ N more` marker, and `$`, `$/HR`, `CPU%` and `RSS` survive at every width. Measured on the v0.1 corpus it renders 80 cells at 80x24 (was 153), and a live capture at 80x24 against four real Claude sessions comes back 80 cells with nothing past the terminal edge ([QA, "Re-QA after hardening"](https://github.com/jasonm4130/wattop/blob/main/docs/qa/2026-09-06-v0.1.md)). The `Machine` footer narrows the same way, dropping whole segments rather than cutting a figure in half.
-
-The **detail view** (<kbd>enter</kbd>) was never given that treatment. It reserves 103 cells and does not adapt, so at 80 columns a real terminal cuts it mid-token: the live capture loses the tail of the token line at `cache-wri`. The fix is the same shape as the table's: a responsive column set in [`internal/ui/panel/detail.go`](https://github.com/jasonm4130/wattop/blob/main/internal/ui/panel/detail.go). The end-to-end test suite pins the overflow (103 cells against a terminal of 80), so it cannot report "pass" for a frame that does not fit.
-
 ## wattop's cost reads roughly 1.8x-2.8x `ccusage` for the same session
 
 Cross-checked on 2026-09-06 against `ccusage session --json` over the same four live Claude sessions ([`docs/manual-qa.md`](https://github.com/jasonm4130/wattop/blob/main/docs/manual-qa.md) item 10): wattop $35.80 / $20.90 / $301.31 against ccusage $12.87 / $11.66 / $113.67. Two causes, both verified arithmetically rather than guessed:

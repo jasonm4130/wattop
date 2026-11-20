@@ -45,16 +45,20 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 	}
 	lines = append(lines, fmt.Sprintf("Cost & burn: total %s   rate %s", cost, styled(opts, burnColor, burn)))
 
-	tok := fmt.Sprintf("Tokens: input %s  output %s  cache-read %s  cache-write-5m %s  cache-write-1h %s  thinking %s",
-		humanCount(s.Usage.Input), humanCount(s.Usage.Output), humanCount(s.Usage.CacheRead),
-		humanCount(s.Usage.CacheCreate5m), humanCount(s.Usage.CacheCreate1h), humanCount(s.Usage.Thinking))
-	if s.Usage.CachedInput > 0 {
-		tok += fmt.Sprintf("  cached-input(Codex) %s", humanCount(s.Usage.CachedInput))
+	tok := []string{
+		"input " + humanCount(s.Usage.Input), "output " + humanCount(s.Usage.Output), "cache-read " + humanCount(s.Usage.CacheRead),
+		"cache-write-5m " + humanCount(s.Usage.CacheCreate5m), "cache-write-1h " + humanCount(s.Usage.CacheCreate1h), "thinking " + humanCount(s.Usage.Thinking),
 	}
-	lines = append(lines, tok)
+	if s.Usage.CachedInput > 0 {
+		tok = append(tok, "cached-input(Codex) "+humanCount(s.Usage.CachedInput))
+	}
+	lines = append(lines, wrapFields("Tokens: ", tok, width)...)
 	if s.TokenRate != nil {
-		lines = append(lines, fmt.Sprintf("Recorded tok/s (60s): in %.1f  out %.1f  cache-read %.1f",
-			s.TokenRate.InputPerSec, s.TokenRate.OutputPerSec, s.TokenRate.CacheReadPerSec))
+		lines = append(lines, wrapFields("Recorded tok/s (60s): ", []string{
+			fmt.Sprintf("in %.1f", s.TokenRate.InputPerSec),
+			fmt.Sprintf("out %.1f", s.TokenRate.OutputPerSec),
+			fmt.Sprintf("cache-read %.1f", s.TokenRate.CacheReadPerSec),
+		}, width)...)
 	}
 	lines = append(lines, "")
 
@@ -77,7 +81,7 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 	lines = append(lines, "")
 
 	lines = append(lines, sectionHeader("Process:"))
-	lines = append(lines, processLines(s)...)
+	lines = append(lines, processLines(s, width)...)
 
 	if len(s.RateLimits) > 0 {
 		lines = append(lines, "")
@@ -85,7 +89,29 @@ func DetailRender(s domain.Session, r theme.Roles, width, height int, at time.Ti
 		lines = append(lines, rateLimitLines(r, opts, s.RateLimits)...)
 	}
 
+	for i := range lines {
+		lines[i] = ansi.Truncate(lines[i], max(0, width), "…")
+	}
 	return frame(lines, width, height)
+}
+
+func wrapFields(lead string, fields []string, width int) []string {
+	indent := strings.Repeat(" ", lipgloss.Width(lead))
+	var out []string
+	line, onLine := lead, 0
+	for _, f := range fields {
+		if onLine == 0 {
+			line, onLine = line+f, 1
+			continue
+		}
+		if next := line + "  " + f; lipgloss.Width(next) <= width {
+			line, onLine = next, onLine+1
+			continue
+		}
+		out = append(out, line)
+		line, onLine = indent+f, 1
+	}
+	return append(out, line)
 }
 
 const toolHistogramLabelW = 20
@@ -172,8 +198,6 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
 		return []string{"  (none)"}
 	}
-	fit := func(line string) string { return ansi.Truncate(line, max(0, width), "…") }
-
 	byID := make(map[string]int, len(s.Subagents))
 	for i := range s.Subagents {
 		if s.Subagents[i].WorkflowID == "" && s.Subagents[i].ID != "" {
@@ -206,7 +230,7 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 		if last {
 			branch, cont = "└─ ", "   "
 		}
-		out = append(out, fit(subagentDetailLine(r, opts, "  "+prefix+branch, &s.Subagents[i], false, at)))
+		out = append(out, subagentDetailLine(r, opts, "  "+prefix+branch, &s.Subagents[i], false, at))
 		for k, c := range kids[i] {
 			walk(c, prefix+cont, k == len(kids[i])-1)
 		}
@@ -231,7 +255,7 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 		if b := childBurn(w.BurnUSDPerHr); b != "" {
 			head += " " + b + "/h"
 		}
-		out = append(out, fit(head))
+		out = append(out, head)
 
 		agents, hidden := workflowAgentsShown(s.Subagents, w)
 		for k, i := range agents {
@@ -239,10 +263,10 @@ func subagentTreeLines(r theme.Roles, opts Options, s domain.Session, width int,
 			if k == len(agents)-1 && hidden == 0 {
 				branch = "└─ "
 			}
-			out = append(out, fit(subagentDetailLine(r, opts, "    "+branch, &s.Subagents[i], true, at)))
+			out = append(out, subagentDetailLine(r, opts, "    "+branch, &s.Subagents[i], true, at))
 		}
 		if hidden > 0 {
-			out = append(out, fit(styled(opts, r.Muted, fmt.Sprintf("    └─ … %d more done", hidden))))
+			out = append(out, styled(opts, r.Muted, fmt.Sprintf("    └─ … %d more done", hidden)))
 		}
 	}
 	return out
@@ -317,13 +341,18 @@ func subagentDetailLine(r theme.Roles, opts Options, prefix string, sa *domain.S
 	return line
 }
 
-func processLines(s domain.Session) []string {
+func processLines(s domain.Session, width int) []string {
 	if !s.HasLiveProcess() {
 		return []string{"  (pid unknown) cpu — gpu — rss — disk (cumulative) r — w —"}
 	}
 	p := s.Proc
-	return []string{fmt.Sprintf("  pid %d  cpu %s  gpu %s ms/s  rss %.0fM  disk (cumulative) r %s  w %s",
-		p.PID, fdash(p.CPUPct, "%.1f%%"), fdash(p.GPUMsPerSec, "%.1f"), float64(p.RSSBytes)/1e6, humanBytes(p.DiskReadB), humanBytes(p.DiskWriteB))}
+	return wrapFields("  ", []string{
+		fmt.Sprintf("pid %d", p.PID),
+		"cpu " + fdash(p.CPUPct, "%.1f%%"),
+		"gpu " + fdash(p.GPUMsPerSec, "%.1f") + " ms/s",
+		fmt.Sprintf("rss %.0fM", float64(p.RSSBytes)/1e6),
+		fmt.Sprintf("disk (cumulative) r %s  w %s", humanBytes(p.DiskReadB), humanBytes(p.DiskWriteB)),
+	}, width)
 }
 
 func rateLimitLines(r theme.Roles, opts Options, limits []domain.RateLimit) []string {

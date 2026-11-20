@@ -74,9 +74,9 @@ Subagent status is inferred from transcripts; see [limitations](/docs/limitation
 
 ## Terminal width
 
-**The dashboard fits at 80 columns and above; the detail view needs 103 columns.** The table narrows: columns shrink, the context gauge collapses to `~ 55%`, output rates use compact figures, surplus rows become a `▼ N more` marker, and `$`, `$/HR`, `CPU%` and `RSS` survive at these widths. Measured at 80x24 on live sessions it renders exactly 80 cells with nothing past the terminal edge.
+**The dashboard and the detail view fit at 80 columns and above.** The table narrows: columns shrink, the context gauge collapses to `~ 55%`, output rates use compact figures, surplus rows become a `▼ N more` marker, and `$`, `$/HR`, `CPU%` and `RSS` survive at these widths. Measured at 80x24 on live sessions it renders exactly 80 cells with nothing past the terminal edge.
 
-The **detail view** (<kbd>enter</kbd>) has not been narrowed and still reserves 103 cells, so it is cut off below that. See [limitations](/docs/limitations/#the-detail-view-does-not-fit-a-terminal-narrower-than-103-columns).
+The **detail view** (<kbd>enter</kbd>) wraps its token and process lines onto a second line and truncates anything longer than the terminal, such as a long cwd, with `…`.
 
 ## JSON output
 
