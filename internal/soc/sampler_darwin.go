@@ -10,6 +10,8 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
+// Sample blocks for the full interval inside C. Callers must own a goroutine
+// for it and never call it from a render path.
 type Sampler struct{}
 
 func NewSampler() *Sampler { return &Sampler{} }
@@ -169,6 +171,8 @@ func bandwidthFromComposite(c Composite, missing *[]string) domain.Bandwidth {
 	return bw
 }
 
+// A zero reading means the sensor is absent, so its key is omitted. mactop's
+// TempSensors holds ~325 raw keys that must not be published.
 func tempsFromComposite(c Composite) map[string]float64 {
 	temps := make(map[string]float64, 3)
 	for key, v := range map[string]float64{

@@ -5,6 +5,8 @@ import (
 	"github.com/jasonm4130/wattop/internal/domain"
 )
 
+// syntheticModel is what Claude Code writes on locally generated assistant
+// records (an API error, a login prompt); they carry all-zero usage.
 const syntheticModel = "<synthetic>"
 
 func realModel(m string) bool {

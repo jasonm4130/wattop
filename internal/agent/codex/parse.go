@@ -188,7 +188,7 @@ func (r *Rollout) Apply(line []byte) error {
 			r.TaskCompleted = true
 		case "token_count":
 			if !recAt.IsZero() && recAt.Before(r.lastUsageAt) {
-				break
+				break // replayed prefix after file rotation, not new usage
 			}
 			if p.Info != nil {
 				u := p.Info.TotalTokenUsage
@@ -204,7 +204,7 @@ func (r *Rollout) Apply(line []byte) error {
 					Input:         u.InputTokens,
 					Output:        u.OutputTokens,
 					CachedInput:   u.CachedInputTokens,
-					CacheCreate5m: u.CacheWriteInputTokens,
+					CacheCreate5m: u.CacheWriteInputTokens, // Codex reports one cache-write figure with no 5m/1h tier
 					Thinking:      u.ReasoningOutputTokens,
 				}
 				r.fileLedger(p.Info, total)
@@ -213,6 +213,7 @@ func (r *Rollout) Apply(line []byte) error {
 					r.lastUsageAt = recAt
 				}
 				r.Usage = total
+				// total_token_usage sums every turn, so ContextUsed comes from the last request.
 				if p.Info.LastTokenUsage.TotalTokens > 0 {
 					r.ContextUsed = p.Info.LastTokenUsage.TotalTokens
 				} else {
